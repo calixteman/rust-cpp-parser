@@ -98,7 +98,7 @@ pub enum LastKind {
 #[derive(Clone, Debug, PartialEq)]
 pub enum MacroToken<'a> {
     None(&'a [u8]),
-    Id(String),
+    Id(&'a str),
     Space,
     Stringify,
     WhiteStringify,
@@ -413,10 +413,9 @@ impl<'a> Lexer<'a> {
             if self.pos < self.len {
                 let c = self.next_char(0);
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
-                eprintln!("KIND {:?}", kind);
                 match kind {
                     Kind::IDE => {
-                        return MacroToken::Id(self.get_preproc_identifier().to_string());
+                        return MacroToken::Id(self.get_preproc_identifier());
                     }
                     Kind::IDL => {
                         let p = self.pos;
@@ -426,7 +425,7 @@ impl<'a> Lexer<'a> {
                             return MacroToken::None(s);
                         } else {
                             self.pos -= 1;
-                            return MacroToken::Id(self.get_preproc_identifier().to_string());
+                            return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDR => {
@@ -437,7 +436,7 @@ impl<'a> Lexer<'a> {
                             return MacroToken::None(s);
                         } else {
                             self.pos -= 1;
-                            return MacroToken::Id(self.get_preproc_identifier().to_string());
+                            return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDU => {
@@ -448,7 +447,7 @@ impl<'a> Lexer<'a> {
                             return MacroToken::None(s);
                         } else {
                             self.pos -= 1;
-                            return MacroToken::Id(self.get_preproc_identifier().to_string());
+                            return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDu => {
@@ -459,7 +458,7 @@ impl<'a> Lexer<'a> {
                             return MacroToken::None(s);
                         } else {
                             self.pos -= 1;
-                            return MacroToken::Id(self.get_preproc_identifier().to_string());
+                            return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::NUM => {
@@ -512,7 +511,6 @@ impl<'a> Lexer<'a> {
                         if self.pos < self.len {
                             let c = self.next_char(0);
                             if c == b'\n' {
-                                eprintln!("COUCOU");
                                 self.add_new_line();
                                 self.pos += 1;
                             } else {
@@ -528,7 +526,6 @@ impl<'a> Lexer<'a> {
                         let p = self.pos;
                         self.skip_none();
                         let s = unsafe { self.buf.get_unchecked(p..self.pos) };
-                        eprintln!("NON {}", std::str::from_utf8(&s).unwrap());
                         return MacroToken::None(s);
                     }
                 }
@@ -558,7 +555,7 @@ impl<'a> Lexer<'a> {
                     last_kind = LastKind::None;
                 }
                 MacroToken::Id(id) => {
-                    if let Some(arg_pos) = args.get(&id) {
+                    if let Some(arg_pos) = args.get(id) {
                         let n = *arg_pos;
                         if last_chunk_end != out.len() {
                             actions.push(Action::Chunk(out.len()));
@@ -692,8 +689,6 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn macro_eval(&mut self, name: &str) -> bool {
-        //let mut out = Vec::new();
-        
         match self.context.get_type(name) {
             MacroType::None => {
                 return false;
@@ -739,6 +734,7 @@ impl<'a> Lexer<'a> {
                     Kind::RET => {
                         self.add_new_line();
                         skip_whites!(self);
+                        // we've a new line so check if it starts with preproc directive
                         if self.stop_skipping() {
                             break;
                         }
