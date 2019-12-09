@@ -1,0 +1,11 @@
+[package]
+name = "cpp-parser"
+version = "0.0.1"
+authors = ["calixteman <calixte.denizet@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+phf = { version = "0.8", features = ["macros"] }
+bitflags = "1.2"
+termcolor = "^1.0"
+hashbrown = "^0.6"
