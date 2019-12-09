@@ -180,7 +180,7 @@ pub enum Token<'a> {
     None,
     Eof,
     Eol,
-    Comment(&'a str),
+    Comment(&'a [u8]),
     Not,
     NotEqual,
     Dollar,
@@ -760,8 +760,7 @@ impl<'a> Lexer<'a> {
                     if c == b'*' {
                         let comment = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
                         self.pos += 1;
-                        // TODO: slice instead of str is a way better
-                        return Token::Comment(std::str::from_utf8(comment).unwrap());
+                        return Token::Comment(comment);
                     }
                     self.pos += 1;
                 } else if c == b'\n' {
@@ -776,7 +775,7 @@ impl<'a> Lexer<'a> {
         }
 
         let comment = unsafe { &self.buf.get_unchecked(spos..) };
-        return Token::Comment(std::str::from_utf8(comment).unwrap());
+        return Token::Comment(comment);
     }
 
     pub(crate) fn get_single_comment(&mut self) -> Token<'a> {
@@ -791,7 +790,7 @@ impl<'a> Lexer<'a> {
                 } else if c == b'\n' {
                     self.add_new_line();
                     let comment = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
-                    return Token::Comment(std::str::from_utf8(comment).unwrap());
+                    return Token::Comment(comment);
                 }
             } else {
                 break;
@@ -799,7 +798,7 @@ impl<'a> Lexer<'a> {
         }
 
         let comment = unsafe { &self.buf.get_unchecked(spos..) };
-        return Token::Comment(std::str::from_utf8(comment).unwrap());
+        return Token::Comment(comment);
     }
 
     pub(crate) fn get_slash(&mut self) -> Token<'a> {
@@ -1151,7 +1150,7 @@ mod tests {
     #[test]
     fn test_comment() {
         let mut p = Lexer::new(b"/* test */");
-        assert_eq!(p.next(), Token::Comment(" test "));
+        assert_eq!(p.next(), Token::Comment(" test ".as_bytes()));
     }
 
     #[test]

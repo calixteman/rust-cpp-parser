@@ -5,8 +5,7 @@ use super::condition::Condition;
 use super::lexer::{Lexer, Token};
 use super::macro_args::MacroDefArg;
 use super::pmacros::{
-    Action, IfKind, IfState, Macro, MacroFunction, MacroObject, MacroType,
-    PContext,
+    Action, IfKind, IfState, Macro, MacroFunction, MacroObject, MacroType, PContext,
 };
 use super::string::StringType;
 
