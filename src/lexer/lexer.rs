@@ -623,8 +623,10 @@ impl<'a> Lexer<'a> {
     pub(crate) fn get_minus(&mut self) -> Token<'a> {
         let rem = self.len - self.pos;
         match rem {
-            #[cold] 0 => Token::Minus,
-            #[cold] 1 => {
+            #[cold]
+            0 => Token::Minus,
+            #[cold]
+            1 => {
                 let c = self.next_char(0);
                 if c == b'=' {
                     self.pos += 1;
@@ -666,8 +668,10 @@ impl<'a> Lexer<'a> {
     pub(crate) fn get_lower(&mut self) -> Token<'a> {
         let rem = self.len - self.pos;
         match rem {
-            #[cold] 0 => Token::Lower,
-            #[cold] 1 => {
+            #[cold]
+            0 => Token::Lower,
+            #[cold]
+            1 => {
                 let c = self.next_char(0);
                 if c == b'<' {
                     self.pos += 1;
@@ -709,8 +713,10 @@ impl<'a> Lexer<'a> {
     pub(crate) fn get_greater(&mut self) -> Token<'a> {
         let rem = self.len - self.pos;
         match rem {
-            #[cold] 0 => Token::Lower,
-            #[cold] 1 => {
+            #[cold]
+            0 => Token::Lower,
+            #[cold]
+            1 => {
                 let c = self.next_char(0);
                 if c == b'>' {
                     self.pos += 1;
@@ -750,7 +756,7 @@ impl<'a> Lexer<'a> {
             if self.pos < self.len {
                 let c = self.next_char(0);
                 if c == b'/' {
-                    let c = self.prev_char(1);;
+                    let c = self.prev_char(1);
                     if c == b'*' {
                         let comment = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
                         self.pos += 1;
@@ -834,8 +840,7 @@ impl<'a> Lexer<'a> {
     pub(crate) fn next_useful(&mut self) -> Token<'a> {
         loop {
             match self.next() {
-                Token::Comment(_) => {
-                }
+                Token::Comment(_) => {}
                 tok => {
                     return tok;
                 }
@@ -1241,7 +1246,7 @@ mod tests {
                 "#define foo bar foo\n",
                 "foo\n",
             )
-                .as_bytes(),
+            .as_bytes(),
         );
 
         assert_eq!(p.next(), Token::While);

@@ -105,7 +105,7 @@ pub(crate) enum MacroNode<'a> {
 
 impl<'a> Lexer<'a> {
     #[inline(always)]
-    pub(crate) fn get_define_argument(&mut self) -> MacroDefArg {
+    pub(crate) fn get_define_argument(&mut self) -> MacroDefArg<'a> {
         let spos = self.pos;
         loop {
             if self.pos < self.len {

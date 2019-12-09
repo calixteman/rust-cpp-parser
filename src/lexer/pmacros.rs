@@ -21,7 +21,6 @@ pub(crate) enum IfKind {
     Ifndef,
 }
 
-
 #[derive(Clone, Debug)]
 pub(crate) struct PContext {
     macros: HashMap<String, Macro>,
@@ -35,18 +34,6 @@ impl Default for PContext {
             if_stack: Vec::new(),
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum ChunkKind {
-    None(usize),
-    Id(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ObjectKind {
-    Chunk(usize),
-    Id(String),
 }
 
 #[derive(Clone)]
@@ -210,7 +197,7 @@ impl PContext {
     pub(crate) fn show_if_stack(&self) {
         eprintln!("IF_STACK: {:?}", self.if_stack);
     }
-    
+
     pub(crate) fn add_if(&mut self, state: IfState) {
         self.if_stack.push(state);
     }

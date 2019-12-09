@@ -509,7 +509,6 @@ impl<'a, 'b> Condition<'a, 'b> {
     fn eval(&mut self) -> Int {
         loop {
             let tok = self.lexer.next_useful();
-            eprintln!("COND TOK {:?}", tok); 
             match tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {

@@ -25,10 +25,12 @@ impl<'a> Lexer<'a> {
         // L, U, LR, UR, u, uR, u8, u8R
         let rem = self.len - self.pos;
         match rem {
-            #[cold] 0 | 1 => {
+            #[cold]
+            0 | 1 => {
                 return None;
             }
-            #[cold] 2 => {
+            #[cold]
+            2 => {
                 let c = self.next_char(0);
                 if c == b'\"' {
                     self.pos += 1;

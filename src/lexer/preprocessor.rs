@@ -5,7 +5,8 @@ use super::condition::Condition;
 use super::lexer::{Lexer, Token};
 use super::macro_args::MacroDefArg;
 use super::pmacros::{
-    Action, ChunkKind, IfKind, IfState, Macro, MacroFunction, MacroObject, MacroType, ObjectKind, PContext,
+    Action, IfKind, IfState, Macro, MacroFunction, MacroObject, MacroType,
+    PContext,
 };
 use super::string::StringType;
 
@@ -224,7 +225,7 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_macro_arguments(&mut self) -> (HashMap<String, usize>, Option<usize>) {
+    pub(crate) fn get_macro_arguments(&mut self) -> (HashMap<&'a str, usize>, Option<usize>) {
         let mut args = HashMap::default();
         let mut n = 0;
         let mut va_args = None;
@@ -238,15 +239,15 @@ impl<'a> Lexer<'a> {
             let arg = self.get_define_argument();
             match arg {
                 MacroDefArg::Normal(id) => {
-                    args.insert(id.to_string(), n);
+                    args.insert(id, n);
                 }
                 MacroDefArg::VaArgs => {
                     va_args = Some(n);
-                    args.insert("__VA_ARGS__".to_string(), n);
+                    args.insert("__VA_ARGS__", n);
                 }
                 MacroDefArg::NamedVaArgs(va) => {
                     va_args = Some(n);
-                    args.insert(va.to_string(), n);
+                    args.insert(va, n);
                 }
             }
             skip_whites!(self);
@@ -539,7 +540,7 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn get_function_definition(
         &mut self,
-        args: HashMap<String, usize>,
+        args: HashMap<&str, usize>,
         va_args: Option<usize>,
     ) -> MacroFunction {
         let mut out = Vec::with_capacity(1024);
@@ -719,7 +720,7 @@ impl<'a> Lexer<'a> {
         if self.stop_skipping() {
             return;
         }
-        
+
         loop {
             if self.pos < self.len {
                 let c = self.next_char(0);
@@ -762,27 +763,13 @@ impl<'a> Lexer<'a> {
                 skip_whites!(self);
                 let id = self.get_preproc_keyword(false);
                 match id {
-                    Token::PreprocIf => {
-                        self.get_if(IfKind::If)
-                    }
-                    Token::PreprocIfdef => {
-                        self.get_if(IfKind::Ifdef)
-                    }
-                    Token::PreprocIfndef => {
-                        self.get_if(IfKind::Ifndef)
-                    }
-                    Token::PreprocElif => {
-                        self.get_elif()
-                    }
-                    Token::PreprocElse => {
-                        self.get_else()
-                    }
-                    Token::PreprocEndif => {
-                        self.get_endif()
-                    }
-                    _ => {
-                        false
-                    }
+                    Token::PreprocIf => self.get_if(IfKind::If),
+                    Token::PreprocIfdef => self.get_if(IfKind::Ifdef),
+                    Token::PreprocIfndef => self.get_if(IfKind::Ifndef),
+                    Token::PreprocElif => self.get_elif(),
+                    Token::PreprocElse => self.get_else(),
+                    Token::PreprocEndif => self.get_endif(),
+                    _ => false,
                 }
             } else {
                 false
@@ -791,7 +778,7 @@ impl<'a> Lexer<'a> {
             true
         }
     }
-    
+
     #[inline(always)]
     pub(crate) fn get_if(&mut self, kind: IfKind) -> bool {
         let must_eval = if let Some(state) = self.context.if_state() {
@@ -806,18 +793,17 @@ impl<'a> Lexer<'a> {
                 IfKind::If => {
                     let mut condition = Condition::new(self);
                     condition.eval_as_bool()
-                },
+                }
                 IfKind::Ifdef => {
                     let id = self.get_preproc_identifier();
                     self.context.defined(id)
-                },
+                }
                 IfKind::Ifndef => {
                     let id = self.get_preproc_identifier();
                     !self.context.defined(id)
-                },
-                
+                }
             };
-            
+
             if condition {
                 self.context.add_if(IfState::Eval);
                 true
@@ -961,7 +947,7 @@ mod tests {
         let (map, _) = p.get_macro_arguments();
         let mut expected = HashMap::default();
         for (i, name) in vec!["abcd", "efgh", "_ijkl", "mno_123"].iter().enumerate() {
-            expected.insert(name.to_string(), i);
+            expected.insert(*name, i);
         }
 
         assert_eq!(map, expected);
@@ -983,51 +969,63 @@ mod tests {
 
     #[test]
     fn test_if_else() {
-        let mut p = Lexer::new(concat!(
-            "#define foo 37\n",
-            "#if 1\n",
-            "#define foo 56\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define foo 37\n",
+                "#if 1\n",
+                "#define foo 56\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
 
-        let mut p = Lexer::new(concat!(
-            "#define foo 37\n",
-            "#if 0\n",
-            "#define foo 56\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define foo 37\n",
+                "#if 0\n",
+                "#define foo 56\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(37));
 
-        let mut p = Lexer::new(concat!(
-            "#define foo 37\n",
-            "#if 0\n",
-            "#define foo 56\n",
-            "#else\n",
-            "#define foo 78\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define foo 37\n",
+                "#if 0\n",
+                "#define foo 56\n",
+                "#else\n",
+                "#define foo 78\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(78));
 
-        let mut p = Lexer::new(concat!(
-            "#define foo 37\n",
-            "#if 1\n",
-            "#define foo 56\n",
-            "#else\n",
-            "#define foo 78\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define foo 37\n",
+                "#if 1\n",
+                "#define foo 56\n",
+                "#else\n",
+                "#define foo 78\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
@@ -1035,25 +1033,28 @@ mod tests {
 
     #[test]
     fn test_if_else_nested() {
-        let mut p = Lexer::new(concat!(
-            "#define COND1 12\n",
-            "#define COND2 0\n",
-            "#define COND3 34\n",
-            "\n",
-            "#if COND1\n",
-            "    #define foo 56\n",
-            "    #if COND2\n",
-            "        #define bar 78\n",
-            "    #else\n",
-            "       #if COND3\n",
-            "           #define bar 910\n",
-            "       #else\n",
-            "           #define bar 1112\n",
-            "       #endif\n",
-            "    #endif\n",
-            "#endif\n",
-            "foo bar"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define COND1 12\n",
+                "#define COND2 0\n",
+                "#define COND3 34\n",
+                "\n",
+                "#if COND1\n",
+                "    #define foo 56\n",
+                "    #if COND2\n",
+                "        #define bar 78\n",
+                "    #else\n",
+                "       #if COND3\n",
+                "           #define bar 910\n",
+                "       #else\n",
+                "           #define bar 1112\n",
+                "       #endif\n",
+                "    #endif\n",
+                "#endif\n",
+                "foo bar"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::Eol);
@@ -1063,25 +1064,28 @@ mod tests {
         assert_eq!(p.next(), Token::LiteralInt(56));
         assert_eq!(p.next(), Token::LiteralInt(910));
 
-        let mut p = Lexer::new(concat!(
-            "#define COND1 12\n",
-            "#define COND2\n",
-            "#define COND3 34\n",
-            "\n",
-            "#if COND1\n",
-            "    #define foo 56\n",
-            "    #if defined(COND2)\n",
-            "        #define bar 78\n",
-            "    #else\n",
-            "       #if COND3\n",
-            "           #define bar 910\n",
-            "       #else\n",
-            "           #define bar 1112\n",
-            "       #endif\n",
-            "    #endif\n",
-            "#endif\n",
-            "foo bar"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define COND1 12\n",
+                "#define COND2\n",
+                "#define COND3 34\n",
+                "\n",
+                "#if COND1\n",
+                "    #define foo 56\n",
+                "    #if defined(COND2)\n",
+                "        #define bar 78\n",
+                "    #else\n",
+                "       #if COND3\n",
+                "           #define bar 910\n",
+                "       #else\n",
+                "           #define bar 1112\n",
+                "       #endif\n",
+                "    #endif\n",
+                "#endif\n",
+                "foo bar"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::Eol);
@@ -1089,23 +1093,26 @@ mod tests {
         assert_eq!(p.next(), Token::LiteralInt(56));
         assert_eq!(p.next(), Token::LiteralInt(78));
 
-        let mut p = Lexer::new(concat!(
-            "#define COND1 12\n",
-            "\n",
-            "#if COND1\n",
-            "    #define foo 56\n",
-            "    #if defined(COND2)\n",
-            "        #define bar 78\n",
-            "    #else\n",
-            "       #if COND3\n",
-            "           #define bar 910\n",
-            "       #else\n",
-            "           #define bar 1112\n",
-            "       #endif\n",
-            "    #endif\n",
-            "#endif\n",
-            "foo bar"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define COND1 12\n",
+                "\n",
+                "#if COND1\n",
+                "    #define foo 56\n",
+                "    #if defined(COND2)\n",
+                "        #define bar 78\n",
+                "    #else\n",
+                "       #if COND3\n",
+                "           #define bar 910\n",
+                "       #else\n",
+                "           #define bar 1112\n",
+                "       #endif\n",
+                "    #endif\n",
+                "#endif\n",
+                "foo bar"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::Eol);
@@ -1119,18 +1126,21 @@ mod tests {
 
     #[test]
     fn test_if_skip_first() {
-        let mut p = Lexer::new(concat!(
-            "#if A\n",
-            "    #if B\n",
-            "        #define foo 12\n",
-            "    #else\n",
-            "        #define foo 34\n",
-            "    #endif\n",
-            "#else\n",
-            "    #define foo 56\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#if A\n",
+                "    #if B\n",
+                "        #define foo 12\n",
+                "    #else\n",
+                "        #define foo 34\n",
+                "    #endif\n",
+                "#else\n",
+                "    #define foo 56\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::Eol);
@@ -1139,15 +1149,18 @@ mod tests {
 
     #[test]
     fn test_elif() {
-        let mut p = Lexer::new(concat!(
-            "#define B 0\n",
-            "#if A\n",
-            "    #define foo 12\n",
-            "#elif defined(B)\n",
-            "    #define foo 56\n",
-            "#endif\n",
-            "foo"
-        ).as_bytes());
+        let mut p = Lexer::new(
+            concat!(
+                "#define B 0\n",
+                "#if A\n",
+                "    #define foo 12\n",
+                "#elif defined(B)\n",
+                "    #define foo 56\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
 
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
