@@ -1,9 +1,10 @@
 use cpp_parser::lexer::{Lexer, Token};
 use std::fs;
+use std::path::Path;
 
 fn main() {
-    let s = fs::read("../rust-cpp-parser/benches/sqlite3.c").unwrap();
-    //let s = std::iter::repeat(s).take(100).collect::<String>();
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/basic/ascii.cpp");
+    let s = fs::read(&file).unwrap();
     let mut lexer = Lexer::new(&s);
     loop {
         let tok = lexer.next();
