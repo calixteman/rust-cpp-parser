@@ -1,4 +1,4 @@
-# rust-code-analysis
+# rust-cpp-parser
 
 A C/C++ parser in Rust.
 
