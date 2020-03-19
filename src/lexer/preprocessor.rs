@@ -923,20 +923,25 @@ mod tests {
         }
     }
 
-    /*#[test]*/
+    #[test]
     fn test_include() {
         let mut p = Lexer::new(
             b"#include \"foo.h\"\n #include A(B)\n#  include_next      <foo\\barbar.h>\n",
         );
+
         assert_eq!(
             p.next(),
             Token::PreprocInclude(IncludeType::Quote(b"foo.h"))
         );
+        assert_eq!(p.next(), Token::Eol);
+
         assert_eq!(p.next(), Token::PreprocInclude(IncludeType::Other(b"A(B)")));
+
         assert_eq!(
             p.next(),
             Token::PreprocIncludeNext(IncludeType::Angle(b"foo\\barbar.h"))
         );
+        assert_eq!(p.next(), Token::Eol);
     }
 
     #[test]
