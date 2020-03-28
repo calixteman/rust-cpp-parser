@@ -1,10 +1,15 @@
 use bitflags::bitflags;
 use phf::phf_map;
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
 
-use super::number::get_decimal;
-use super::pmacros::PContext;
-use super::preprocessor::IncludeType;
+use super::buffer::{Buffer, BufferData};
+use super::preprocessor::context::PreprocContext;
+use super::preprocessor::include::PathIndex;
+use super::source::{self, FileId, SourceMutex};
 use super::string::StringType;
+use crate::args;
 
 bitflags! {
     struct Kind: u8 {
@@ -77,8 +82,8 @@ static PREPROC_KEYWORDS: phf::Map<&'static str, Token<'_>> = phf_map! {
     "if" => Token::PreprocIf,
     "ifdef" => Token::PreprocIfdef,
     "ifndef" => Token::PreprocIfndef,
-    "include" => Token::PreprocInclude2,
-    "include_next" => Token::PreprocIncludeNext2,
+    "include" => Token::PreprocInclude,
+    "include_next" => Token::PreprocIncludeNext,
     "line" => Token::PreprocLine,
     "pragma" => Token::PreprocPragma,
     "undef" => Token::PreprocUndef,
@@ -209,13 +214,12 @@ pub enum Token<'a> {
     MinusEqual,
     Arrow,
     ArrowStar,
-    LiteralDecimal(f64),
+    LiteralDouble(f64),
+    LiteralFloat(f64),
+    LiteralLongDouble(f64),
     Dot,
     DotStar,
     Ellipsis,
-    LiteralHex(u64),
-    LiteralBin(u64),
-    LiteralOct(u64),
     LiteralInt(u64),
     LiteralUInt(u64),
     LiteralLong(u64),
@@ -358,38 +362,27 @@ pub enum Token<'a> {
     PreprocError,
     PreprocIfdef,
     PreprocIfndef,
-    PreprocInclude(IncludeType<'a>),
-    PreprocIncludeNext(IncludeType<'a>),
-    PreprocInclude2,
-    PreprocIncludeNext2,
+    PreprocInclude,
+    PreprocIncludeNext,
     PreprocLine,
     PreprocPragma,
     PreprocUndef,
 }
 
-pub struct Lexer<'a> {
-    pub preproc_buf: Vec<u8>,
-    pub preproc_use: bool,
-    pub sbuf: &'a [u8],
-    pub slen: usize,
-    pub spos: usize,
-    pub buf: &'a [u8],
-    pub len: usize,
-    pub pos: usize,
-    pub line: usize,
-    pub lpos: usize,
-    pub(crate) context: PContext,
+pub struct Lexer<'a, PC: PreprocContext> {
+    pub(crate) buf: Buffer<'a>,
+    pub(crate) context: PC,
 }
 
 macro_rules! get_operator {
     ($self: ident, $sym: expr, $single: ident, $double: ident, $equal: ident) => {{
-        if $self.pos < $self.len {
-            let c = unsafe { *$self.buf.get_unchecked($self.pos) };
+        if $self.buf.has_char() {
+            let c = $self.buf.next_char();
             if c == $sym {
-                $self.pos += 1;
+                $self.buf.inc();
                 Token::$double
             } else if c == b'=' {
-                $self.pos += 1;
+                $self.buf.inc();
                 Token::$equal
             } else {
                 Token::$single
@@ -400,10 +393,10 @@ macro_rules! get_operator {
     }};
 
     ($self: ident, $sym: expr, $single: ident, $double: ident) => {{
-        if $self.pos < $self.len {
-            let c = unsafe { *$self.buf.get_unchecked($self.pos) };
+        if $self.buf.has_char() {
+            let c = $self.buf.next_char();
             if c == $sym {
-                $self.pos += 1;
+                $self.buf.inc();
                 Token::$double
             } else {
                 Token::$single
@@ -416,10 +409,10 @@ macro_rules! get_operator {
 
 macro_rules! get_basic_operator {
     ($self: ident, $sym: expr, $single: ident, $equal: ident) => {{
-        if $self.pos < $self.len {
-            let c = unsafe { *$self.buf.get_unchecked($self.pos) };
+        if $self.buf.has_char() {
+            let c = $self.buf.next_char();
             if c == b'=' {
-                $self.pos += 1;
+                $self.buf.inc();
                 Token::$equal
             } else {
                 Token::$single
@@ -430,33 +423,85 @@ macro_rules! get_basic_operator {
     }};
 }
 
-impl<'a> Lexer<'a> {
+impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     pub fn new(buf: &'a [u8]) -> Self {
         Self {
-            preproc_buf: Vec::new(),
-            preproc_use: false,
-            sbuf: &[],
-            slen: 0,
-            spos: 0,
-            buf,
-            len: buf.len(),
-            pos: 0,
-            line: 1,
-            lpos: 0,
-            context: PContext::default(),
+            buf: Buffer::new(buf.to_vec(), FileId(0), PathIndex(0)),
+            context: PC::default(),
         }
     }
 
-    pub fn reset(&mut self) {
-        self.pos = 0;
+    pub fn new_with_context(buf: &'a [u8], source_id: FileId, context: PC) -> Self {
+        Self {
+            buf: Buffer::new(buf.to_vec(), source_id, PathIndex(0)),
+            context,
+        }
     }
 
-    pub fn advance(&mut self, n: usize) {
-        self.pos += n;
+    pub fn new_from_file(file: &str, source: SourceMutex, opt: args::PreprocOptions) -> Self {
+        let path = PathBuf::from(file); //std::fs::canonicalize(file).unwrap();
+                                        //let path = std::fs::canonicalize(file).unwrap();
+        let mut file = File::open(&path).unwrap();
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).unwrap();
+
+        let mut context = PC::default();
+        context.set_source(source);
+        let source_id = context.get_id(&path);
+        let mut buffer = Buffer::new(data, source_id, PathIndex(0));
+
+        context.set_sys_paths(&opt.sys_paths);
+
+        let mut cl = Vec::new();
+        for mac in opt.def.iter() {
+            match mac {
+                args::Macro::Defined((name, data)) => {
+                    cl.extend_from_slice(b"#define ");
+                    cl.extend_from_slice(name.as_bytes());
+                    cl.push(b' ');
+                    cl.extend_from_slice(data.as_bytes());
+                    cl.push(b'\n');
+                }
+                args::Macro::Undef(name) => {
+                    cl.extend_from_slice(b"#undef ");
+                    cl.extend_from_slice(name.as_bytes());
+                    cl.push(b'\n');
+                }
+            }
+        }
+
+        for inc in opt.includes.iter() {
+            let path = PathBuf::from(inc);
+            if path.is_relative() {
+                let p = opt.current_dir.join(path);
+                if p.exists() {
+                    cl.extend_from_slice(b"#include \"");
+                    cl.extend_from_slice(p.to_str().unwrap().as_bytes());
+                    cl.push(b'\"');
+                    cl.push(b'\n');
+                    continue;
+                }
+            }
+            cl.extend_from_slice(b"#include \"");
+            cl.extend_from_slice(inc.as_bytes());
+            cl.push(b'\"');
+            cl.push(b'\n');
+        }
+
+        //eprintln!("FUCK\n{}", std::str::from_utf8(&cl).unwrap());
+
+        if !cl.is_empty() {
+            buffer.add_buffer(BufferData::new(cl, FileId(0), PathIndex(0)));
+        }
+
+        Self {
+            buf: buffer,
+            context,
+        }
     }
 
-    pub fn back(&mut self, n: usize) {
-        self.pos -= n;
+    pub fn get_context(&self) -> &PC {
+        &self.context
     }
 
     pub fn consume_tokens(&mut self, n: usize) {
@@ -465,66 +510,31 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub(crate) fn add_new_line(&mut self) {
-        self.line += 1;
-        self.lpos = self.pos + 1;
+    pub fn consume_all(&mut self) {
+        while self.next() != Token::Eof {}
     }
 
-    pub(crate) fn get_line(&self) -> usize {
-        self.line
+    pub fn get_line(&self) -> u32 {
+        self.buf.get_line()
     }
 
-    pub(crate) fn get_column(&self) -> usize {
-        self.pos - self.lpos + 1
+    pub(crate) fn get_column(&self) -> u32 {
+        self.buf.get_column()
     }
 
-    #[inline(always)]
-    pub(crate) fn next_char(&self, shift: usize) -> u8 {
-        unsafe { *self.buf.get_unchecked(self.pos + shift) }
-    }
-
-    #[inline(always)]
-    pub(crate) fn prev_char(&self, shift: usize) -> u8 {
-        unsafe { *self.buf.get_unchecked(self.pos - shift) }
-    }
-
-    fn swap_buffers(&mut self) {
-        if self.preproc_buf.is_empty() {
-            return;
-        }
-
-        self.slen = self.len;
-        self.len = self.preproc_buf.len();
-        self.spos = self.pos;
-        self.pos = 0;
-        self.sbuf = self.buf;
-        self.preproc_use = true;
-
-        // TODO:
-        // Probably not nice... but the preproc_buf will die with the Lexer and won't change when parsed
-        // Check if we can do something better with a Pin (https://doc.rust-lang.org/std/pin/)
-        self.buf = unsafe { &*std::mem::transmute::<&[u8], *const [u8]>(&self.preproc_buf) };
-    }
-
-    fn restore_buffers(&mut self) {
-        self.pos = self.spos;
-        self.len = self.slen;
-        self.buf = self.sbuf;
-        self.preproc_use = false;
-        self.preproc_buf.clear();
-    }
-
-    pub(crate) fn show(&self) {
-        println!(
-            "...{}",
-            std::str::from_utf8(&self.buf[self.pos..(self.pos + 10).min(self.len)]).unwrap()
+    pub fn debug(&self, msg: &str) {
+        eprintln!(
+            "DEBUG ({}): line {} in file {:?}",
+            msg,
+            self.get_line(),
+            self.context.get_path(self.buf.get_source_id().unwrap())
         );
     }
 
     pub(crate) fn get_identifier(&mut self) -> Option<Token<'a>> {
         let id = self.get_identifier_str();
-        if !self.preproc_use && self.macro_eval(id) {
-            self.swap_buffers();
+        if !self.buf.preproc_use() && self.macro_eval(id) {
+            self.buf.switch_to_preproc();
             None
         } else {
             Some(Token::Identifier(id))
@@ -532,39 +542,39 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_identifier_str(&mut self) -> &'a str {
-        let spos = self.pos - 1;
+        let spos = self.buf.pos() - 1;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { CHARS.get_unchecked(c as usize) };
                 if !kind.intersects(Kind::IDE | Kind::KEY | Kind::NUM) {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
         }
 
-        unsafe { std::str::from_utf8_unchecked(&self.buf.get_unchecked(spos..self.pos)) }
+        unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) }
     }
 
     pub(crate) fn get_preproc_keyword(&mut self, eval: bool) -> Token<'a> {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { CHARS.get_unchecked(c as usize) };
                 if !kind.intersects(Kind::KEY) {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
         }
 
-        let id = unsafe { std::str::from_utf8_unchecked(&self.buf.get_unchecked(spos..self.pos)) };
+        let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
             if eval {
                 self.preproc_parse(*keyword)
@@ -577,26 +587,26 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_identifier_or_keyword(&mut self) -> Option<Token<'a>> {
-        let spos = self.pos - 1;
+        let spos = self.buf.pos() - 1;
         let mut keyword = true;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { CHARS.get_unchecked(c as usize) };
                 if !kind.intersects(Kind::KEY | Kind::IDE | Kind::NUM) {
                     break;
                 }
 
                 keyword = keyword && *kind == Kind::KEY;
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
         }
 
-        let id = unsafe { std::str::from_utf8_unchecked(&self.buf.get_unchecked(spos..self.pos)) };
-        if !self.preproc_use && self.macro_eval(id) {
-            self.swap_buffers();
+        let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
+        if !self.buf.preproc_use() && self.macro_eval(id) {
+            self.buf.switch_to_preproc();
             None
         } else if keyword {
             if let Some(keyword) = CPP_KEYWORDS.get(id) {
@@ -610,10 +620,10 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_exclamation(&mut self) -> Token<'a> {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'=' {
-                self.pos += 1;
+                self.buf.inc();
                 return Token::NotEqual;
             }
         }
@@ -621,39 +631,38 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_minus(&mut self) -> Token<'a> {
-        let rem = self.len - self.pos;
-        match rem {
+        match self.buf.rem() {
             #[cold]
             0 => Token::Minus,
             #[cold]
             1 => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'=' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::MinusEqual
                 } else if c == b'-' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::MinusMinus
                 } else if c == b'>' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::Arrow
                 } else {
                     Token::Minus
                 }
             }
             _ => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'=' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::MinusEqual
                 } else if c == b'-' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::MinusMinus
                 } else if c == b'>' {
-                    self.pos += 1;
-                    let c = self.next_char(0);
+                    self.buf.inc();
+                    let c = self.buf.next_char();
                     if c == b'*' {
-                        self.pos += 1;
+                        self.buf.inc();
                         Token::ArrowStar
                     } else {
                         Token::Arrow
@@ -666,39 +675,38 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_lower(&mut self) -> Token<'a> {
-        let rem = self.len - self.pos;
-        match rem {
+        match self.buf.rem() {
             #[cold]
             0 => Token::Lower,
             #[cold]
             1 => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'<' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::LeftShift
                 } else if c == b'=' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::LowerEqual
                 } else {
                     Token::Lower
                 }
             }
             _ => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'<' {
-                    self.pos += 1;
-                    let c = self.next_char(0);
+                    self.buf.inc();
+                    let c = self.buf.next_char();
                     if c == b'=' {
-                        self.pos += 1;
+                        self.buf.inc();
                         Token::LeftShiftEqual
                     } else {
                         Token::LeftShift
                     }
                 } else if c == b'=' {
-                    self.pos += 1;
-                    let c = self.next_char(0);
+                    self.buf.inc();
+                    let c = self.buf.next_char();
                     if c == b'>' {
-                        self.pos += 1;
+                        self.buf.inc();
                         Token::LowerEqualGreater
                     } else {
                         Token::LowerEqual
@@ -711,36 +719,35 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_greater(&mut self) -> Token<'a> {
-        let rem = self.len - self.pos;
-        match rem {
+        match self.buf.rem() {
             #[cold]
             0 => Token::Lower,
             #[cold]
             1 => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'>' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::RightShift
                 } else if c == b'=' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::GreaterEqual
                 } else {
                     Token::Greater
                 }
             }
             _ => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'>' {
-                    self.pos += 1;
-                    let c = self.next_char(0);
+                    self.buf.inc();
+                    let c = self.buf.next_char();
                     if c == b'=' {
-                        self.pos += 1;
+                        self.buf.inc();
                         Token::RightShiftEqual
                     } else {
                         Token::RightShift
                     }
                 } else if c == b'=' {
-                    self.pos += 1;
+                    self.buf.inc();
                     Token::GreaterEqual
                 } else {
                     Token::Greater
@@ -749,61 +756,9 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub(crate) fn get_multiline_comment(&mut self) -> Token<'a> {
-        self.pos += 1;
-        let spos = self.pos;
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                if c == b'/' {
-                    let c = self.prev_char(1);
-                    if c == b'*' {
-                        let comment = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
-                        self.pos += 1;
-                        return Token::Comment(comment);
-                    }
-                    self.pos += 1;
-                } else if c == b'\n' {
-                    self.add_new_line();
-                    self.pos += 1;
-                } else {
-                    self.pos += 1;
-                }
-            } else {
-                break;
-            }
-        }
-
-        let comment = unsafe { &self.buf.get_unchecked(spos..) };
-        return Token::Comment(comment);
-    }
-
-    pub(crate) fn get_single_comment(&mut self) -> Token<'a> {
-        let spos = self.pos + 1;
-        self.pos += 1;
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                self.pos += 1;
-                if c == b'\\' {
-                    self.pos += 1;
-                } else if c == b'\n' {
-                    self.add_new_line();
-                    let comment = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
-                    return Token::Comment(comment);
-                }
-            } else {
-                break;
-            }
-        }
-
-        let comment = unsafe { &self.buf.get_unchecked(spos..) };
-        return Token::Comment(comment);
-    }
-
     pub(crate) fn get_slash(&mut self) -> Token<'a> {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'/' {
                 // Single line comment
                 return self.get_single_comment();
@@ -811,7 +766,7 @@ impl<'a> Lexer<'a> {
                 // Multiline comment
                 return self.get_multiline_comment();
             } else if c == b'=' {
-                self.pos += 1;
+                self.buf.inc();
                 return Token::DivideEqual;
             }
         }
@@ -819,12 +774,12 @@ impl<'a> Lexer<'a> {
     }
 
     pub(crate) fn get_backslash(&mut self) -> Option<Token<'a>> {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'\n' {
                 // continuation line
-                self.add_new_line();
-                self.pos += 1;
+                self.buf.add_new_line();
+                self.buf.inc();
                 return None;
             }
         }
@@ -849,13 +804,13 @@ impl<'a> Lexer<'a> {
 
     pub fn next(&mut self) -> Token<'a> {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                self.pos += 1;
+            if self.buf.check_char() {
+                let c = self.buf.next_char();
+                self.buf.inc();
                 match c {
                     b'\t' => skip_whites!(self),
                     b'\n' => {
-                        self.add_new_line();
+                        self.buf.add_new_line();
                         // TODO: useless in general but useful to know the a #if condition is finished
                         // Probably remove it and find a way for the condition stuff
                         return Token::Eol;
@@ -868,7 +823,7 @@ impl<'a> Lexer<'a> {
                         return self.get_string();
                     }
                     b'#' => {
-                        self.get_preproc();
+                        return self.get_preproc();
                     }
                     b'$' => {
                         return Token::Dollar;
@@ -980,7 +935,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     b']' => {
-                        return get_operator!(self, b'[', RightBrack, DoubleRightBrack);
+                        return get_operator!(self, b']', RightBrack, DoubleRightBrack);
                     }
                     b'^' => {
                         return get_basic_operator!(self, b'^', Xor, XorEqual);
@@ -1021,8 +976,6 @@ impl<'a> Lexer<'a> {
                     }
                     _ => {}
                 }
-            } else if self.preproc_use {
-                self.restore_buffers();
             } else {
                 return Token::Eof;
             }
@@ -1034,68 +987,83 @@ impl<'a> Lexer<'a> {
 mod tests {
 
     use super::*;
+    use crate::lexer::preprocessor::context::DefaultContext;
     use std::fs;
 
     #[test]
     fn test_hex() {
-        let mut p = Lexer::new(b"0x12345 0xabcdef 0XA1b2C3D4e5");
-        assert_eq!(p.next(), Token::LiteralHex(0x12345));
-        assert_eq!(p.next(), Token::LiteralHex(0xabcdef));
-        assert_eq!(p.next(), Token::LiteralHex(0xa1b2c3d4e5));
+        let mut p = Lexer::<DefaultContext>::new(b"0x12345 0xabcdef 0XA'1b2'C3D'4e5 0xaB1ul");
+        assert_eq!(p.next(), Token::LiteralInt(0x12345));
+        assert_eq!(p.next(), Token::LiteralInt(0xabcdef));
+        assert_eq!(p.next(), Token::LiteralInt(0xa1b2c3d4e5));
+        assert_eq!(p.next(), Token::LiteralULong(0xab1));
     }
 
     #[test]
     fn test_oct() {
-        let mut p = Lexer::new(b"012345 01357");
-        assert_eq!(p.next(), Token::LiteralOct(0o12345));
-        assert_eq!(p.next(), Token::LiteralOct(0o1357));
+        let mut p = Lexer::<DefaultContext>::new(b"012345 01357 012'34ul");
+        assert_eq!(p.next(), Token::LiteralInt(0o12345));
+        assert_eq!(p.next(), Token::LiteralInt(0o1357));
+        assert_eq!(p.next(), Token::LiteralULong(0o1234));
     }
 
     #[test]
     fn test_bin() {
-        let mut p = Lexer::new(b"0b110001110010010110011101");
-        assert_eq!(p.next(), Token::LiteralBin(0b110001110010010110011101));
+        let mut p = Lexer::<DefaultContext>::new(b"0b110'001'110'010'010'110'011'101 0b1001ul");
+        assert_eq!(p.next(), Token::LiteralInt(0b110001110010010110011101));
+        assert_eq!(p.next(), Token::LiteralULong(0b1001));
     }
 
     #[test]
     fn test_number() {
-        let mut p = Lexer::new(b"123 123e45 123e+45 123e-45");
+        let mut p = Lexer::<DefaultContext>::new(b"123 123e45 123e+45 123e-45");
         assert_eq!(p.next(), Token::LiteralInt(123));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e-45));
+        assert_eq!(p.next(), Token::LiteralDouble(123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(123e-45));
 
-        let mut p = Lexer::new(b"123. 123.e45 123.e+45 123.e-45");
-        assert_eq!(p.next(), Token::LiteralDecimal(123.));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(123e-45));
+        let mut p = Lexer::<DefaultContext>::new(b"123. 123.e45 123.e+45 123.e-45");
+        assert_eq!(p.next(), Token::LiteralDouble(123.));
+        assert_eq!(p.next(), Token::LiteralDouble(123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(123e-45));
 
-        let mut p = Lexer::new(b"123.456 123.456e78 123.456e+78 123.456e-78");
-        assert_eq!(p.next(), Token::LiteralDecimal(123.456));
-        assert_eq!(p.next(), Token::LiteralDecimal(123.456e78));
-        assert_eq!(p.next(), Token::LiteralDecimal(123.456e78));
-        assert_eq!(p.next(), Token::LiteralDecimal(123.456e-78));
+        let mut p = Lexer::<DefaultContext>::new(b"123.f 123.e45F 123.e+45L 123.e-45l");
+        assert_eq!(p.next(), Token::LiteralFloat(123.));
+        assert_eq!(p.next(), Token::LiteralFloat(123e45));
+        assert_eq!(p.next(), Token::LiteralLongDouble(123e45));
+        assert_eq!(p.next(), Token::LiteralLongDouble(123e-45));
 
-        let mut p = Lexer::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e-45));
+        let mut p = Lexer::<DefaultContext>::new(b"123.456 123.456e78 123.456e+78 123.456e-78 1.79769313486231570814527423731704357e+308L 2.2250738585072014e-308F");
+        assert_eq!(p.next(), Token::LiteralDouble(123.456));
+        assert_eq!(p.next(), Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next(), Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next(), Token::LiteralDouble(123.456e-78));
+        assert_eq!(
+            p.next(),
+            Token::LiteralLongDouble(1.79769313486231570814527423731704357e+308)
+        );
+        assert_eq!(p.next(), Token::LiteralFloat(2.2250738585072014e-308));
 
-        let mut p = Lexer::new(b".123 .123e45 .123e+45 .123e-45");
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.123e-45));
+        let mut p = Lexer::<DefaultContext>::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
+        assert_eq!(p.next(), Token::LiteralDouble(0.123));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e-45));
 
-        let mut p = Lexer::new(b"0 0. .0 0.0");
+        let mut p = Lexer::<DefaultContext>::new(b".123 .123e45 .123e+45 .123e-45");
+        assert_eq!(p.next(), Token::LiteralDouble(0.123));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next(), Token::LiteralDouble(0.123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b"0 0. .0 0.0");
         assert_eq!(p.next(), Token::LiteralInt(0));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.));
-        assert_eq!(p.next(), Token::LiteralDecimal(0.));
+        assert_eq!(p.next(), Token::LiteralDouble(0.));
+        assert_eq!(p.next(), Token::LiteralDouble(0.));
+        assert_eq!(p.next(), Token::LiteralDouble(0.));
 
-        let mut p = Lexer::new(b"123 123u 123U 123llu 123LLu 123llU 123LLU 123ull 123Ull 123ULL 123lu 123ul 123uL 123L");
+        let mut p = Lexer::<DefaultContext>::new(b"123 123u 123U 123llu 123LLu 123llU 123LLU 123ull 123Ull 123ULL 123lu 123ul 123uL 123L");
         assert_eq!(p.next(), Token::LiteralInt(123));
         assert_eq!(p.next(), Token::LiteralUInt(123));
         assert_eq!(p.next(), Token::LiteralUInt(123));
@@ -1110,11 +1078,17 @@ mod tests {
         assert_eq!(p.next(), Token::LiteralULong(123));
         assert_eq!(p.next(), Token::LiteralULong(123));
         assert_eq!(p.next(), Token::LiteralLong(123));
+
+        let mut p = Lexer::<DefaultContext>::new(b"0x1.2p3 0x1.2p3F 0xA.Bp-1 0XAB1P-3");
+        assert_eq!(p.next(), Token::LiteralDouble(9.0));
+        assert_eq!(p.next(), Token::LiteralFloat(9.0));
+        assert_eq!(p.next(), Token::LiteralDouble(5.34375));
+        assert_eq!(p.next(), Token::LiteralDouble(342.125));
     }
 
     #[test]
     fn test_keywords() {
-        let mut p = Lexer::new(b"while foa whila for While For static_cast");
+        let mut p = Lexer::<DefaultContext>::new(b"while foa whila for While For static_cast");
         assert_eq!(p.next(), Token::While);
         assert_eq!(p.next(), Token::Identifier("foa"));
         assert_eq!(p.next(), Token::Identifier("whila"));
@@ -1126,8 +1100,9 @@ mod tests {
 
     #[test]
     fn test_identifiers() {
-        let mut p =
-            Lexer::new(b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123");
+        let mut p = Lexer::<DefaultContext>::new(
+            b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123",
+        );
         assert_eq!(p.next(), Token::Identifier("hello"));
         assert_eq!(p.next(), Token::Identifier("world"));
         assert_eq!(p.next(), Token::Identifier("whilee"));
@@ -1141,7 +1116,7 @@ mod tests {
 
     #[test]
     fn test_divide() {
-        let mut p = Lexer::new(b"a / b");
+        let mut p = Lexer::<DefaultContext>::new(b"a / b");
         assert_eq!(p.next(), Token::Identifier("a"));
         assert_eq!(p.next(), Token::Divide);
         assert_eq!(p.next(), Token::Identifier("b"));
@@ -1149,51 +1124,56 @@ mod tests {
 
     #[test]
     fn test_comment() {
-        let mut p = Lexer::new(b"/* test */");
+        let mut p = Lexer::<DefaultContext>::new(b"/* test */");
         assert_eq!(p.next(), Token::Comment(" test ".as_bytes()));
     }
 
     #[test]
     fn test_string() {
-        let mut p = Lexer::new(b"\"foo\" \"foo\\\"bar\"");
+        let mut p = Lexer::<DefaultContext>::new(b"\"foo\" \"foo\\\"bar\"");
         assert_eq!(p.next(), Token::LiteralString(b"foo"));
         assert_eq!(p.next(), Token::LiteralString(b"foo\\\"bar"));
 
-        let mut p = Lexer::new(b"u\"foo\" u\"foo\\\"bar\"");
+        let mut p = Lexer::<DefaultContext>::new(b"u\"foo\" u\"foo\\\"bar\"");
         assert_eq!(p.next(), Token::LiteralUString(b"foo"));
         assert_eq!(p.next(), Token::LiteralUString(b"foo\\\"bar"));
 
-        let mut p = Lexer::new(b"U\"foo\" U\"foo\\\"bar\"");
+        let mut p = Lexer::<DefaultContext>::new(b"U\"foo\" U\"foo\\\"bar\"");
         assert_eq!(p.next(), Token::LiteralUUString(b"foo"));
         assert_eq!(p.next(), Token::LiteralUUString(b"foo\\\"bar"));
 
-        let mut p = Lexer::new(b"u8\"foo\" u8\"foo\\\"bar\"");
+        let mut p = Lexer::<DefaultContext>::new(b"u8\"foo\" u8\"foo\\\"bar\"");
         assert_eq!(p.next(), Token::LiteralU8String(b"foo"));
         assert_eq!(p.next(), Token::LiteralU8String(b"foo\\\"bar"));
 
-        let mut p = Lexer::new(b"L\"foo\" L\"foo\\\"bar\"");
+        let mut p = Lexer::<DefaultContext>::new(b"L\"foo\" L\"foo\\\"bar\"");
         assert_eq!(p.next(), Token::LiteralLString(b"foo"));
         assert_eq!(p.next(), Token::LiteralLString(b"foo\\\"bar"));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             b"R\"hello(foo)hello\" R\"world(foo\n\\\"bar)world\" R\"world(foo)world  )world\"",
         );
         assert_eq!(p.next(), Token::LiteralRString(b"foo"));
         assert_eq!(p.next(), Token::LiteralRString(b"foo\n\\\"bar"));
         assert_eq!(p.next(), Token::LiteralRString(b"foo)world  "));
 
-        let mut p = Lexer::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
+        let mut p =
+            Lexer::<DefaultContext>::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
         assert_eq!(p.next(), Token::LiteralLRString(b"foo"));
         assert_eq!(p.next(), Token::LiteralUURString(b"foo\n\\\"bar"));
 
-        let mut p = Lexer::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
+        let mut p =
+            Lexer::<DefaultContext>::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
         assert_eq!(p.next(), Token::LiteralURString(b"foo"));
         assert_eq!(p.next(), Token::LiteralU8RString(b"foo\n\\\"bar"));
+
+        let mut p = Lexer::<DefaultContext>::new(b"R\"(abc)\ndef)\n)\"");
+        assert_eq!(p.next(), Token::LiteralRString(b"abc)\ndef)\n"));
     }
 
     #[test]
     fn test_operators() {
-        let mut p = Lexer::new(b"+ += ++ - -= -- -> / /= % %= | |= || & &= && ^ ^= * *= < <= > >= << <<= >> >>= = != == ! ~ ->* .* ... <=>");
+        let mut p = Lexer::<DefaultContext>::new(b"+ += ++ - -= -- -> / /= % %= | |= || & &= && ^ ^= * *= < <= > >= << <<= >> >>= = != == ! ~ ->* .* ... <=>");
         assert_eq!(p.next(), Token::Plus);
         assert_eq!(p.next(), Token::PlusEqual);
         assert_eq!(p.next(), Token::PlusPlus);
@@ -1232,27 +1212,5 @@ mod tests {
         assert_eq!(p.next(), Token::DotStar);
         assert_eq!(p.next(), Token::Ellipsis);
         assert_eq!(p.next(), Token::LowerEqualGreater);
-    }
-
-    #[test]
-    fn test_basic() {
-        let mut p = Lexer::new(
-            concat!(
-                "#define foo(a,b) a##b\n",
-                "foo(whi, le)\n",
-                "#define foo(a,b) b##a\n",
-                "foo(whi, le)\n",
-                "#define foo bar foo\n",
-                "foo\n",
-            )
-            .as_bytes(),
-        );
-
-        assert_eq!(p.next(), Token::While);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("lewhi"));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("bar"));
-        assert_eq!(p.next(), Token::Identifier("foo"));
     }
 }

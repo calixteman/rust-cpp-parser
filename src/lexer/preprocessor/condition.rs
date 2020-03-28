@@ -1,3 +1,4 @@
+use super::context::PreprocContext;
 use crate::lexer::lexer::{Lexer, Token};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,6 +26,8 @@ pub enum Operator {
     BitOr,
     And,
     Or,
+    Question,
+    Colon,
 }
 
 impl Operator {
@@ -115,6 +118,23 @@ impl Operator {
                 let b = stack.pop().unwrap();
                 stack.last_mut().unwrap().or(b);
             }
+            Colon => {
+                // a ? b : c
+                let c = stack.pop().unwrap();
+                let b = stack.pop().unwrap();
+                let a = stack.pop().unwrap();
+
+                let cond = match a {
+                    Int::Unsigned(x) => x != 0,
+                    Int::Signed(x) => x != 0,
+                };
+                if cond {
+                    stack.push(b);
+                } else {
+                    stack.push(c);
+                }
+            }
+            Question => {}
             _ => {}
         }
     }
@@ -427,7 +447,7 @@ fn precedence(op: Operator) -> (u32, Associativity) {
     use Operator::*;
 
     match op {
-        Plus | Minus => (2, Associativity::RL),
+        Plus | Minus | Not | BitNeg => (2, Associativity::RL),
         Mul | Div | Mod => (3, Associativity::LR),
         Add | Sub => (4, Associativity::LR),
         LShift | RShift => (5, Associativity::LR),
@@ -438,29 +458,34 @@ fn precedence(op: Operator) -> (u32, Associativity) {
         BitOr => (10, Associativity::LR),
         And => (11, Associativity::LR),
         Or => (12, Associativity::LR),
+        Question | Colon => (13, Associativity::RL),
         _ => (0, Associativity::LR),
     }
 }
 
 #[inline(always)]
 fn check_precedence(left: Operator, right: Operator) -> bool {
-    // TODO: replace this by a table
-    // a + b * c => prec(+) <= prec(*) is true so * has precedence on +
+    // a + b * c => prec(*) < prec(+) so * has precedence on +
     let (l_prec, l_assoc) = precedence(left);
-    let (r_prec, r_assoc) = precedence(right);
+    let (r_prec, _) = precedence(right);
 
-    (l_prec == r_prec && l_assoc == Associativity::LR) || (l_prec < r_prec)
+    if l_prec == r_prec {
+        l_assoc == Associativity::LR
+    } else {
+        l_prec < r_prec
+    }
 }
 
-pub struct Condition<'a, 'b> {
-    lexer: &'b mut Lexer<'a>,
-    operands: Vec<Int>, // TODO: maybe a SmallVec is enough here
+pub struct Condition<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
+    operands: Vec<Int>,
     operators: Vec<Operator>,
     last: LastKind,
 }
 
-impl<'a, 'b> Condition<'a, 'b> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a>) -> Self {
+impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+        //lexer.debug("operate");
         Self {
             lexer,
             operands: Vec::with_capacity(16),
@@ -506,9 +531,20 @@ impl<'a, 'b> Condition<'a, 'b> {
         }
     }
 
+    #[inline(always)]
+    fn handle_id(&mut self, id: &str) {
+        if id == "defined" {
+            let x = self.lexer.get_defined();
+            self.operands.push(Int::Unsigned(x));
+        } else {
+            self.operands.push(Int::Unsigned(0));
+        }
+        self.last = LastKind::Operand;
+    }
+
     fn eval(&mut self) -> Int {
         loop {
-            let tok = self.lexer.next_useful();
+            let tok = self.lexer.next();
             match tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {
@@ -594,8 +630,6 @@ impl<'a, 'b> Condition<'a, 'b> {
                     self.flush_until_paren();
                 }
                 Token::LiteralInt(x)
-                | Token::LiteralHex(x)
-                | Token::LiteralBin(x)
                 | Token::LiteralUInt(x)
                 | Token::LiteralLong(x)
                 | Token::LiteralLongLong(x)
@@ -605,20 +639,86 @@ impl<'a, 'b> Condition<'a, 'b> {
                     self.last = LastKind::Operand;
                 }
                 Token::Identifier(id) => {
-                    if id == "defined" {
-                        let x = self.lexer.get_defined();
-                        self.operands.push(Int::Unsigned(x));
+                    self.handle_id(id);
+                }
+                Token::AndKw => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::And);
                     } else {
-                        self.operands.push(Int::Unsigned(0));
+                        self.handle_id("and");
                     }
-                    self.last = LastKind::Operand;
+                }
+                Token::OrKw => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::Or);
+                    } else {
+                        self.handle_id("or");
+                    }
+                }
+                Token::BitAnd => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::BitAnd);
+                    } else {
+                        self.handle_id("bitand");
+                    }
+                }
+                Token::BitOr => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::BitOr);
+                    } else {
+                        self.handle_id("bitxor");
+                    }
+                }
+                Token::XorKw => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::BitXor);
+                    } else {
+                        self.handle_id("bitor");
+                    }
+                }
+                Token::NotEq => {
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::Neq);
+                    } else {
+                        self.handle_id("not_eq");
+                    }
+                }
+                Token::NotKw => {
+                    // TODO: this is not correct
+                    // we need to check next token to decide
+                    self.push_operator(Operator::Not);
+                }
+                Token::Compl => {
+                    // TODO: this is not correct
+                    // we need to check next token to decide
+                    self.push_operator(Operator::BitNeg);
+                }
+                Token::True => {
+                    self.handle_id("true");
+                }
+                Token::False => {
+                    self.handle_id("false");
+                }
+                Token::Comment(_) => {}
+                Token::Question => {
+                    self.push_operator(Operator::Question);
+                }
+                Token::Colon => {
+                    self.push_operator(Operator::Colon);
                 }
                 Token::Eol | Token::Eof => {
                     self.flush();
                     return self.operands.pop().unwrap();
                 }
                 _ => {
-                    unreachable!();
+                    unreachable!(
+                        "Got token {:?} at line {} in file {:?}",
+                        tok,
+                        self.lexer.get_line(),
+                        self.lexer
+                            .context
+                            .get_path(self.lexer.buf.get_source_id().unwrap())
+                    );
                 }
             }
         }
@@ -636,11 +736,11 @@ impl<'a, 'b> Condition<'a, 'b> {
 mod tests {
 
     use super::*;
-    use std::fs;
+    use crate::lexer::preprocessor::context::DefaultContext;
 
     #[test]
     fn test_condition_base() {
-        let mut lexer = Lexer::new(b"1\n");
+        let mut lexer = Lexer::<DefaultContext>::new(b"1\n");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -649,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_condition_add() {
-        let mut lexer = Lexer::new(b"2 + 3");
+        let mut lexer = Lexer::<DefaultContext>::new(b"2 + 3");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -658,7 +758,7 @@ mod tests {
 
     #[test]
     fn test_condition_mul() {
-        let mut lexer = Lexer::new(b"2 * 3");
+        let mut lexer = Lexer::<DefaultContext>::new(b"2 * 3");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -667,7 +767,7 @@ mod tests {
 
     #[test]
     fn test_condition_prec() {
-        let mut lexer = Lexer::new(b"2 + 3 * 4");
+        let mut lexer = Lexer::<DefaultContext>::new(b"2 + 3 * 4");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -676,7 +776,7 @@ mod tests {
 
     #[test]
     fn test_condition_prec_log() {
-        let mut lexer = Lexer::new(b"1 && 0 || 1");
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 && 0 || 1");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -685,7 +785,7 @@ mod tests {
 
     #[test]
     fn test_condition_signed() {
-        let mut lexer = Lexer::new(b"-1 + (2 * 3 - 4) * -3");
+        let mut lexer = Lexer::<DefaultContext>::new(b"-1 + (2 * 3 - 4) /* a comment */ * -3");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 
@@ -693,8 +793,35 @@ mod tests {
     }
 
     #[test]
+    fn test_condition_comment() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"-1 + (2 * 3 - 4) // comment\n");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Signed(1));
+    }
+
+    #[test]
+    fn test_condition_and() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 and 2");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(1));
+    }
+
+    #[test]
+    fn test_condition_not_not() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"!!1");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(1));
+    }
+
+    #[test]
     fn test_condition_macro() {
-        let mut lexer = Lexer::new(
+        let mut lexer = Lexer::<DefaultContext>::new(
             concat!(
                 "#define foo 1\n",
                 "#define bar 1\n",
@@ -714,5 +841,32 @@ mod tests {
         let res = cond.eval();
 
         assert_eq!(res, Int::Unsigned(1));
+    }
+
+    #[test]
+    fn test_question() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 ? 2 : 3");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(2));
+
+        let mut lexer = Lexer::<DefaultContext>::new(b"0 ? 2 : 3");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(3));
+
+        let mut lexer = Lexer::<DefaultContext>::new(b"0 * 1 ? 2 * 3 : 3 * 4");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(12));
+
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 + 1 ? 2 * 3 : 3 * 4");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(6));
     }
 }

@@ -1,7 +1,11 @@
-use super::lexer::{Lexer, Token};
-use super::pmacros::{Macro, PContext};
+use hashbrown::HashMap;
+
+use super::context::PreprocContext;
+use super::macros::Macro;
 use super::preprocessor;
-use super::string::StringType;
+use crate::lexer::buffer::FileInfo;
+use crate::lexer::lexer::Lexer;
+use crate::lexer::string::StringType;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -16,10 +20,11 @@ enum Kind {
     QUO = 7,  // " or '
     RET = 8,  // return
     SLA = 9,  // slash
-    COM = 10, // comma
-    OPP = 11, // open parenthesis
-    CLP = 12, // closing parenthesis
-    NON = 13, // nothin
+    BAC = 10, // slash
+    COM = 11, // comma
+    OPP = 12, // open parenthesis
+    CLP = 13, // closing parenthesis
+    NON = 14, // nothin
 }
 
 #[rustfmt::skip]
@@ -47,7 +52,7 @@ const MCHARS: [Kind; 256] = [
     // 50  P   51  Q      52  R      53  S      54  T      55  U      56  V      57  W
     Kind::IDE, Kind::IDE, Kind::IDR, Kind::IDE, Kind::IDE, Kind::IDU, Kind::IDE, Kind::IDE, //
     // 58  X   59  Y      5A  Z      5B  [      5C  \      5D  ]      5E  ^      5F  _
-    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::NON, Kind::NON, Kind::IDE, Kind::IDE, //
+    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::BAC, Kind::NON, Kind::IDE, Kind::IDE, //
     // 60  `   61  a      62  b      63  c      64  d      65  e      66  f      67  g
     Kind::NON, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, //
     // 68  h   69  i      6A  j      6B  k      6C  l      6D  m      6E  n      6F  o
@@ -103,52 +108,100 @@ pub(crate) enum MacroNode<'a> {
     VaArgs(Vec<Vec<MacroNode<'a>>>),
 }
 
-impl<'a> Lexer<'a> {
+impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub(crate) fn get_define_argument(&mut self) -> MacroDefArg<'a> {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *preprocessor::PPCHARS.get_unchecked(c as usize) };
                 if kind > preprocessor::Kind::NUM {
+                    let epos = self.buf.pos();
+                    let c = if kind == preprocessor::Kind::SPA {
+                        skip_whites!(self);
+                        if self.buf.has_char() {
+                            self.buf.next_char()
+                        } else {
+                            b'\0'
+                        }
+                    } else {
+                        c
+                    };
                     if c == b'.' {
-                        if self.pos == spos {
-                            self.pos += 3;
+                        if self.buf.pos() == spos {
+                            self.buf.inc_n(3);
                             return MacroDefArg::VaArgs;
                         } else {
                             let id = unsafe {
-                                std::str::from_utf8_unchecked(
-                                    &self.buf.get_unchecked(spos..self.pos),
-                                )
+                                std::str::from_utf8_unchecked(&self.buf.slice_p(spos, epos))
                             };
-                            self.pos += 3;
+                            self.buf.inc_n(3);
                             return MacroDefArg::NamedVaArgs(id);
                         }
                     }
-                    break;
+                    return MacroDefArg::Normal(unsafe {
+                        std::str::from_utf8_unchecked(&self.buf.slice_p(spos, epos))
+                    });
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
         }
 
-        MacroDefArg::Normal(unsafe {
-            std::str::from_utf8_unchecked(&self.buf.get_unchecked(spos..self.pos))
-        })
+        MacroDefArg::Normal(unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) })
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_macro_arguments(&mut self) -> (HashMap<&'a str, usize>, Option<usize>) {
+        let mut args = HashMap::default();
+        let mut n = 0;
+        let mut va_args = None;
+
+        skip_whites!(self);
+        let c = self.buf.next_char();
+        if c == b')' {
+            self.buf.inc();
+            return (args, va_args);
+        }
+
+        loop {
+            let arg = self.get_define_argument();
+            match arg {
+                MacroDefArg::Normal(id) => {
+                    args.insert(id, n);
+                }
+                MacroDefArg::VaArgs => {
+                    va_args = Some(n);
+                    args.insert("__VA_ARGS__", n);
+                }
+                MacroDefArg::NamedVaArgs(va) => {
+                    va_args = Some(n);
+                    args.insert(va, n);
+                }
+            }
+            let c = self.buf.next_char();
+            self.buf.inc();
+            skip_whites!(self);
+            if c == b')' {
+                break;
+            }
+            n += 1;
+        }
+        (args, va_args)
     }
 
     #[inline(always)]
     pub(crate) fn skip_arg_none(&mut self) {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *MCHARS.get_unchecked(c as usize) };
                 if kind != Kind::NON {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
@@ -158,104 +211,116 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn next_arg_token(&mut self) -> MacroArgToken<'a> {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *MCHARS.get_unchecked(c as usize) };
                 match kind {
                     Kind::IDE => {
                         return MacroArgToken::Id(self.get_preproc_identifier());
                     }
                     Kind::IDL => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::L).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroArgToken::String(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroArgToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDR => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::R).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroArgToken::String(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroArgToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDU => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::UU).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroArgToken::String(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroArgToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDu => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::U).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroArgToken::String(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroArgToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::NUM => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         self.skip_number(c);
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroArgToken::None(s);
                     }
                     Kind::SPA => {
-                        self.pos += 1;
+                        self.buf.inc();
                         skip_whites!(self);
                         return MacroArgToken::Space;
                     }
                     Kind::QUO => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         self.skip_by_delim(c);
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroArgToken::String(s);
                     }
                     Kind::RET => {
-                        self.pos += 1;
-                        self.add_new_line();
+                        self.buf.inc();
+                        self.buf.add_new_line();
                     }
                     Kind::SLA => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        self.buf.inc();
                         if self.skip_slash_or_not() {
-                            let s = unsafe { self.buf.get_unchecked(p..p + 1) };
-                            return MacroArgToken::None(s);
+                            return MacroArgToken::None(b"/");
+                        }
+                    }
+                    Kind::BAC => {
+                        self.buf.inc();
+                        if self.buf.has_char() {
+                            let c = self.buf.next_char();
+                            if c == b'\n' {
+                                self.buf.add_new_line();
+                                self.buf.inc();
+                            } else {
+                                return MacroArgToken::None(b"\\");
+                            }
+                        } else {
+                            return MacroArgToken::None(b"\\");
                         }
                     }
                     Kind::COM => {
-                        self.pos += 1;
+                        self.buf.inc();
                         return MacroArgToken::Comma;
                     }
                     Kind::OPP => {
-                        self.pos += 1;
+                        self.buf.inc();
                         return MacroArgToken::OpenPar;
                     }
                     Kind::CLP => {
-                        self.pos += 1;
+                        self.buf.inc();
                         return MacroArgToken::ClosePar;
                     }
                     Kind::NON => {
-                        let p = self.pos;
+                        let p = self.buf.pos();
                         self.skip_arg_none();
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroArgToken::None(s);
                     }
                 }
@@ -300,7 +365,9 @@ impl<'a> Lexer<'a> {
                     arg = Vec::new();
                 }
                 MacroArgToken::ClosePar => {
-                    args.push(arg);
+                    if !args.is_empty() || !arg.is_empty() {
+                        args.push(arg);
+                    }
                     let (nargs, narg) = if let Some((nargs, mut narg)) = stack.pop() {
                         narg.push(MacroNode::Args(args));
                         (nargs, narg)
@@ -328,27 +395,28 @@ impl<'a> Lexer<'a> {
         n_args: usize,
         va_args: Option<&usize>,
     ) -> Option<Vec<Vec<MacroNode<'a>>>> {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         skip_whites!(self);
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c != b'(' {
-                self.pos = spos;
+                self.buf.set_pos(spos);
                 return None;
             }
-            self.pos += 1;
+            self.buf.inc();
         }
 
         let mut args = self.get_macro_tokens(n_args);
         if va_args.is_none() {
-            if args.len() != n_args {
-                self.pos = spos;
+            if args.len() != n_args && (n_args != 1 || !args.is_empty()) {
+                // TODO: reset line and col too in case they changed
+                self.buf.set_pos(spos);
                 None
             } else {
                 Some(args)
             }
-        } else if args.len() < n_args {
-            self.pos = spos;
+        } else if args.len() < n_args - 1 {
+            self.buf.set_pos(spos);
             None
         } else {
             let va_pos = va_args.unwrap();
@@ -360,7 +428,13 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> MacroNode<'a> {
-    pub(crate) fn eval_nodes(nodes: &[MacroNode<'a>], context: &PContext, out: &mut Vec<u8>) {
+    pub(crate) fn eval_nodes<PC: PreprocContext>(
+        nodes: &[MacroNode<'a>],
+        context: &PC,
+        info: &FileInfo,
+        out: &mut Vec<u8>,
+        is_va: bool,
+    ) {
         let mut pos = 0;
         let len = nodes.len();
         while pos < len {
@@ -373,22 +447,51 @@ impl<'a> MacroNode<'a> {
                     if let Some(mac) = context.get(id) {
                         match mac {
                             Macro::Object(mac) => {
-                                mac.eval(out, context);
+                                mac.eval(out, context, info);
                             }
                             Macro::Function(mac) => {
-                                // we can have a white before arguments
+                                let spos = pos;
                                 pos += 1;
+                                if pos >= len {
+                                    out.extend_from_slice(id.as_bytes());
+                                    break;
+                                }
+
+                                // we can have a white before arguments
                                 let node = unsafe { nodes.get_unchecked(pos) };
                                 let node = match *node {
                                     MacroNode::Space => {
                                         pos += 1;
+                                        if pos >= len {
+                                            out.extend_from_slice(id.as_bytes());
+                                            out.push(b' ');
+                                            break;
+                                        }
                                         unsafe { nodes.get_unchecked(pos) }
                                     }
                                     _ => node,
                                 };
+
                                 if let MacroNode::Args(args) = node {
-                                    mac.eval_parsed_args(&args, context, out);
-                                }
+                                    if mac.is_valid(args.len()) {
+                                        mac.eval_parsed_args(args, context, info, out);
+                                    } else {
+                                        out.extend_from_slice(id.as_bytes());
+                                        pos = spos;
+                                    }
+                                } else {
+                                    out.extend_from_slice(id.as_bytes());
+                                    pos = spos;
+                                };
+                            }
+                            Macro::Line(mac) => {
+                                mac.eval(out, info);
+                            }
+                            Macro::File(mac) => {
+                                mac.eval(out, context, info);
+                            }
+                            Macro::Counter(mac) => {
+                                mac.eval(out);
                             }
                         }
                     } else {
@@ -396,7 +499,7 @@ impl<'a> MacroNode<'a> {
                     }
                 }
                 MacroNode::Space => {
-                    if pos != 0 && pos != len - 1 {
+                    if is_va || (pos != 0 && pos != len - 1) {
                         out.push(b' ');
                     }
                 }
@@ -404,20 +507,20 @@ impl<'a> MacroNode<'a> {
                     out.push(b'(');
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
-                            Self::eval_nodes(arg, context, out);
+                            Self::eval_nodes(arg, context, info, out, false);
                             out.push(b',');
                         }
-                        Self::eval_nodes(last, context, out);
+                        Self::eval_nodes(last, context, info, out, false);
                     }
                     out.push(b')');
                 }
                 MacroNode::VaArgs(nodes) => {
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
-                            Self::eval_nodes(arg, context, out);
+                            Self::eval_nodes(arg, context, info, out, true);
                             out.push(b',');
                         }
-                        Self::eval_nodes(last, context, out);
+                        Self::eval_nodes(last, context, info, out, true);
                     }
                 }
             }
@@ -518,11 +621,12 @@ impl<'a> MacroNode<'a> {
 mod tests {
 
     use super::*;
+    use crate::lexer::preprocessor::context::DefaultContext;
     use MacroNode::*;
 
     #[test]
     fn test_arg1() {
-        let mut p = Lexer::new(b"(a,b,c)");
+        let mut p = Lexer::<DefaultContext>::new(b"(a,b,c)");
         let exp = vec![vec![Id("a")], vec![Id("b")], vec![Id("c")]];
         let res = p.get_arguments(3, None).unwrap();
 
@@ -531,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_arg2() {
-        let mut p = Lexer::new(b"(a, foo(d, e), c, bar())");
+        let mut p = Lexer::<DefaultContext>::new(b"(a, foo(d, e), c, bar())");
         let exp = vec![
             vec![Id("a")],
             vec![
@@ -540,7 +644,7 @@ mod tests {
                 Args(vec![vec![Id("d")], vec![Space, Id("e")]]),
             ],
             vec![Space, Id("c")],
-            vec![Space, Id("bar"), Args(vec![vec![]])],
+            vec![Space, Id("bar"), Args(vec![])],
         ];
         let res = p.get_arguments(4, None).unwrap();
 
@@ -549,7 +653,7 @@ mod tests {
 
     #[test]
     fn test_arg3() {
-        let mut p = Lexer::new(b"(   a /* comment */  , R\"delim(\")delim\",,,)");
+        let mut p = Lexer::<DefaultContext>::new(b"(   a /* comment */  , R\"delim(\")delim\",,,)");
         let exp = vec![
             vec![Space, Id("a"), Space],
             vec![Space, String(b"R\"delim(\")delim\"")],
@@ -564,7 +668,7 @@ mod tests {
 
     #[test]
     fn test_make_expr1() {
-        let mut p = Lexer::new(b"(   a /* comment */  , b + 1)");
+        let mut p = Lexer::<DefaultContext>::new(b"(   a /* comment */  , b + 1)");
         let args = Args(p.get_arguments(2, None).unwrap());
         let mut out = Vec::new();
         MacroNode::make_expr(&vec![args], &mut out);
@@ -576,12 +680,25 @@ mod tests {
 
     #[test]
     fn test_make_expr2() {
-        let mut p = Lexer::new(b"(a, b, foo(x+1, y * 2, bar (z,t)))");
+        let mut p = Lexer::<DefaultContext>::new(b"(a, b, foo(x+1, y * 2, bar (z,t)))");
         let args = Args(p.get_arguments(3, None).unwrap());
         let mut out = Vec::new();
         MacroNode::make_expr(&vec![args], &mut out);
         let res = std::str::from_utf8(&out).unwrap();
         let exp = "(a,b,foo(x+1,y * 2,bar (z,t)))";
+
+        assert_eq!(res, exp);
+    }
+
+    #[test]
+    fn test_arg_cl() {
+        let mut p = Lexer::<DefaultContext>::new(b"(a  ,  \\\nb, \\\nc\\\n)");
+        let exp = vec![
+            vec![Id("a"), Space],
+            vec![Space, Id("b")],
+            vec![Space, Id("c")],
+        ];
+        let res = p.get_arguments(3, None).unwrap();
 
         assert_eq!(res, exp);
     }

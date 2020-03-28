@@ -1,13 +1,12 @@
-use bitflags::bitflags;
 use hashbrown::HashMap;
 
 use super::condition::Condition;
-use super::lexer::{Lexer, Token};
-use super::macro_args::MacroDefArg;
-use super::pmacros::{
-    Action, IfKind, IfState, Macro, MacroFunction, MacroObject, MacroType, PContext,
-};
-use super::string::StringType;
+use super::context::{IfKind, IfState, PreprocContext};
+use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
+use crate::lexer::buffer::FileInfo;
+use crate::lexer::lexer::{Lexer, Token};
+use crate::lexer::preprocessor::include::PathIndex;
+use crate::lexer::string::StringType;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -80,13 +79,6 @@ pub(crate) const PPCHARS: [Kind; 256] = [
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum IncludeType<'a> {
-    Quote(&'a [u8]),
-    Angle(&'a [u8]),
-    Other(&'a [u8]),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LastKind {
     None,
     Arg(usize),
@@ -106,14 +98,20 @@ pub enum MacroToken<'a> {
     Eom,
 }
 
-impl<'a> Lexer<'a> {
+impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub fn preproc_parse(&mut self, instr: Token<'a>) -> Token<'a> {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
         match instr {
-            Token::PreprocInclude2 => Token::PreprocInclude(self.get_include()),
-            Token::PreprocIncludeNext2 => Token::PreprocIncludeNext(self.get_include()),
+            Token::PreprocInclude => {
+                self.get_include(false);
+                Token::PreprocInclude
+            }
+            Token::PreprocIncludeNext => {
+                self.get_include(true);
+                Token::PreprocIncludeNext
+            }
             Token::PreprocUndef => {
                 self.get_undef();
                 Token::PreprocUndef
@@ -122,41 +120,51 @@ impl<'a> Lexer<'a> {
                 if !self.get_if(IfKind::If) {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocIf
             }
             Token::PreprocIfdef => {
                 if !self.get_if(IfKind::Ifdef) {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocIfdef
             }
             Token::PreprocIfndef => {
                 if !self.get_if(IfKind::Ifndef) {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocIfndef
             }
             Token::PreprocElif => {
                 if !self.get_elif() {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocElif
             }
             Token::PreprocElse => {
                 if !self.get_else() {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocElse
             }
             Token::PreprocEndif => {
                 if !self.get_endif() {
                     self.skip_until_else_endif();
                 }
-                Token::None
+                Token::PreprocEndif
             }
             Token::PreprocDefine => {
                 self.get_define();
-                Token::None
+                Token::PreprocDefine
+            }
+            Token::PreprocPragma => {
+                skip_until!(self, b'\n');
+                self.buf.add_new_line();
+                Token::PreprocPragma
+            }
+            Token::PreprocError => {
+                skip_until!(self, b'\n');
+                self.buf.add_new_line();
+                Token::PreprocError
             }
             _ => instr,
         }
@@ -164,184 +172,33 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn get_preproc_identifier(&mut self) -> &'a str {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 if kind > Kind::NUM {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
         }
 
-        unsafe { std::str::from_utf8_unchecked(&self.buf.get_unchecked(spos..self.pos)) }
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_include_content(&mut self, term: u8) -> &'a [u8] {
-        let spos = self.pos;
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                if c == term {
-                    let s = unsafe { &self.buf.get_unchecked(spos..self.pos) };
-                    self.pos += 1;
-                    return s;
-                } else {
-                    self.pos += 1;
-                }
-            } else {
-                return unsafe { &self.buf.get_unchecked(spos..) };
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_include(&mut self) -> IncludeType<'a> {
-        skip_whites!(self);
-        if self.pos < self.len {
-            let c = self.next_char(0);
-            if c == b'\"' {
-                self.pos += 1;
-                return IncludeType::Quote(self.get_include_content(b'\"'));
-            } else if c == b'<' {
-                self.pos += 1;
-                return IncludeType::Angle(self.get_include_content(b'>'));
-            } else {
-                let spos = self.pos;
-                skip_until!(self, b'\n');
-                self.add_new_line();
-                let code = unsafe { self.buf.get_unchecked(spos..self.pos) };
-                self.pos += 1;
-                return IncludeType::Other(code);
-            }
-        }
-        IncludeType::Other(&[])
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_macro_arguments(&mut self) -> (HashMap<&'a str, usize>, Option<usize>) {
-        let mut args = HashMap::default();
-        let mut n = 0;
-        let mut va_args = None;
-        skip_whites!(self);
-        let c = self.next_char(0);
-        if c == b')' {
-            return (args, va_args);
-        }
-
-        loop {
-            let arg = self.get_define_argument();
-            match arg {
-                MacroDefArg::Normal(id) => {
-                    args.insert(id, n);
-                }
-                MacroDefArg::VaArgs => {
-                    va_args = Some(n);
-                    args.insert("__VA_ARGS__", n);
-                }
-                MacroDefArg::NamedVaArgs(va) => {
-                    va_args = Some(n);
-                    args.insert(va, n);
-                }
-            }
-            skip_whites!(self);
-            let c = self.next_char(0);
-            self.pos += 1;
-            skip_whites!(self);
-            if c == b')' {
-                break;
-            }
-            n += 1;
-        }
-        (args, va_args)
-    }
-
-    #[inline(always)]
-    pub(crate) fn skip_multiline_comment(&mut self) {
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                if c == b'/' {
-                    let c = self.prev_char(1);
-                    if c == b'*' {
-                        self.pos += 1;
-                        break;
-                    }
-                    self.pos += 1;
-                } else if c == b'\n' {
-                    self.pos += 1;
-                    self.add_new_line();
-                } else {
-                    self.pos += 1;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn skip_single_comment(&mut self) {
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                if c == b'\n' {
-                    // no add_new_line here (will be done later)
-                    break;
-                } else if c == b'\\' {
-                    self.pos += 2;
-                } else {
-                    self.pos += 1;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn skip_by_delim(&mut self, delim: u8) {
-        loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                if c == delim {
-                    self.pos += 1;
-                    break;
-                } else if c == b'\\' {
-                    self.pos += 1;
-                    if self.pos < self.len {
-                        let c = self.next_char(0);
-                        if c == b'\n' {
-                            self.add_new_line();
-                        }
-                        self.pos += 1;
-                    } else {
-                        break;
-                    }
-                } else {
-                    self.pos += 1;
-                }
-            } else {
-                break;
-            }
-        }
+        unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) }
     }
 
     #[inline(always)]
     pub(crate) fn skip_slash_or_not(&mut self) -> bool {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'/' {
-                self.pos += 1;
+                self.buf.inc();
                 self.skip_single_comment();
                 false
             } else if c == b'*' {
-                self.pos += 1;
+                self.buf.inc();
                 self.skip_multiline_comment();
                 false
             } else {
@@ -353,24 +210,15 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn rm_white(out: &mut Vec<u8>) {
-        if let Some(last) = out.last() {
-            if *last == b' ' {
-                out.pop();
-            }
-        }
-    }
-
-    #[inline(always)]
     pub(crate) fn skip_none(&mut self) {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 if kind != Kind::NON {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
@@ -380,26 +228,26 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn skip_spaces_or_hash(&mut self) -> MacroToken<'a> {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 if kind != Kind::SPA {
                     if c != b'#' {
                         return MacroToken::Space;
                     }
 
-                    self.pos += 1;
-                    if self.pos < self.len {
-                        let c = self.next_char(0);
+                    self.buf.inc();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
                         if c == b'#' {
-                            self.pos += 1;
+                            self.buf.inc();
                             skip_whites!(self);
                             return MacroToken::Concat;
                         }
                         return MacroToken::WhiteStringify;
                     }
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
@@ -410,74 +258,74 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn next_macro_token(&mut self) -> MacroToken<'a> {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 match kind {
                     Kind::IDE => {
                         return MacroToken::Id(self.get_preproc_identifier());
                     }
                     Kind::IDL => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::L).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroToken::None(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDR => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::R).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroToken::None(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDU => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::UU).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroToken::None(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::IDu => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         if self.get_special_string_char(StringType::U).is_some() {
-                            let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                            let s = self.buf.slice(p);
                             return MacroToken::None(s);
                         } else {
-                            self.pos -= 1;
+                            self.buf.dec();
                             return MacroToken::Id(self.get_preproc_identifier());
                         }
                     }
                     Kind::NUM => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         self.skip_number(c);
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroToken::None(s);
                     }
                     Kind::SPA => {
-                        self.pos += 1;
+                        self.buf.inc();
                         return self.skip_spaces_or_hash();
                     }
                     Kind::HAS => {
-                        self.pos += 1;
-                        if self.pos < self.len {
-                            let c = self.next_char(0);
+                        self.buf.inc();
+                        if self.buf.has_char() {
+                            let c = self.buf.next_char();
                             if c == b'#' {
-                                self.pos += 1;
+                                self.buf.inc();
                                 skip_whites!(self);
                                 return MacroToken::Concat;
                             }
@@ -486,46 +334,41 @@ impl<'a> Lexer<'a> {
                     }
                     Kind::QUO => {
                         // we've a string or char literal
-                        let p = self.pos;
-                        self.pos += 1;
+                        let p = self.buf.pos();
+                        self.buf.inc();
                         self.skip_by_delim(c);
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroToken::None(s);
                     }
                     Kind::RET => {
-                        self.pos += 1;
-                        self.add_new_line();
+                        self.buf.inc();
+                        self.buf.add_new_line();
                         break;
                     }
                     Kind::SLA => {
-                        let p = self.pos;
-                        self.pos += 1;
+                        self.buf.inc();
                         if self.skip_slash_or_not() {
-                            let s = unsafe { self.buf.get_unchecked(p..p + 1) };
-                            return MacroToken::None(s);
+                            return MacroToken::None(b"/");
                         }
                     }
                     Kind::BAC => {
-                        let p = self.pos;
-                        self.pos += 1;
-                        if self.pos < self.len {
-                            let c = self.next_char(0);
+                        self.buf.inc();
+                        if self.buf.has_char() {
+                            let c = self.buf.next_char();
                             if c == b'\n' {
-                                self.add_new_line();
-                                self.pos += 1;
+                                self.buf.add_new_line();
+                                self.buf.inc();
                             } else {
-                                let s = unsafe { self.buf.get_unchecked(p..p + 1) };
-                                return MacroToken::None(s);
+                                return MacroToken::None(b"\\");
                             }
                         } else {
-                            let s = unsafe { self.buf.get_unchecked(p..p + 1) };
-                            return MacroToken::None(s);
+                            return MacroToken::None(b"\\");
                         }
                     }
                     Kind::NON => {
-                        let p = self.pos;
+                        let p = self.buf.pos();
                         self.skip_none();
-                        let s = unsafe { self.buf.get_unchecked(p..self.pos) };
+                        let s = self.buf.slice(p);
                         return MacroToken::None(s);
                     }
                 }
@@ -546,6 +389,7 @@ impl<'a> Lexer<'a> {
         let mut actions = Vec::with_capacity(args.len());
         let mut last_kind = LastKind::None;
         let mut last_chunk_end = 0;
+        let info = self.buf.get_line_file();
 
         loop {
             let tok = self.next_macro_token();
@@ -585,7 +429,6 @@ impl<'a> Lexer<'a> {
                     if tok == MacroToken::WhiteStringify {
                         if last_kind != LastKind::Space {
                             out.push(b' ');
-                            last_kind = LastKind::Space;
                         }
                     }
                     let id = self.get_preproc_identifier();
@@ -618,7 +461,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        MacroFunction::new(out, actions, args.len(), va_args)
+        MacroFunction::new(out, actions, args.len(), va_args, info)
     }
 
     #[inline(always)]
@@ -626,6 +469,7 @@ impl<'a> Lexer<'a> {
         let mut out = Vec::with_capacity(64);
         let mut last_kind = LastKind::None;
         let mut has_id = false;
+        let info = self.buf.get_line_file();
 
         skip_whites!(self);
 
@@ -654,11 +498,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        MacroObject::new(out, has_id)
+        MacroObject::new(out, has_id, info)
     }
 
     #[inline(always)]
-    pub(crate) fn macro_final_eval(&mut self, out: &mut Vec<u8>, context: &PContext) {
+    pub(crate) fn macro_final_eval<P: PreprocContext>(
+        &mut self,
+        out: &mut Vec<u8>,
+        context: &P,
+        info: &FileInfo,
+    ) {
         loop {
             let tok = self.next_macro_token();
             match tok {
@@ -666,7 +515,31 @@ impl<'a> Lexer<'a> {
                     out.extend_from_slice(s);
                 }
                 MacroToken::Id(id) => {
-                    if !context.eval(&id, self, out) {
+                    if let Some(mac) = context.get(id) {
+                        match mac {
+                            Macro::Object(mac) => {
+                                mac.eval(out, context, info);
+                            }
+                            Macro::Function(mac) => {
+                                if let Some(args) =
+                                    self.get_arguments(mac.len(), mac.va_args.as_ref())
+                                {
+                                    mac.eval_parsed_args(&args, context, info, out);
+                                } else {
+                                    out.extend_from_slice(id.as_bytes());
+                                }
+                            }
+                            Macro::Line(mac) => {
+                                mac.eval(out, info);
+                            }
+                            Macro::File(mac) => {
+                                mac.eval(out, context, info);
+                            }
+                            Macro::Counter(mac) => {
+                                mac.eval(out);
+                            }
+                        }
+                    } else {
                         out.extend_from_slice(id.as_bytes());
                     }
                 }
@@ -689,21 +562,43 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn macro_eval(&mut self, name: &str) -> bool {
+        // TODO: there is two lookups in the context here
+        // we can't get the macro and then get arguments because macro could be invalidated (borrow checker)
+        // we know that it's safe here because argument parsing doesn't evaluate anything
+        // So need to figure out a solution to avoid double lookup
         match self.context.get_type(name) {
             MacroType::None => {
                 return false;
             }
             MacroType::Object(mac) => {
-                mac.eval(&mut self.preproc_buf, &self.context);
+                let info = self.buf.get_line_file();
+                mac.eval(self.buf.get_preproc_buf(), &self.context, &info);
             }
             MacroType::Function((n, va_args)) => {
                 if let Some(args) = self.get_arguments(n, va_args.as_ref()) {
+                    let info = self.buf.get_line_file();
                     if let Macro::Function(mac) = self.context.get(name).unwrap() {
-                        mac.eval_parsed_args(&args, &self.context, &mut self.preproc_buf);
+                        mac.eval_parsed_args(
+                            &args,
+                            &self.context,
+                            &info,
+                            self.buf.get_preproc_buf(),
+                        );
                     }
                 } else {
                     return false;
                 }
+            }
+            MacroType::Line(mac) => {
+                let info = self.buf.get_line_file();
+                mac.eval(self.buf.get_preproc_buf(), &info);
+            }
+            MacroType::File(mac) => {
+                let info = self.buf.get_line_file();
+                mac.eval(self.buf.get_preproc_buf(), &self.context, &info);
+            }
+            MacroType::Counter(mac) => {
+                mac.eval(self.buf.get_preproc_buf());
             }
         }
         true
@@ -715,16 +610,21 @@ impl<'a> Lexer<'a> {
         // need to lex to avoid to catch #else or #endif in a string, comment
         // or something like #define foo(else) #else (who want to do that ???)
 
-        skip_whites!(self);
-        if self.stop_skipping() {
-            return;
+        loop {
+            let spos = self.buf.pos();
+            skip_whites!(self);
+            if self.stop_skipping() {
+                return;
+            }
+            if spos == self.buf.pos() || self.buf.prev_char() != b'\n' {
+                break;
+            }
         }
 
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                self.pos += 1;
-
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                self.buf.inc();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 match kind {
                     Kind::QUO => {
@@ -732,11 +632,17 @@ impl<'a> Lexer<'a> {
                         self.skip_by_delim(c);
                     }
                     Kind::RET => {
-                        self.add_new_line();
-                        skip_whites!(self);
+                        self.buf.add_new_line();
                         // we've a new line so check if it starts with preproc directive
-                        if self.stop_skipping() {
-                            break;
+                        loop {
+                            let spos = self.buf.pos();
+                            skip_whites!(self);
+                            if self.stop_skipping() {
+                                return;
+                            }
+                            if spos == self.buf.pos() || self.buf.prev_char() != b'\n' {
+                                break;
+                            }
                         }
                     }
                     Kind::SLA => {
@@ -754,11 +660,11 @@ impl<'a> Lexer<'a> {
     fn stop_skipping(&mut self) -> bool {
         // we must be after a newline and skipped whites
         // the goal is to avoid to catch #define foo(else) #else
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'#' {
                 // we've a hash at the beginning of a line
-                self.pos += 1;
+                self.buf.inc();
                 skip_whites!(self);
                 let id = self.get_preproc_keyword(false);
                 match id {
@@ -847,7 +753,7 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn get_endif(&mut self) -> bool {
-        if let Some(state) = self.context.if_state() {
+        if let Some(_) = self.context.if_state() {
             self.context.rm_if();
             if let Some(state) = self.context.if_state() {
                 *state == IfState::Eval
@@ -863,11 +769,12 @@ impl<'a> Lexer<'a> {
     pub(crate) fn get_define(&mut self) {
         skip_whites!(self);
         let name = self.get_preproc_identifier();
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'(' {
-                self.pos += 1;
+                self.buf.inc();
                 let (args, va_args) = self.get_macro_arguments();
+                skip_whites!(self);
                 let mac = self.get_function_definition(args, va_args);
                 self.context.add_function(name.to_string(), mac);
             } else {
@@ -881,17 +788,17 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn get_defined(&mut self) -> u64 {
         skip_whites!(self);
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             let name = if c == b'(' {
-                self.pos += 1;
+                self.buf.inc();
                 skip_whites!(self);
                 let name = self.get_preproc_identifier();
                 skip_whites!(self);
-                if self.pos < self.len {
-                    let c = self.next_char(0);
+                if self.buf.has_char() {
+                    let c = self.buf.next_char();
                     if c == b')' {
-                        self.pos += 1;
+                        self.buf.inc();
                     }
                 }
                 name
@@ -916,33 +823,12 @@ impl<'a> Lexer<'a> {
 mod tests {
 
     use super::*;
-
-    macro_rules! mk_args {
-        ( $( $a: expr ),* ) => {
-            &vec![$( $a.as_bytes(), )*]
-        }
-    }
-
-    /*#[test]*/
-    fn test_include() {
-        let mut p = Lexer::new(
-            b"#include \"foo.h\"\n #include A(B)\n#  include_next      <foo\\barbar.h>\n",
-        );
-        assert_eq!(
-            p.next(),
-            Token::PreprocInclude(IncludeType::Quote(b"foo.h"))
-        );
-        assert_eq!(p.next(), Token::PreprocInclude(IncludeType::Other(b"A(B)")));
-        assert_eq!(
-            p.next(),
-            Token::PreprocIncludeNext(IncludeType::Angle(b"foo\\barbar.h"))
-        );
-    }
+    use crate::lexer::preprocessor::context::DefaultContext;
 
     #[test]
     fn test_parse_args() {
-        let mut p = Lexer::new(b"(abcd,efgh    \t , \t \t _ijkl , mno_123)");
-        p.advance(1);
+        let mut p = Lexer::<DefaultContext>::new(b"(abcd,efgh    \t , \t \t _ijkl , mno_123)");
+        p.buf.inc();
         let (map, _) = p.get_macro_arguments();
         let mut expected = HashMap::default();
         for (i, name) in vec!["abcd", "efgh", "_ijkl", "mno_123"].iter().enumerate() {
@@ -951,24 +837,24 @@ mod tests {
 
         assert_eq!(map, expected);
 
-        let mut p = Lexer::new(b"()");
-        p.advance(1);
+        let mut p = Lexer::<DefaultContext>::new(b"()");
+        p.buf.inc();
         let (map, _) = p.get_macro_arguments();
-        let mut expected = HashMap::default();
+        let expected = HashMap::default();
 
         assert_eq!(map, expected);
 
-        let mut p = Lexer::new(b"(    )");
-        p.advance(1);
+        let mut p = Lexer::<DefaultContext>::new(b"(    )");
+        p.buf.inc();
         let (map, _) = p.get_macro_arguments();
-        let mut expected = HashMap::default();
+        let expected = HashMap::default();
 
         assert_eq!(map, expected);
     }
 
     #[test]
     fn test_if_else() {
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define foo 37\n",
                 "#if 1\n",
@@ -979,10 +865,14 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define foo 37\n",
                 "#if 0\n",
@@ -993,10 +883,12 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(37));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define foo 37\n",
                 "#if 0\n",
@@ -1009,11 +901,15 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(78));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define foo 37\n",
                 "#if 1\n",
@@ -1026,13 +922,17 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocElse);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
     }
 
     #[test]
     fn test_if_else_nested() {
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define COND1 12\n",
                 "#define COND2 0\n",
@@ -1055,15 +955,26 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocDefine);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf); // COND2: false
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocIf); // COND3: true
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocElse);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
         assert_eq!(p.next(), Token::LiteralInt(910));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define COND1 12\n",
                 "#define COND2\n",
@@ -1086,13 +997,22 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocDefine);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf); // defined(COND2): true
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocElse);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
         assert_eq!(p.next(), Token::LiteralInt(78));
 
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define COND1 12\n",
                 "\n",
@@ -1113,11 +1033,20 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf); // defined(COND2): false
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocIf); // COND3: false
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
         assert_eq!(p.next(), Token::LiteralInt(1112));
@@ -1125,7 +1054,7 @@ mod tests {
 
     #[test]
     fn test_if_skip_first() {
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#if A\n",
                 "    #if B\n",
@@ -1141,14 +1070,18 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocIf); // A: false
         assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
+
         assert_eq!(p.next(), Token::LiteralInt(56));
     }
 
     #[test]
     fn test_elif() {
-        let mut p = Lexer::new(
+        let mut p = Lexer::<DefaultContext>::new(
             concat!(
                 "#define B 0\n",
                 "#if A\n",
@@ -1161,7 +1094,111 @@ mod tests {
             .as_bytes(),
         );
 
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocEndif);
         assert_eq!(p.next(), Token::Eol);
         assert_eq!(p.next(), Token::LiteralInt(56));
+    }
+
+    #[test]
+    fn test_elif_2() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define foo 123\n",
+                "#if 0\n",
+                "#elif 0\n",
+                "# if 1\n",
+                "# endif\n",
+                "# define foo 456\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(123));
+    }
+
+    #[test]
+    fn test_elif_3() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define foo 123\n",
+                "#if 0\n",
+                "hello\n",
+                "#elif 0\n",
+                "# if 1\n",
+                "# endif\n",
+                "# define foo 456\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::PreprocIf);
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(123));
+    }
+
+    #[test]
+    fn test_line() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define foo __LINE__\n", // 1
+                "foo\n",                  // 2
+                "foo\n",                  // 3
+                "foo\n",                  // 4
+                "/* a comment\n",         // 5
+                "on several\n",           // 6
+                "lines\n",                // 7
+                "*/\n",                   // 8
+                "foo\n",                  // 9
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::LiteralInt(2));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(3));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(4));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(
+            std::mem::discriminant(&p.next()),
+            std::mem::discriminant(&Token::Comment(&[]))
+        );
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(9));
+    }
+
+    #[test]
+    fn test_counter() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define foo __COUNTER__\n",
+                "foo\n",
+                "foo\n",
+                "foo\n",
+                "foo\n",
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next(), Token::PreprocDefine);
+        assert_eq!(p.next(), Token::LiteralInt(0));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(1));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(2));
+        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next(), Token::LiteralInt(3));
     }
 }

@@ -27,12 +27,23 @@ macro_rules! node {
 macro_rules! skip_whites {
     ( $lexer: expr) => {{
         loop {
-            if $lexer.pos < $lexer.len {
-                let c = unsafe { *$lexer.buf.get_unchecked($lexer.pos) };
+            if $lexer.buf.has_char() {
+                let c = $lexer.buf.next_char();
+                if c == b'\\' {
+                    if $lexer.buf.has_char_n(1) {
+                        let c = $lexer.buf.next_char_n(1);
+                        if c == b'\n' {
+                            $lexer.buf.add_new_line();
+                            $lexer.buf.inc_n(2);
+                            continue;
+                        }
+                    }
+                    break;
+                }
                 if c != b' ' && c != b'\t' {
                     break;
                 }
-                $lexer.pos += 1;
+                $lexer.buf.inc();
             } else {
                 break;
             }
@@ -41,15 +52,28 @@ macro_rules! skip_whites {
 }
 
 #[macro_export]
+macro_rules! skip_whites_back {
+    ( $lexer: expr) => {{
+        loop {
+            let c = $lexer.buf.next_char();
+            if c != b' ' && c != b'\t' {
+                break;
+            }
+            $lexer.buf.dec_n(1);
+        }
+    }};
+}
+
+#[macro_export]
 macro_rules! skip_until {
     ( $lexer: expr, $char: expr ) => {{
         loop {
-            if $lexer.pos < $lexer.len {
-                let c = unsafe { *$lexer.buf.get_unchecked($lexer.pos) };
+            if $lexer.buf.has_char() {
+                let c = $lexer.buf.next_char();
                 if c == $char {
                     break;
                 }
-                $lexer.pos += 1;
+                $lexer.buf.inc();
             } else {
                 break;
             }

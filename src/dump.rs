@@ -2,6 +2,7 @@ use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLock, WriteColor};
 
 use crate::parser::ast::*;
+use crate::parser::operator::*;
 
 pub trait Dump {
     fn dump_me(&self) {

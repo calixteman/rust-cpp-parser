@@ -2,6 +2,7 @@ use bitflags::bitflags;
 use phf::phf_map;
 
 use super::lexer::{Lexer, Token};
+use super::preprocessor::context::PreprocContext;
 
 const POW_P_10: [f64; 309] = [
     1., 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
@@ -183,6 +184,18 @@ static INT_SUFFIXES: phf::Map<&'static str, IntType> = phf_map! {
     "ULL" => IntType::ULL,
 };
 
+enum FloatType {
+    F,
+    L,
+}
+
+static FLOAT_SUFFIXES: phf::Map<u8, FloatType> = phf_map! {
+    b'f' => FloatType::F,
+    b'F' => FloatType::F,
+    b'l' => FloatType::L,
+    b'L' => FloatType::L,
+};
+
 #[inline(always)]
 pub(crate) fn get_decimal(dec: u64, exp: i64) -> f64 {
     if exp == 0 {
@@ -191,6 +204,9 @@ pub(crate) fn get_decimal(dec: u64, exp: i64) -> f64 {
         let exp = (-exp) as usize;
         if exp <= 308 {
             (dec as f64) * unsafe { POW_M_10.get_unchecked(exp) }
+        } else if exp <= 327 {
+            ((dec as f64) * unsafe { POW_M_10.get_unchecked(exp - 19) })
+                * unsafe { POW_M_10.get_unchecked(19) }
         } else {
             0.
         }
@@ -202,20 +218,29 @@ pub(crate) fn get_decimal(dec: u64, exp: i64) -> f64 {
     }
 }
 
-impl<'a> Lexer<'a> {
+#[inline(always)]
+pub(crate) fn get_hex_decimal(dec: u64, exp: i64) -> f64 {
+    if exp == 0 {
+        dec as f64
+    } else {
+        (dec as f64) * (exp as f64).exp2()
+    }
+}
+
+impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub(crate) fn get_exponent(&mut self) -> i64 {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             let sign = c == b'-';
             let c = if sign || c == b'+' {
-                self.pos += 1;
-                self.next_char(0)
+                self.buf.inc();
+                self.buf.next_char()
             } else {
                 c
             };
 
-            self.pos += 1;
+            self.buf.inc();
             let first = u64::from(c - b'0');
             let num = self.get_int(first) as i64;
             if sign {
@@ -230,47 +255,72 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn get_number_after_dot(&mut self, start: u64) -> (u64, i64) {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         let mut num = start;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                self.pos += 1;
-                if num <= (std::u64::MAX / 10) && b'0' <= c && c <= b'9' {
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                self.buf.inc();
+                if b'0' <= c && c <= b'9' {
+                    if num > (std::u64::MAX >> 7) {
+                        let shift = (self.buf.pos() - spos) as i64;
+                        let exp = self.skip_and_get_exponent();
+                        return (num, exp - shift);
+                    }
                     num = 10 * num + u64::from(c - b'0');
-                } else if c == b'e' {
-                    let shift = (self.pos - spos) as i64;
+                } else if c == b'e' || c == b'E' {
+                    let shift = (self.buf.pos() - spos) as i64;
                     let exp = self.get_exponent();
                     return (num, exp - shift);
                 } else {
-                    let shift = (self.pos - spos) as i64;
+                    let shift = (self.buf.pos() - spos) as i64;
                     return (num, -shift);
                 }
             } else {
-                let shift = (self.pos - spos) as i64;
+                let shift = (self.buf.pos() - spos) as i64;
                 return (num, -shift);
             }
         }
     }
 
     #[inline(always)]
+    pub(crate) fn skip_and_get_exponent(&mut self) -> i64 {
+        loop {
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                if b'0' <= c && c <= b'9' {
+                    self.buf.inc();
+                    continue;
+                } else if c == b'e' || c == b'E' {
+                    self.buf.inc();
+                    return self.get_exponent();
+                } else {
+                    return 0;
+                }
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn get_dot_or_number(&mut self) -> Token<'a> {
-        if self.pos < self.len {
-            let c = self.next_char(0);
-            self.pos += 1;
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
+            self.buf.inc();
             if b'0' <= c && c <= b'9' {
                 let (dec, exp) = self.get_number_after_dot(u64::from(c - b'0'));
-                return Token::LiteralDecimal(get_decimal(dec, exp));
+                return self.get_typed_float(get_decimal(dec, exp));
             } else if c == b'.' {
-                if self.pos < self.len {
-                    let c = self.next_char(0);
+                if self.buf.has_char() {
+                    let c = self.buf.next_char();
                     if c == b'.' {
-                        self.pos += 1;
+                        self.buf.inc();
                         return Token::Ellipsis;
                     }
                 }
             } else if c == b'*' {
-                self.pos += 1;
+                self.buf.inc();
                 return Token::DotStar;
             }
         }
@@ -278,22 +328,22 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_hex_num(c: u8) -> u64 {
+    pub(crate) fn get_hex_digit(c: u8) -> u64 {
         unsafe { *HEX.get_unchecked(c as usize) }
     }
 
     #[inline(always)]
-    pub(crate) fn get_hex(&mut self) -> Token<'a> {
+    pub(crate) fn get_base_hex(&mut self) -> u64 {
         let mut num = 0;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                let n = Self::get_hex_num(c);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                let n = Self::get_hex_digit(c);
                 if n < 16 {
-                    self.pos += 1;
+                    self.buf.inc();
                     num = 16 * num + n;
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                 } else {
                     break;
                 }
@@ -301,20 +351,79 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        Token::LiteralHex(num)
+        num
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_hex_after_dot(&mut self, start: u64) -> (u64, i64) {
+        let spos = self.buf.pos();
+        let mut num = start;
+        loop {
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                self.buf.inc();
+                let d = Self::get_hex_digit(c);
+                if num <= (std::u64::MAX / 16) && d < 16 {
+                    num = 16 * num + d;
+                } else if c == b'p' || c == b'P' {
+                    let shift = (self.buf.pos() - spos) as i64;
+                    let exp = self.get_exponent();
+                    return (num, exp - 4 * shift);
+                } else {
+                    let shift = (self.buf.pos() - spos) as i64;
+                    return (num, -4 * shift);
+                }
+            } else {
+                let shift = (self.buf.pos() - spos) as i64;
+                return (num, -4 * shift);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_hex(&mut self) -> Token<'a> {
+        let num = self.get_base_hex();
+
+        let c = self.buf.next_char();
+        if c == b'.' {
+            self.buf.inc();
+            let c = self.buf.next_char();
+            self.buf.inc();
+            let d = Self::get_hex_digit(c);
+            if d < 16 {
+                if num > (std::u64::MAX / 16) {
+                    let _ = self.get_hex_after_dot(0);
+                    return self.get_typed_float(num as f64);
+                }
+                let num = 16 * num + d;
+                let (dec, exp) = self.get_hex_after_dot(num);
+                return self.get_typed_float(get_hex_decimal(dec, exp));
+            } else if c == b'p' || c == b'P' {
+                let exp = self.get_exponent();
+                return self.get_typed_float(get_hex_decimal(num, exp));
+            } else {
+                return self.get_typed_float_suf(c, num as f64);
+            }
+        } else if c == b'p' || c == b'P' {
+            self.buf.inc();
+            let exp = self.get_exponent();
+            return self.get_typed_float(get_hex_decimal(num, exp));
+        } else {
+            return self.get_typed_int(num);
+        }
     }
 
     #[inline(always)]
     pub(crate) fn get_oct(&mut self, start: u64) -> Token<'a> {
         let mut num = start;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 if b'0' <= c && c <= b'7' {
-                    self.pos += 1;
+                    self.buf.inc();
                     num = 8 * num + u64::from(c - b'0');
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                 } else {
                     break;
                 }
@@ -322,20 +431,20 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        Token::LiteralOct(num)
+        self.get_typed_int(num)
     }
 
     #[inline(always)]
     fn get_bin(&mut self) -> Token<'a> {
         let mut num = 0;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 if b'0' <= c && c <= b'1' {
-                    self.pos += 1;
+                    self.buf.inc();
                     num = 2 * num + u64::from(c - b'0');
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                 } else {
                     break;
                 }
@@ -343,20 +452,24 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        return Token::LiteralBin(num);
+        return self.get_typed_int(num);
     }
 
     #[inline(always)]
     pub(crate) fn get_int(&mut self, start: u64) -> u64 {
         let mut num = start;
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 if b'0' <= c && c <= b'9' {
-                    self.pos += 1;
-                    num = 10 * num + u64::from(c - b'0');
+                    self.buf.inc();
+                    //self.debug("GET_LINE");
+                    // TODO: not correct here... we should handle number differently (using biguint or something similar
+                    if num <= std::u64::MAX / 10 {
+                        num = 10 * num + u64::from(c - b'0');
+                    }
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                 } else {
                     break;
                 }
@@ -369,93 +482,127 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn get_typed_int(&mut self, num: u64) -> Token<'a> {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if let Some(suf) = self.get_int_type() {
+            match suf {
+                IntType::U => Token::LiteralUInt(num),
+                IntType::L => Token::LiteralLong(num),
+                IntType::UL => Token::LiteralULong(num),
+                IntType::LL => Token::LiteralLongLong(num),
+                IntType::ULL => Token::LiteralULongLong(num),
+            }
+        } else {
+            Token::LiteralInt(num)
+        }
+    }
+
+    #[inline(always)]
+    fn get_int_type(&mut self) -> Option<&IntType> {
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'u' || c == b'l' || c == b'L' || c == b'U' {
-                self.pos += 1;
+                self.buf.inc();
                 let id = self.get_identifier_str();
-                if let Some(suf) = INT_SUFFIXES.get(id) {
-                    return match suf {
-                        IntType::U => Token::LiteralUInt(num),
-                        IntType::L => Token::LiteralLong(num),
-                        IntType::UL => Token::LiteralULong(num),
-                        IntType::LL => Token::LiteralLongLong(num),
-                        IntType::ULL => Token::LiteralULongLong(num),
-                    };
-                }
+                return INT_SUFFIXES.get(id);
             }
         }
-        Token::LiteralInt(num)
+        None
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_typed_float(&mut self, num: f64) -> Token<'a> {
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
+            if let Some(suf) = FLOAT_SUFFIXES.get(&c) {
+                self.buf.inc();
+                return match suf {
+                    FloatType::F => Token::LiteralFloat(num),
+                    FloatType::L => Token::LiteralLongDouble(num),
+                };
+            }
+        }
+        Token::LiteralDouble(num)
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_typed_float_suf(&mut self, suf: u8, num: f64) -> Token<'a> {
+        if let Some(suf) = FLOAT_SUFFIXES.get(&suf) {
+            self.buf.inc();
+            return match suf {
+                FloatType::F => Token::LiteralFloat(num),
+                FloatType::L => Token::LiteralLongDouble(num),
+            };
+        }
+        Token::LiteralDouble(num)
     }
 
     #[inline(always)]
     pub(crate) fn get_number(&mut self, start: u64) -> Token<'a> {
         let num = start;
-        if self.pos < self.len {
+        if self.buf.has_char() {
             if num == 0 {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'x' || c == b'X' {
                     // hex
-                    self.pos += 1;
+                    self.buf.inc();
                     return self.get_hex();
                 } else if c == b'b' {
                     // binary
-                    self.pos += 1;
+                    self.buf.inc();
                     return self.get_bin();
                 } else if b'0' <= c && c <= b'9' {
                     // octal
-                    self.pos += 1;
+                    self.buf.inc();
                     return self.get_oct(u64::from(c - b'0'));
-                } else if c == b'e' {
+                } else if c == b'e' || c == b'E' {
                     // We've 0e....: useless so just consume exponent and return 0.
-                    self.pos += 1;
+                    self.buf.inc();
                     let _ = self.get_exponent();
-                    return Token::LiteralDecimal(0.);
+                    return self.get_typed_float(0.);
                 } else if c == b'.' {
-                    self.pos += 1;
-                    if self.pos < self.len {
-                        let c = self.next_char(0);
+                    self.buf.inc();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
                         if b'0' <= c && c <= b'9' {
-                            self.pos += 1;
+                            self.buf.inc();
                             let (dec, exp) = self.get_number_after_dot(u64::from(c - b'0'));
-                            return Token::LiteralDecimal(get_decimal(dec, exp));
-                        } else if c == b'e' {
-                            self.pos += 1;
+                            return self.get_typed_float(get_decimal(dec, exp));
+                        } else if c == b'e' || c == b'E' {
+                            self.buf.inc();
                             let _ = self.get_exponent();
-                            return Token::LiteralDecimal(0.);
+                            return self.get_typed_float(0.);
                         } else {
-                            return Token::LiteralDecimal(0.);
+                            return self.get_typed_float_suf(c, 0.);
                         }
                     } else {
-                        return Token::LiteralDecimal(0.);
+                        return self.get_typed_float(0.);
                     }
                 }
             } else {
                 let num = self.get_int(num);
-                if self.pos < self.len {
-                    let c = self.next_char(0);
+                if self.buf.has_char() {
+                    let c = self.buf.next_char();
                     if c == b'.' {
-                        self.pos += 1;
-                        let c = self.next_char(0);
-                        self.pos += 1;
+                        self.buf.inc();
+                        let c = self.buf.next_char();
+                        self.buf.inc();
                         if b'0' <= c && c <= b'9' {
-                            if num > (std::u64::MAX / 10) {
-                                let _ = self.get_number_after_dot(0);
-                                return Token::LiteralDecimal(num as f64);
+                            if num > (std::u64::MAX >> 7) {
+                                let exp = self.skip_and_get_exponent();
+                                return self.get_typed_float(get_decimal(num, exp));
                             }
                             let num = 10 * num + u64::from(c - b'0');
                             let (dec, exp) = self.get_number_after_dot(num);
-                            return Token::LiteralDecimal(get_decimal(dec, exp));
-                        } else if c == b'e' {
+                            return self.get_typed_float(get_decimal(dec, exp));
+                        } else if c == b'e' || c == b'E' {
                             let exp = self.get_exponent();
-                            return Token::LiteralDecimal(get_decimal(num, exp));
+                            return self.get_typed_float(get_decimal(num, exp));
                         } else {
-                            return Token::LiteralDecimal(num as f64);
+                            return self.get_typed_float_suf(c, num as f64);
                         }
-                    } else if c == b'e' {
-                        self.pos += 1;
+                    } else if c == b'e' || c == b'E' {
+                        self.buf.inc();
                         let exp = self.get_exponent();
-                        return Token::LiteralDecimal(get_decimal(num, exp));
+                        return self.get_typed_float(get_decimal(num, exp));
                     } else {
                         return self.get_typed_int(num);
                     }
@@ -471,13 +618,13 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn skip_hex(&mut self) {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *NUMCHARS.get_unchecked(c as usize) };
                 if !kind.intersects(Nums::HEX | Nums::NUM | Nums::QUO) {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
@@ -487,13 +634,13 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn skip_int(&mut self) {
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 let kind = unsafe { *NUMCHARS.get_unchecked(c as usize) };
                 if !kind.intersects(Nums::NUM | Nums::QUO) {
                     break;
                 }
-                self.pos += 1;
+                self.buf.inc();
             } else {
                 break;
             }
@@ -502,10 +649,10 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn skip_exponent(&mut self) {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             if c == b'+' || c == b'-' {
-                self.pos += 1;
+                self.buf.inc();
             }
             self.skip_int();
         }
@@ -514,22 +661,34 @@ impl<'a> Lexer<'a> {
     #[inline(always)]
     pub(crate) fn skip_decimal(&mut self) {
         self.skip_int();
-        if self.pos < self.len {
-            let c = self.next_char(0);
-            if c == b'e' {
-                self.pos += 1;
-                self.skip_int();
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
+            if c == b'e' || c == b'E' {
+                self.buf.inc();
+                self.skip_exponent();
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn skip_hex_decimal(&mut self) {
+        self.skip_hex();
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
+            if c == b'p' || c == b'P' {
+                self.buf.inc();
+                self.skip_exponent();
             }
         }
     }
 
     #[inline(always)]
     pub(crate) fn skip_type(&mut self) {
-        if self.pos < self.len {
-            let c = self.next_char(0);
+        if self.buf.has_char() {
+            let c = self.buf.next_char();
             let kind = unsafe { *NUMCHARS.get_unchecked(c as usize) };
             if kind.intersects(Nums::HEX | Nums::LET) {
-                self.pos += 1;
+                self.buf.inc();
                 // just consume the id
                 self.get_identifier_str();
             }
@@ -538,42 +697,48 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn skip_number(&mut self, start: u8) {
-        if self.pos < self.len {
+        if self.buf.has_char() {
             if start == b'0' {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'x' || c == b'X' {
-                    self.pos += 1;
+                    self.buf.inc();
                     self.skip_hex();
-                    self.skip_type();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
+                        if c == b'.' {
+                            self.buf.inc();
+                            self.skip_hex_decimal();
+                        } else if c == b'p' || c == b'P' {
+                            self.buf.inc();
+                            self.skip_exponent();
+                        }
+                    }
                 } else if c == b'b' {
-                    // binary
-                    self.pos += 1;
+                    self.buf.inc();
                     self.skip_int();
-                    self.skip_type();
                 } else if b'0' <= c && c <= b'9' {
-                    self.pos += 1;
+                    self.buf.inc();
                     self.skip_int();
-                    self.skip_type();
-                } else if c == b'e' {
-                    self.pos += 1;
+                } else if c == b'e' || c == b'E' {
+                    self.buf.inc();
                     self.skip_exponent();
                 } else if c == b'.' {
-                    self.pos += 1;
+                    self.buf.inc();
                     self.skip_decimal();
                 }
+                self.skip_type();
             } else {
                 self.skip_int();
-                if self.pos < self.len {
-                    let c = self.next_char(0);
+                if self.buf.has_char() {
+                    let c = self.buf.next_char();
                     if c == b'.' {
-                        self.pos += 1;
+                        self.buf.inc();
                         self.skip_decimal();
-                    } else if c == b'e' {
-                        self.pos += 1;
+                    } else if c == b'e' || c == b'E' {
+                        self.buf.inc();
                         self.skip_exponent();
-                    } else {
-                        self.skip_type();
                     }
+                    self.skip_type();
                 }
             }
         }

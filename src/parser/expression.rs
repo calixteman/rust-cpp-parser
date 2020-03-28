@@ -1,5 +1,7 @@
-use super::ast::{Arguments, BinaryOp, CallExpr, Id, Node, Operator, UInt, UnaryOp};
+use super::ast::{Arguments, CallExpr, Id, Node, UInt};
+use super::operator::{BinaryOp, Operator, UnaryOp};
 use crate::lexer::lexer::{Lexer, Token};
+use crate::lexer::preprocessor::context::PreprocContext;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CommaKind {
@@ -57,21 +59,25 @@ fn check_precedence(left: Operator, right: Operator) -> bool {
     // TODO: replace this by a table
     // a + b * c => prec(+) <= prec(*) is true so * has precedence on +
     let (l_prec, l_assoc) = precedence(left);
-    let (r_prec, r_assoc) = precedence(right);
+    let (r_prec, _) = precedence(right);
 
-    (l_prec == r_prec && l_assoc == Associativity::LR) || (l_prec < r_prec)
+    if l_prec == r_prec {
+        l_assoc == Associativity::LR
+    } else {
+        l_prec < r_prec
+    }
 }
 
-pub struct Expression<'a, 'b> {
-    lexer: &'b mut Lexer<'a>,
+pub struct Expression<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
     operands: Vec<Node>,
     operators: Vec<Operator>,
     comma: Vec<CommaKind>,
     last: LastKind,
 }
 
-impl<'a, 'b> Expression<'a, 'b> {
-    fn new(lexer: &'b mut Lexer<'a>) -> Self {
+impl<'a, 'b, PC: PreprocContext> Expression<'a, 'b, PC> {
+    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self {
             lexer,
             operands: Vec::new(),
@@ -254,11 +260,11 @@ impl<'a, 'b> Expression<'a, 'b> {
 mod tests {
 
     use super::*;
-    use std::fs;
+    use crate::lexer::preprocessor::context::DefaultContext;
 
     #[test]
     fn test_add() {
-        let mut lexer = Lexer::new(b"a + b + c");
+        let mut lexer = Lexer::<DefaultContext>::new(b"a + b + c");
         let mut parser = Expression::new(&mut lexer);
         let node = parser.parse();
 
@@ -283,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_add_associativity() {
-        let mut lexer = Lexer::new(b"a + (b + c)");
+        let mut lexer = Lexer::<DefaultContext>::new(b"a + (b + c)");
         let mut parser = Expression::new(&mut lexer);
         let node = parser.parse();
 
@@ -308,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_priority() {
-        let mut lexer = Lexer::new(b"a + b * c");
+        let mut lexer = Lexer::<DefaultContext>::new(b"a + b * c");
         let mut parser = Expression::new(&mut lexer);
         let node = parser.parse();
 
@@ -333,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_call() {
-        let mut lexer = Lexer::new(b"foo(a, b)");
+        let mut lexer = Lexer::<DefaultContext>::new(b"foo(a, b)");
         let mut parser = Expression::new(&mut lexer);
         let node = parser.parse();
 

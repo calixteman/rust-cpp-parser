@@ -1,4 +1,5 @@
 use super::lexer::{Lexer, Token};
+use super::preprocessor::context::PreprocContext;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum StringType {
@@ -19,39 +20,38 @@ pub(crate) enum StringCharType {
     C(StringType),
 }
 
-impl<'a> Lexer<'a> {
+impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub(crate) fn get_string_char_prefix(&mut self, typ: StringType) -> Option<StringCharType> {
         // L, U, LR, UR, u, uR, u8, u8R
-        let rem = self.len - self.pos;
-        match rem {
+        match self.buf.rem() {
             #[cold]
             0 | 1 => {
                 return None;
             }
             #[cold]
             2 => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'\"' {
-                    self.pos += 1;
+                    self.buf.inc();
                     return Some(StringCharType::S(typ));
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                     return Some(StringCharType::C(typ));
                 }
             }
             _ => {
-                let c = self.next_char(0);
+                let c = self.buf.next_char();
                 if c == b'\"' {
-                    self.pos += 1;
+                    self.buf.inc();
                     return Some(StringCharType::S(typ));
                 } else if c == b'\'' {
-                    self.pos += 1;
+                    self.buf.inc();
                     return Some(StringCharType::C(typ));
                 } else if c == b'R' {
-                    let c = self.next_char(1);
+                    let c = self.buf.next_char_n(1);
                     if c == b'\"' {
-                        self.pos += 2;
+                        self.buf.inc_n(2);
                         return Some(StringCharType::S(match typ {
                             StringType::L => StringType::LR,
                             StringType::UU => StringType::UUR,
@@ -60,17 +60,17 @@ impl<'a> Lexer<'a> {
                         }));
                     }
                 } else if typ == StringType::U && c == b'8' {
-                    let c = self.next_char(1);
+                    let c = self.buf.next_char_n(1);
                     if c == b'\"' {
-                        self.pos += 2;
+                        self.buf.inc_n(2);
                         return Some(StringCharType::S(StringType::U8));
                     } else if c == b'\'' {
-                        self.pos += 2;
+                        self.buf.inc_n(2);
                         return Some(StringCharType::C(StringType::U8));
                     } else if c == b'R' {
-                        let c = self.next_char(2);
+                        let c = self.buf.next_char_n(2);
                         if c == b'\"' {
-                            self.pos += 3;
+                            self.buf.inc_n(3);
                             return Some(StringCharType::S(StringType::U8R));
                         }
                     }
@@ -115,54 +115,63 @@ impl<'a> Lexer<'a> {
 
     #[inline(always)]
     pub(crate) fn get_string_content(&mut self) -> &'a [u8] {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 if c == b'\\' {
-                    self.pos += 2;
+                    self.buf.inc();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
+                        if c == b'\n' {
+                            self.buf.add_new_line();
+                        }
+                        self.buf.inc();
+                    } else {
+                        return self.buf.slice(spos);
+                    }
                 } else if c == b'\"' {
-                    let s = unsafe { &self.buf.get_unchecked(spos..self.pos) };
-                    self.pos += 1;
+                    let s = self.buf.slice(spos);
+                    self.buf.inc();
                     return s;
                 } else {
-                    self.pos += 1;
+                    self.buf.inc();
                 }
             } else {
-                return unsafe { &self.buf.get_unchecked(spos..) };
+                return self.buf.slice(spos);
             }
         }
     }
 
     #[inline(always)]
     pub(crate) fn get_r_string_content(&mut self) -> &'a [u8] {
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
-                self.pos += 1;
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                self.buf.inc();
                 if c == b'(' {
                     break;
                 }
             } else {
-                return unsafe { &self.buf.get_unchecked(spos..) };
+                return self.buf.slice(spos);
             }
         }
 
         // delimiter doesn't contain parenthesis, spaces or backslashes
-        let delimiter = unsafe { &self.buf.get_unchecked(spos..self.pos - 1) };
+        let delimiter = self.buf.slice_m_n(spos, 1);
         let delim_len = delimiter.len();
 
-        let spos = self.pos;
+        let spos = self.buf.pos();
         loop {
-            if self.pos < self.len {
-                let c = self.next_char(0);
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
                 if c == b')' {
-                    let rspos = self.pos;
+                    let rspos = self.buf.pos();
                     let mut delim_pos = 0;
-                    self.pos += 1;
+                    self.buf.inc();
                     loop {
-                        let c = self.next_char(0);
+                        let c = self.buf.next_char();
 
                         if delim_pos < delim_len {
                             let d = unsafe { *delimiter.get_unchecked(delim_pos) };
@@ -171,25 +180,55 @@ impl<'a> Lexer<'a> {
                                 break;
                             }
 
-                            self.pos += 1;
+                            self.buf.inc();
                             delim_pos += 1;
                         } else if c == b'\"' {
-                            self.pos += 1;
-                            return unsafe { &self.buf.get_unchecked(spos..rspos) };
+                            self.buf.inc();
+                            return self.buf.slice_p(spos, rspos);
                         } else if c == b'\n' {
-                            self.add_new_line();
+                            self.buf.add_new_line();
+                            self.buf.inc();
+                            break;
                         } else {
                             break;
                         }
                     }
                 } else if c == b'\n' {
-                    self.add_new_line();
-                    self.pos += 1;
+                    self.buf.add_new_line();
+                    self.buf.inc();
                 } else {
-                    self.pos += 1;
+                    self.buf.inc();
                 }
             } else {
-                return unsafe { &self.buf.get_unchecked(spos..) };
+                return self.buf.slice(spos);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn skip_by_delim(&mut self, delim: u8) {
+        loop {
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                if c == delim {
+                    self.buf.inc();
+                    break;
+                } else if c == b'\\' {
+                    self.buf.inc();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
+                        if c == b'\n' {
+                            self.buf.add_new_line();
+                        }
+                        self.buf.inc();
+                    } else {
+                        break;
+                    }
+                } else {
+                    self.buf.inc();
+                }
+            } else {
+                break;
             }
         }
     }
