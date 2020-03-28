@@ -295,14 +295,12 @@ impl PreprocContext for StatsContext {
             hash_map::Entry::Occupied(p) => {
                 let p = p.into_mut();
                 p.info = info;
-            },
+            }
             hash_map::Entry::Vacant(p) => {
-                p.insert(
-                    Stats {
-                        info,
-                        counter: Cell::new(0),
-                    }
-                );
+                p.insert(Stats {
+                    info,
+                    counter: Cell::new(0),
+                });
             }
         }
     }
@@ -314,14 +312,12 @@ impl PreprocContext for StatsContext {
             hash_map::Entry::Occupied(p) => {
                 let p = p.into_mut();
                 p.info = info;
-            },
+            }
             hash_map::Entry::Vacant(p) => {
-                p.insert(
-                    Stats {
-                        info,
-                        counter: Cell::new(0),
-                    }
-                );
+                p.insert(Stats {
+                    info,
+                    counter: Cell::new(0),
+                });
             }
         }
     }
