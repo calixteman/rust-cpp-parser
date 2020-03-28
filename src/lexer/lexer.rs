@@ -868,10 +868,7 @@ impl<'a> Lexer<'a> {
                         return self.get_string();
                     }
                     b'#' => {
-                        let preproc = self.get_preproc();
-                        if preproc != Token::None {
-                            return preproc;
-                        }
+                        self.get_preproc();
                     }
                     b'$' => {
                         return Token::Dollar;
