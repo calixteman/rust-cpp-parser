@@ -178,7 +178,7 @@ impl<'a> Buffer<'a> {
     }
 
     pub(crate) fn get_column(&self) -> u32 {
-        (self.position.pos - self.position.lpos + 1) as u32
+        ((self.position.pos + 1) - self.position.lpos) as u32
     }
 
     pub(crate) fn reset(&mut self) {

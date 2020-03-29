@@ -18,7 +18,8 @@ fn main() {
     let mut lexer = Lexer::<DefaultContext>::new_from_file(file.to_str().unwrap(), source, opt);
     loop {
         let tok = lexer.next();
-        if tok == Token::Eof {
+        eprintln!("TOK: {:?}", tok);
+        if tok.tok == Token::Eof {
             break;
         }
     }

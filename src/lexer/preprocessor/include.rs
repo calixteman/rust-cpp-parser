@@ -497,16 +497,16 @@ mod tests {
         let id = context.get_id(&foo);
 
         lexer_for_file!(p, "#include <foo.h>\ntest", &foo, id, context.clone());
-        assert_eq!(p.next(), Token::PreprocInclude);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("inc_foo"));
+        assert_eq!(p.next().tok, Token::PreprocInclude);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("inc_foo"));
 
         lexer_for_file!(p, "#include \"foo.h\"\ntest", &foo, id, context.clone());
-        assert_eq!(p.next(), Token::PreprocInclude);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("cur_foo"));
+        assert_eq!(p.next().tok, Token::PreprocInclude);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("cur_foo"));
 
         lexer_for_file!(
             p,
@@ -515,16 +515,16 @@ mod tests {
             id,
             context.clone()
         );
-        assert_eq!(p.next(), Token::PreprocIncludeNext);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("inc_foo"));
+        assert_eq!(p.next().tok, Token::PreprocIncludeNext);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("inc_foo"));
 
         lexer_for_file!(p, "#include_next <foo.h>\ntest", &foo, id, context.clone());
-        assert_eq!(p.next(), Token::PreprocIncludeNext);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("sys_foo"));
+        assert_eq!(p.next().tok, Token::PreprocIncludeNext);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("sys_foo"));
 
         lexer_for_file!(
             p,
@@ -533,17 +533,17 @@ mod tests {
             id,
             context.clone()
         );
-        assert_eq!(p.next(), Token::PreprocIncludeNext);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("inc_bar"));
+        assert_eq!(p.next().tok, Token::PreprocIncludeNext);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("inc_bar"));
 
         lexer_for_file!(p, "#include <oof.h>\ntest", &foo, id, context.clone());
-        assert_eq!(p.next(), Token::PreprocInclude);
-        assert_eq!(p.next(), Token::PreprocInclude);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::Identifier("sys_foo"));
+        assert_eq!(p.next().tok, Token::PreprocInclude);
+        assert_eq!(p.next().tok, Token::PreprocInclude);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::Identifier("sys_foo"));
     }
 }

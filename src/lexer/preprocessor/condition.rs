@@ -485,7 +485,6 @@ pub struct Condition<'a, 'b, PC: PreprocContext> {
 
 impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
-        //lexer.debug("operate");
         Self {
             lexer,
             operands: Vec::with_capacity(16),
@@ -545,7 +544,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     fn eval(&mut self) -> Int {
         loop {
             let tok = self.lexer.next();
-            match tok {
+            match tok.tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Add);
@@ -713,8 +712,8 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
                 _ => {
                     unreachable!(
                         "Got token {:?} at line {} in file {:?}",
-                        tok,
-                        self.lexer.get_line(),
+                        tok.tok,
+                        tok.start.line,
                         self.lexer
                             .context
                             .get_path(self.lexer.buf.get_source_id().unwrap())

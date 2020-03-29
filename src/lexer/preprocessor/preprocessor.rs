@@ -865,12 +865,12 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
 
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -883,10 +883,10 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(37));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(37));
 
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -901,13 +901,13 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(78));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(78));
 
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -922,12 +922,12 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocElse);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocElse);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
     }
 
     #[test]
@@ -955,24 +955,24 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf); // COND2: false
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocIf); // COND3: true
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocElse);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
-        assert_eq!(p.next(), Token::LiteralInt(910));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND1: true
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND2: false
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND3: true
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocElse);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::LiteralInt(910));
 
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -997,20 +997,20 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf); // defined(COND2): true
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocElse);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
-        assert_eq!(p.next(), Token::LiteralInt(78));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND1: true
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf); // defined(COND2): true
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocElse);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::LiteralInt(78));
 
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -1033,23 +1033,23 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocIf); // COND1: true
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf); // defined(COND2): false
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocIf); // COND3: false
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
-        assert_eq!(p.next(), Token::LiteralInt(1112));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND1: true
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf); // defined(COND2): false
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // COND3: false
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::LiteralInt(1112));
     }
 
     #[test]
@@ -1070,13 +1070,13 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocIf); // A: false
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocIf); // A: false
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
 
-        assert_eq!(p.next(), Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
     }
 
     #[test]
@@ -1094,12 +1094,12 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocEndif);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(56));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocEndif);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(56));
     }
 
     #[test]
@@ -1118,10 +1118,10 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
     }
 
     #[test]
@@ -1141,10 +1141,10 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::PreprocIf);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::PreprocIf);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
     }
 
     #[test]
@@ -1164,19 +1164,19 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::LiteralInt(2));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(3));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(4));
-        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::LiteralInt(2));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(3));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(4));
+        assert_eq!(p.next().tok, Token::Eol);
         assert_eq!(
-            std::mem::discriminant(&p.next()),
+            std::mem::discriminant(&p.next().tok),
             std::mem::discriminant(&Token::Comment(&[]))
         );
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(9));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(9));
     }
 
     #[test]
@@ -1192,13 +1192,13 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::LiteralInt(0));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(1));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(2));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::LiteralInt(3));
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::LiteralInt(0));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(1));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(2));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::LiteralInt(3));
     }
 }

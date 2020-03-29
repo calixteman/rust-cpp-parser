@@ -369,6 +369,32 @@ pub enum Token<'a> {
     PreprocUndef,
 }
 
+#[derive(Debug)]
+pub struct Location {
+    pub pos: usize,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Debug)]
+pub struct LocToken<'a> {
+    pub tok: Token<'a>,
+    pub file: Option<FileId>,
+    pub start: Location,
+    pub end: Location,
+}
+
+impl<'a> LocToken<'a> {
+    fn new(tok: Token<'a>, file: Option<FileId>, start: Location, end: Location) -> Self {
+        Self {
+            tok,
+            file,
+            start,
+            end,
+        }
+    }
+}
+
 pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) buf: Buffer<'a>,
     pub(crate) context: PC,
@@ -420,6 +446,14 @@ macro_rules! get_basic_operator {
         } else {
             Token::$single
         }
+    }};
+}
+
+macro_rules! loc {
+    ($self: ident, $tok: expr, $start: expr) => {{
+        let tok = $tok;
+        let end = $self.location();
+        LocToken::new(tok, $self.buf.get_source_id(), $start, end)
     }};
 }
 
@@ -488,8 +522,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             cl.push(b'\n');
         }
 
-        //eprintln!("FUCK\n{}", std::str::from_utf8(&cl).unwrap());
-
         if !cl.is_empty() {
             buffer.add_buffer(BufferData::new(cl, FileId(0), PathIndex(0)));
         }
@@ -511,7 +543,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     pub fn consume_all(&mut self) {
-        while self.next() != Token::Eof {}
+        while self.next().tok != Token::Eof {}
     }
 
     pub fn get_line(&self) -> u32 {
@@ -793,7 +825,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub(crate) fn next_useful(&mut self) -> Token<'a> {
         loop {
-            match self.next() {
+            match self.next().tok {
                 Token::Comment(_) => {}
                 tok => {
                     return tok;
@@ -802,8 +834,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub fn next(&mut self) -> Token<'a> {
+    fn location(&self) -> Location {
+        Location {
+            pos: self.buf.pos(),
+            line: self.buf.get_line(),
+            column: self.buf.get_column(),
+        }
+    }
+
+    pub fn next(&mut self) -> LocToken<'a> {
         loop {
+            let start = self.location();
             if self.buf.check_char() {
                 let c = self.buf.next_char();
                 self.buf.inc();
@@ -813,171 +854,195 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         self.buf.add_new_line();
                         // TODO: useless in general but useful to know the a #if condition is finished
                         // Probably remove it and find a way for the condition stuff
-                        return Token::Eol;
+                        return loc!(self, Token::Eol, start);
                     }
                     b' ' => skip_whites!(self),
                     b'!' => {
-                        return self.get_exclamation();
+                        return loc!(self, self.get_exclamation(), start);
                     }
                     b'\"' => {
-                        return self.get_string();
+                        return loc!(self, self.get_string(), start);
                     }
                     b'#' => {
-                        return self.get_preproc();
+                        return loc!(self, self.get_preproc(), start);
                     }
                     b'$' => {
-                        return Token::Dollar;
+                        return loc!(self, Token::Dollar, start);
                     }
                     b'%' => {
-                        return get_basic_operator!(self, b'%', Modulo, ModuloEqual);
+                        return loc!(
+                            self,
+                            get_basic_operator!(self, b'%', Modulo, ModuloEqual),
+                            start
+                        );
                     }
                     b'&' => {
-                        return get_operator!(self, b'&', And, AndAnd, AndEqual);
+                        return loc!(
+                            self,
+                            get_operator!(self, b'&', And, AndAnd, AndEqual),
+                            start
+                        );
                     }
                     b'\'' => {
-                        return self.get_char();
+                        return loc!(self, self.get_char(), start);
                     }
                     b'(' => {
-                        return Token::LeftParen;
+                        return loc!(self, Token::LeftParen, start);
                     }
                     b')' => {
-                        return Token::RightParen;
+                        return loc!(self, Token::RightParen, start);
                     }
                     b'*' => {
-                        return get_basic_operator!(self, b'*', Star, StarEqual);
+                        return loc!(
+                            self,
+                            get_basic_operator!(self, b'*', Star, StarEqual),
+                            start
+                        );
                     }
                     b'+' => {
-                        return get_operator!(self, b'+', Plus, PlusPlus, PlusEqual);
+                        return loc!(
+                            self,
+                            get_operator!(self, b'+', Plus, PlusPlus, PlusEqual),
+                            start
+                        );
                     }
                     b',' => {
-                        return Token::Comma;
+                        return loc!(self, Token::Comma, start);
                     }
                     b'-' => {
-                        return self.get_minus();
+                        return loc!(self, self.get_minus(), start);
                     }
                     b'.' => {
-                        return self.get_dot_or_number();
+                        return loc!(self, self.get_dot_or_number(), start);
                     }
                     b'/' => {
-                        return self.get_slash();
+                        return loc!(self, self.get_slash(), start);
                     }
                     b'0'..=b'9' => {
-                        return self.get_number(u64::from(c - b'0'));
+                        return loc!(self, self.get_number(u64::from(c - b'0')), start);
                     }
                     b':' => {
-                        return get_operator!(self, b':', Colon, ColonColon);
+                        return loc!(self, get_operator!(self, b':', Colon, ColonColon), start);
                     }
                     b';' => {
-                        return Token::SemiColon;
+                        return loc!(self, Token::SemiColon, start);
                     }
                     b'<' => {
-                        return self.get_lower();
+                        return loc!(self, self.get_lower(), start);
                     }
                     b'=' => {
-                        return get_operator!(self, b'=', Equal, EqualEqual);
+                        return loc!(self, get_operator!(self, b'=', Equal, EqualEqual), start);
                     }
                     b'>' => {
-                        return self.get_greater();
+                        return loc!(self, self.get_greater(), start);
                     }
                     b'?' => {
-                        return Token::Question;
+                        return loc!(self, Token::Question, start);
                     }
                     b'@' => {
-                        return Token::At;
+                        return loc!(self, Token::At, start);
                     }
                     b'A'..=b'K' => {
                         if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'L' => {
                         if let Some(tok) = self.get_special_string_char(StringType::L) {
-                            return tok;
+                            return loc!(self, tok, start);
                         } else if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'M'..=b'Q' => {
                         if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'R' => {
                         if let Some(tok) = self.get_special_string_char(StringType::R) {
-                            return tok;
+                            return loc!(self, tok, start);
                         } else if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'S'..=b'T' => {
                         if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'U' => {
                         if let Some(tok) = self.get_special_string_char(StringType::UU) {
-                            return tok;
+                            return loc!(self, tok, start);
                         } else if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'V'..=b'Z' => {
                         if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'[' => {
-                        return get_operator!(self, b'[', LeftBrack, DoubleLeftBrack);
+                        return loc!(
+                            self,
+                            get_operator!(self, b'[', LeftBrack, DoubleLeftBrack),
+                            start
+                        );
                     }
                     b'\\' => {
                         if let Some(tok) = self.get_backslash() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b']' => {
-                        return get_operator!(self, b']', RightBrack, DoubleRightBrack);
+                        return loc!(
+                            self,
+                            get_operator!(self, b']', RightBrack, DoubleRightBrack),
+                            start
+                        );
                     }
                     b'^' => {
-                        return get_basic_operator!(self, b'^', Xor, XorEqual);
+                        return loc!(self, get_basic_operator!(self, b'^', Xor, XorEqual), start);
                     }
                     b'_' => {
                         if let Some(tok) = self.get_identifier() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'a'..=b't' => {
                         if let Some(tok) = self.get_identifier_or_keyword() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'u' => {
                         if let Some(tok) = self.get_special_string_char(StringType::U) {
-                            return tok;
+                            return loc!(self, tok, start);
                         } else if let Some(tok) = self.get_identifier_or_keyword() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'v'..=b'z' => {
                         if let Some(tok) = self.get_identifier_or_keyword() {
-                            return tok;
+                            return loc!(self, tok, start);
                         }
                     }
                     b'{' => {
-                        return Token::LeftBrace;
+                        return loc!(self, Token::LeftBrace, start);
                     }
                     b'|' => {
-                        return get_operator!(self, b'|', Or, OrOr, OrEqual);
+                        return loc!(self, get_operator!(self, b'|', Or, OrOr, OrEqual), start);
                     }
                     b'}' => {
-                        return Token::RightBrace;
+                        return loc!(self, Token::RightBrace, start);
                     }
                     b'~' => {
-                        return Token::Tilde;
+                        return loc!(self, Token::Tilde, start);
                     }
                     _ => {}
                 }
             } else {
-                return Token::Eof;
+                return loc!(self, Token::Eof, start);
             }
         }
     }
@@ -993,109 +1058,109 @@ mod tests {
     #[test]
     fn test_hex() {
         let mut p = Lexer::<DefaultContext>::new(b"0x12345 0xabcdef 0XA'1b2'C3D'4e5 0xaB1ul");
-        assert_eq!(p.next(), Token::LiteralInt(0x12345));
-        assert_eq!(p.next(), Token::LiteralInt(0xabcdef));
-        assert_eq!(p.next(), Token::LiteralInt(0xa1b2c3d4e5));
-        assert_eq!(p.next(), Token::LiteralULong(0xab1));
+        assert_eq!(p.next().tok, Token::LiteralInt(0x12345));
+        assert_eq!(p.next().tok, Token::LiteralInt(0xabcdef));
+        assert_eq!(p.next().tok, Token::LiteralInt(0xa1b2c3d4e5));
+        assert_eq!(p.next().tok, Token::LiteralULong(0xab1));
     }
 
     #[test]
     fn test_oct() {
         let mut p = Lexer::<DefaultContext>::new(b"012345 01357 012'34ul");
-        assert_eq!(p.next(), Token::LiteralInt(0o12345));
-        assert_eq!(p.next(), Token::LiteralInt(0o1357));
-        assert_eq!(p.next(), Token::LiteralULong(0o1234));
+        assert_eq!(p.next().tok, Token::LiteralInt(0o12345));
+        assert_eq!(p.next().tok, Token::LiteralInt(0o1357));
+        assert_eq!(p.next().tok, Token::LiteralULong(0o1234));
     }
 
     #[test]
     fn test_bin() {
         let mut p = Lexer::<DefaultContext>::new(b"0b110'001'110'010'010'110'011'101 0b1001ul");
-        assert_eq!(p.next(), Token::LiteralInt(0b110001110010010110011101));
-        assert_eq!(p.next(), Token::LiteralULong(0b1001));
+        assert_eq!(p.next().tok, Token::LiteralInt(0b110001110010010110011101));
+        assert_eq!(p.next().tok, Token::LiteralULong(0b1001));
     }
 
     #[test]
     fn test_number() {
         let mut p = Lexer::<DefaultContext>::new(b"123 123e45 123e+45 123e-45");
-        assert_eq!(p.next(), Token::LiteralInt(123));
-        assert_eq!(p.next(), Token::LiteralDouble(123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(123e-45));
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123. 123.e45 123.e+45 123.e-45");
-        assert_eq!(p.next(), Token::LiteralDouble(123.));
-        assert_eq!(p.next(), Token::LiteralDouble(123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(123e-45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123.f 123.e45F 123.e+45L 123.e-45l");
-        assert_eq!(p.next(), Token::LiteralFloat(123.));
-        assert_eq!(p.next(), Token::LiteralFloat(123e45));
-        assert_eq!(p.next(), Token::LiteralLongDouble(123e45));
-        assert_eq!(p.next(), Token::LiteralLongDouble(123e-45));
+        assert_eq!(p.next().tok, Token::LiteralFloat(123.));
+        assert_eq!(p.next().tok, Token::LiteralFloat(123e45));
+        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123.456 123.456e78 123.456e+78 123.456e-78 1.79769313486231570814527423731704357e+308L 2.2250738585072014e-308F");
-        assert_eq!(p.next(), Token::LiteralDouble(123.456));
-        assert_eq!(p.next(), Token::LiteralDouble(123.456e78));
-        assert_eq!(p.next(), Token::LiteralDouble(123.456e78));
-        assert_eq!(p.next(), Token::LiteralDouble(123.456e-78));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e-78));
         assert_eq!(
-            p.next(),
+            p.next().tok,
             Token::LiteralLongDouble(1.79769313486231570814527423731704357e+308)
         );
-        assert_eq!(p.next(), Token::LiteralFloat(2.2250738585072014e-308));
+        assert_eq!(p.next().tok, Token::LiteralFloat(2.2250738585072014e-308));
 
         let mut p = Lexer::<DefaultContext>::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
-        assert_eq!(p.next(), Token::LiteralDouble(0.123));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e-45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b".123 .123e45 .123e+45 .123e-45");
-        assert_eq!(p.next(), Token::LiteralDouble(0.123));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next(), Token::LiteralDouble(0.123e-45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"0 0. .0 0.0");
-        assert_eq!(p.next(), Token::LiteralInt(0));
-        assert_eq!(p.next(), Token::LiteralDouble(0.));
-        assert_eq!(p.next(), Token::LiteralDouble(0.));
-        assert_eq!(p.next(), Token::LiteralDouble(0.));
+        assert_eq!(p.next().tok, Token::LiteralInt(0));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
 
         let mut p = Lexer::<DefaultContext>::new(b"123 123u 123U 123llu 123LLu 123llU 123LLU 123ull 123Ull 123ULL 123lu 123ul 123uL 123L");
-        assert_eq!(p.next(), Token::LiteralInt(123));
-        assert_eq!(p.next(), Token::LiteralUInt(123));
-        assert_eq!(p.next(), Token::LiteralUInt(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULongLong(123));
-        assert_eq!(p.next(), Token::LiteralULong(123));
-        assert_eq!(p.next(), Token::LiteralULong(123));
-        assert_eq!(p.next(), Token::LiteralULong(123));
-        assert_eq!(p.next(), Token::LiteralLong(123));
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralLong(123));
 
         let mut p = Lexer::<DefaultContext>::new(b"0x1.2p3 0x1.2p3F 0xA.Bp-1 0XAB1P-3");
-        assert_eq!(p.next(), Token::LiteralDouble(9.0));
-        assert_eq!(p.next(), Token::LiteralFloat(9.0));
-        assert_eq!(p.next(), Token::LiteralDouble(5.34375));
-        assert_eq!(p.next(), Token::LiteralDouble(342.125));
+        assert_eq!(p.next().tok, Token::LiteralDouble(9.0));
+        assert_eq!(p.next().tok, Token::LiteralFloat(9.0));
+        assert_eq!(p.next().tok, Token::LiteralDouble(5.34375));
+        assert_eq!(p.next().tok, Token::LiteralDouble(342.125));
     }
 
     #[test]
     fn test_keywords() {
         let mut p = Lexer::<DefaultContext>::new(b"while foa whila for While For static_cast");
-        assert_eq!(p.next(), Token::While);
-        assert_eq!(p.next(), Token::Identifier("foa"));
-        assert_eq!(p.next(), Token::Identifier("whila"));
-        assert_eq!(p.next(), Token::For);
-        assert_eq!(p.next(), Token::Identifier("While"));
-        assert_eq!(p.next(), Token::Identifier("For"));
-        assert_eq!(p.next(), Token::StaticCast);
+        assert_eq!(p.next().tok, Token::While);
+        assert_eq!(p.next().tok, Token::Identifier("foa"));
+        assert_eq!(p.next().tok, Token::Identifier("whila"));
+        assert_eq!(p.next().tok, Token::For);
+        assert_eq!(p.next().tok, Token::Identifier("While"));
+        assert_eq!(p.next().tok, Token::Identifier("For"));
+        assert_eq!(p.next().tok, Token::StaticCast);
     }
 
     #[test]
@@ -1103,114 +1168,117 @@ mod tests {
         let mut p = Lexer::<DefaultContext>::new(
             b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123",
         );
-        assert_eq!(p.next(), Token::Identifier("hello"));
-        assert_eq!(p.next(), Token::Identifier("world"));
-        assert_eq!(p.next(), Token::Identifier("whilee"));
-        assert_eq!(p.next(), Token::Identifier("Roo"));
-        assert_eq!(p.next(), Token::Identifier("Lar"));
-        assert_eq!(p.next(), Token::Identifier("uoo"));
-        assert_eq!(p.next(), Token::Identifier("Uar"));
-        assert_eq!(p.next(), Token::Identifier("u851"));
-        assert_eq!(p.next(), Token::Identifier("hello_world_WORLD_HELLO123"));
+        assert_eq!(p.next().tok, Token::Identifier("hello"));
+        assert_eq!(p.next().tok, Token::Identifier("world"));
+        assert_eq!(p.next().tok, Token::Identifier("whilee"));
+        assert_eq!(p.next().tok, Token::Identifier("Roo"));
+        assert_eq!(p.next().tok, Token::Identifier("Lar"));
+        assert_eq!(p.next().tok, Token::Identifier("uoo"));
+        assert_eq!(p.next().tok, Token::Identifier("Uar"));
+        assert_eq!(p.next().tok, Token::Identifier("u851"));
+        assert_eq!(
+            p.next().tok,
+            Token::Identifier("hello_world_WORLD_HELLO123")
+        );
     }
 
     #[test]
     fn test_divide() {
         let mut p = Lexer::<DefaultContext>::new(b"a / b");
-        assert_eq!(p.next(), Token::Identifier("a"));
-        assert_eq!(p.next(), Token::Divide);
-        assert_eq!(p.next(), Token::Identifier("b"));
+        assert_eq!(p.next().tok, Token::Identifier("a"));
+        assert_eq!(p.next().tok, Token::Divide);
+        assert_eq!(p.next().tok, Token::Identifier("b"));
     }
 
     #[test]
     fn test_comment() {
         let mut p = Lexer::<DefaultContext>::new(b"/* test */");
-        assert_eq!(p.next(), Token::Comment(" test ".as_bytes()));
+        assert_eq!(p.next().tok, Token::Comment(" test ".as_bytes()));
     }
 
     #[test]
     fn test_string() {
         let mut p = Lexer::<DefaultContext>::new(b"\"foo\" \"foo\\\"bar\"");
-        assert_eq!(p.next(), Token::LiteralString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralString(b"foo\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(b"u\"foo\" u\"foo\\\"bar\"");
-        assert_eq!(p.next(), Token::LiteralUString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralUString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralUString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralUString(b"foo\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(b"U\"foo\" U\"foo\\\"bar\"");
-        assert_eq!(p.next(), Token::LiteralUUString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralUUString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralUUString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralUUString(b"foo\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(b"u8\"foo\" u8\"foo\\\"bar\"");
-        assert_eq!(p.next(), Token::LiteralU8String(b"foo"));
-        assert_eq!(p.next(), Token::LiteralU8String(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralU8String(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralU8String(b"foo\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(b"L\"foo\" L\"foo\\\"bar\"");
-        assert_eq!(p.next(), Token::LiteralLString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralLString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralLString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralLString(b"foo\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(
             b"R\"hello(foo)hello\" R\"world(foo\n\\\"bar)world\" R\"world(foo)world  )world\"",
         );
-        assert_eq!(p.next(), Token::LiteralRString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralRString(b"foo\n\\\"bar"));
-        assert_eq!(p.next(), Token::LiteralRString(b"foo)world  "));
+        assert_eq!(p.next().tok, Token::LiteralRString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralRString(b"foo\n\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralRString(b"foo)world  "));
 
         let mut p =
             Lexer::<DefaultContext>::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
-        assert_eq!(p.next(), Token::LiteralLRString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralUURString(b"foo\n\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralLRString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralUURString(b"foo\n\\\"bar"));
 
         let mut p =
             Lexer::<DefaultContext>::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
-        assert_eq!(p.next(), Token::LiteralURString(b"foo"));
-        assert_eq!(p.next(), Token::LiteralU8RString(b"foo\n\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralURString(b"foo"));
+        assert_eq!(p.next().tok, Token::LiteralU8RString(b"foo\n\\\"bar"));
 
         let mut p = Lexer::<DefaultContext>::new(b"R\"(abc)\ndef)\n)\"");
-        assert_eq!(p.next(), Token::LiteralRString(b"abc)\ndef)\n"));
+        assert_eq!(p.next().tok, Token::LiteralRString(b"abc)\ndef)\n"));
     }
 
     #[test]
     fn test_operators() {
         let mut p = Lexer::<DefaultContext>::new(b"+ += ++ - -= -- -> / /= % %= | |= || & &= && ^ ^= * *= < <= > >= << <<= >> >>= = != == ! ~ ->* .* ... <=>");
-        assert_eq!(p.next(), Token::Plus);
-        assert_eq!(p.next(), Token::PlusEqual);
-        assert_eq!(p.next(), Token::PlusPlus);
-        assert_eq!(p.next(), Token::Minus);
-        assert_eq!(p.next(), Token::MinusEqual);
-        assert_eq!(p.next(), Token::MinusMinus);
-        assert_eq!(p.next(), Token::Arrow);
-        assert_eq!(p.next(), Token::Divide);
-        assert_eq!(p.next(), Token::DivideEqual);
-        assert_eq!(p.next(), Token::Modulo);
-        assert_eq!(p.next(), Token::ModuloEqual);
-        assert_eq!(p.next(), Token::Or);
-        assert_eq!(p.next(), Token::OrEqual);
-        assert_eq!(p.next(), Token::OrOr);
-        assert_eq!(p.next(), Token::And);
-        assert_eq!(p.next(), Token::AndEqual);
-        assert_eq!(p.next(), Token::AndAnd);
-        assert_eq!(p.next(), Token::Xor);
-        assert_eq!(p.next(), Token::XorEqual);
-        assert_eq!(p.next(), Token::Star);
-        assert_eq!(p.next(), Token::StarEqual);
-        assert_eq!(p.next(), Token::Lower);
-        assert_eq!(p.next(), Token::LowerEqual);
-        assert_eq!(p.next(), Token::Greater);
-        assert_eq!(p.next(), Token::GreaterEqual);
-        assert_eq!(p.next(), Token::LeftShift);
-        assert_eq!(p.next(), Token::LeftShiftEqual);
-        assert_eq!(p.next(), Token::RightShift);
-        assert_eq!(p.next(), Token::RightShiftEqual);
-        assert_eq!(p.next(), Token::Equal);
-        assert_eq!(p.next(), Token::NotEqual);
-        assert_eq!(p.next(), Token::EqualEqual);
-        assert_eq!(p.next(), Token::Not);
-        assert_eq!(p.next(), Token::Tilde);
-        assert_eq!(p.next(), Token::ArrowStar);
-        assert_eq!(p.next(), Token::DotStar);
-        assert_eq!(p.next(), Token::Ellipsis);
-        assert_eq!(p.next(), Token::LowerEqualGreater);
+        assert_eq!(p.next().tok, Token::Plus);
+        assert_eq!(p.next().tok, Token::PlusEqual);
+        assert_eq!(p.next().tok, Token::PlusPlus);
+        assert_eq!(p.next().tok, Token::Minus);
+        assert_eq!(p.next().tok, Token::MinusEqual);
+        assert_eq!(p.next().tok, Token::MinusMinus);
+        assert_eq!(p.next().tok, Token::Arrow);
+        assert_eq!(p.next().tok, Token::Divide);
+        assert_eq!(p.next().tok, Token::DivideEqual);
+        assert_eq!(p.next().tok, Token::Modulo);
+        assert_eq!(p.next().tok, Token::ModuloEqual);
+        assert_eq!(p.next().tok, Token::Or);
+        assert_eq!(p.next().tok, Token::OrEqual);
+        assert_eq!(p.next().tok, Token::OrOr);
+        assert_eq!(p.next().tok, Token::And);
+        assert_eq!(p.next().tok, Token::AndEqual);
+        assert_eq!(p.next().tok, Token::AndAnd);
+        assert_eq!(p.next().tok, Token::Xor);
+        assert_eq!(p.next().tok, Token::XorEqual);
+        assert_eq!(p.next().tok, Token::Star);
+        assert_eq!(p.next().tok, Token::StarEqual);
+        assert_eq!(p.next().tok, Token::Lower);
+        assert_eq!(p.next().tok, Token::LowerEqual);
+        assert_eq!(p.next().tok, Token::Greater);
+        assert_eq!(p.next().tok, Token::GreaterEqual);
+        assert_eq!(p.next().tok, Token::LeftShift);
+        assert_eq!(p.next().tok, Token::LeftShiftEqual);
+        assert_eq!(p.next().tok, Token::RightShift);
+        assert_eq!(p.next().tok, Token::RightShiftEqual);
+        assert_eq!(p.next().tok, Token::Equal);
+        assert_eq!(p.next().tok, Token::NotEqual);
+        assert_eq!(p.next().tok, Token::EqualEqual);
+        assert_eq!(p.next().tok, Token::Not);
+        assert_eq!(p.next().tok, Token::Tilde);
+        assert_eq!(p.next().tok, Token::ArrowStar);
+        assert_eq!(p.next().tok, Token::DotStar);
+        assert_eq!(p.next().tok, Token::Ellipsis);
+        assert_eq!(p.next().tok, Token::LowerEqualGreater);
     }
 }

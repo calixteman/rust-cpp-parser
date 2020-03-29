@@ -391,16 +391,16 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::While);
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Identifier("lewhi"));
-        assert_eq!(p.next(), Token::Eol);
-        assert_eq!(p.next(), Token::PreprocDefine);
-        assert_eq!(p.next(), Token::Identifier("bar"));
-        assert_eq!(p.next(), Token::Identifier("foo"));
-        assert_eq!(p.next(), Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::While);
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Identifier("lewhi"));
+        assert_eq!(p.next().tok, Token::Eol);
+        assert_eq!(p.next().tok, Token::PreprocDefine);
+        assert_eq!(p.next().tok, Token::Identifier("bar"));
+        assert_eq!(p.next().tok, Token::Identifier("foo"));
+        assert_eq!(p.next().tok, Token::Eol);
     }
 
     #[test]

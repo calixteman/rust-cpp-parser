@@ -190,7 +190,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     fn get_shift(c: u32) -> u32 {
         match c {
             0..=0xFF => 0x100,
-            0xFF..=0xFFFF => 0x10000,
+            0x100..=0xFFFF => 0x10000,
             _ => 0,
         }
     }
@@ -236,28 +236,28 @@ mod tests {
     #[test]
     fn test_char() {
         let mut p = Lexer::<DefaultContext>::new(b"'a' 'b' 'c' '\\t' '\\n' '\\\'' '\\\"' '\\12' '\\1' '\\x12' '\\x12\\x34' 'abcd' '\\u1a2b' '\\U1a2B3c4D'");
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('a')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('b')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('c')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('\t')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('\n')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('\'')));
-        assert_eq!(p.next(), Token::LiteralChar(u32::from('\"')));
-        assert_eq!(p.next(), Token::LiteralChar(0o12));
-        assert_eq!(p.next(), Token::LiteralChar(0o1));
-        assert_eq!(p.next(), Token::LiteralChar(0x12));
-        assert_eq!(p.next(), Token::LiteralChar(0x1234));
-        assert_eq!(p.next(), Token::LiteralChar(0x61626364));
-        assert_eq!(p.next(), Token::LiteralChar(0x1a2b));
-        assert_eq!(p.next(), Token::LiteralChar(0x1a2b3c4d));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('a')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('b')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('c')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\t')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\n')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\'')));
+        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\"')));
+        assert_eq!(p.next().tok, Token::LiteralChar(0o12));
+        assert_eq!(p.next().tok, Token::LiteralChar(0o1));
+        assert_eq!(p.next().tok, Token::LiteralChar(0x12));
+        assert_eq!(p.next().tok, Token::LiteralChar(0x1234));
+        assert_eq!(p.next().tok, Token::LiteralChar(0x61626364));
+        assert_eq!(p.next().tok, Token::LiteralChar(0x1a2b));
+        assert_eq!(p.next().tok, Token::LiteralChar(0x1a2b3c4d));
     }
 
     #[test]
     fn test_special_char() {
         let mut p = Lexer::<DefaultContext>::new(b"u'a' U'b' u8'c' L'\\t'");
-        assert_eq!(p.next(), Token::LiteralUChar(u32::from('a')));
-        assert_eq!(p.next(), Token::LiteralUUChar(u32::from('b')));
-        assert_eq!(p.next(), Token::LiteralU8Char(u32::from('c')));
-        assert_eq!(p.next(), Token::LiteralLChar(u32::from('\t')));
+        assert_eq!(p.next().tok, Token::LiteralUChar(u32::from('a')));
+        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('b')));
+        assert_eq!(p.next().tok, Token::LiteralU8Char(u32::from('c')));
+        assert_eq!(p.next().tok, Token::LiteralLChar(u32::from('\t')));
     }
 }
