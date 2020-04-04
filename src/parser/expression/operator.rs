@@ -2,16 +2,30 @@ use super::ast::{Arguments, CallExpr, Node};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
+    ScopeResolution,
+    PostInc,
+    PostDec,
     Call,
     Parenthesis,
-    Array,
     Dot,
     Arrow,
+    Subscript,
+    PreInc,
+    PreDec,
     Plus,
     Minus,
+    Indirection,
+    AddressOf,
     Sizeof,
+    New,
+    NewArray,
+    Delete,
+    DeleteArray,
+    CoAwait,
     Not,
     BitNeg,
+    DotIndirection,
+    ArrowIndirection,
     Mul,
     Div,
     Mod,
@@ -19,6 +33,7 @@ pub enum Operator {
     Sub,
     LShift,
     RShift,
+    ThreeWayComp,
     Lt,
     Gt,
     Leq,
@@ -32,8 +47,20 @@ pub enum Operator {
     Or,
     Question,
     Colon,
+    Throw,
+    CoYield,
+    Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+    LShiftAssign,
+    RShiftAssign,
+    AndAssign,
+    XorAssign,
+    OrAssign,
     Comma,
-    CommaArg,
 }
 
 impl Operator {
@@ -41,28 +68,9 @@ impl Operator {
         use Operator::*;
 
         match *self {
-            Plus | Minus | Not | BitNeg | Sizeof => {
+            Plus | Minus | Not | BitNeg | Sizeof | PreInc | PreDec | Indirection | AddressOf => {
                 let arg = stack.pop().unwrap();
                 stack.push(Node::UnaryOp(Box::new(UnaryOp { op: *self, arg })));
-            }
-            CommaArg => {
-                let arg2 = stack.pop().unwrap();
-                if let Node::Arguments(args) = stack.last_mut().unwrap() {
-                    args.args.push(arg2);
-                } else {
-                    let arg1 = stack.pop().unwrap();
-                    stack.push(Node::Arguments(Box::new(Arguments {
-                        args: vec![arg1, arg2],
-                    })));
-                }
-            }
-            Call => {
-                let arg2 = stack.pop().unwrap();
-                let arg1 = stack.pop().unwrap();
-                stack.push(Node::CallExpr(Box::new(CallExpr {
-                    callee: arg1,
-                    args: arg2,
-                })));
             }
             _ => {
                 let arg2 = stack.pop().unwrap();
@@ -77,14 +85,14 @@ impl Operator {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BinaryOp {
     pub op: Operator,
     pub arg1: Node,
     pub arg2: Node,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UnaryOp {
     pub op: Operator,
     pub arg: Node,

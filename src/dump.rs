@@ -4,6 +4,16 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLoc
 use crate::parser::ast::*;
 use crate::parser::operator::*;
 
+macro_rules! start {
+    ( $name: expr, $prefix: ident, $last: ident, $out: ident) => {
+        color!($out, Blue);
+        write!($out, "{}{}", $prefix, Self::get_pref($last)).unwrap();
+        
+        color!($out, Yellow, true);
+        write!($out, concat!($name, ": ")).unwrap();        
+    };
+}
+
 pub trait Dump {
     fn dump_me(&self) {
         let stdout = StandardStream::stdout(ColorChoice::Always);
@@ -12,11 +22,19 @@ pub trait Dump {
         color!(stdout, White);
     }
 
-    fn get_prefixes(last: bool) -> (&'static str, &'static str) {
+    fn get_pref(last: bool) -> &'static str {
         if last {
-            ("   ", "`- ")
+            "`- "
         } else {
-            ("|  ", "|- ")
+            "|- "
+        }
+    }
+
+    fn get_pref_child(last: bool) -> &'static str {
+        if last {
+            "   "
+        } else {
+            "|  "
         }
     }
 
@@ -38,14 +56,8 @@ impl Dump for Node {
 
 impl Dump for Id {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (_, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        write!(stdout, "Identifier: ").unwrap();
-
+        start!("Identifier", prefix, last, stdout);
+        
         color!(stdout, White);
         writeln!(stdout, "{}", self.name).unwrap();
     }
@@ -53,13 +65,7 @@ impl Dump for Id {
 
 impl Dump for UInt {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (_, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        write!(stdout, "UInt: ").unwrap();
+        start!("UInt", prefix, last, stdout);
 
         color!(stdout, White);
         writeln!(stdout, "{}", self.value).unwrap();
@@ -68,18 +74,12 @@ impl Dump for UInt {
 
 impl Dump for BinaryOp {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (pref_child, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        write!(stdout, "BinaryOp: ").unwrap();
-
+        start!("BinaryOp", prefix, last, stdout);
+        
         color!(stdout, Green, true);
         writeln!(stdout, "{:?}", self.op).unwrap();
 
-        let prefix = format!("{}{}", prefix, pref_child);
+        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
         self.arg1.dump(&prefix, false, stdout);
         self.arg2.dump(&prefix, true, stdout);
     }
@@ -87,33 +87,21 @@ impl Dump for BinaryOp {
 
 impl Dump for UnaryOp {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (pref_child, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        write!(stdout, "UnaryOp: ").unwrap();
-
+        start!("UnaryOp", prefix, last, stdout);
+        
         color!(stdout, Green, true);
         writeln!(stdout, "{:?}", self.op).unwrap();
 
-        let prefix = format!("{}{}", prefix, pref_child);
+        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
         self.arg.dump(&prefix, true, stdout);
     }
 }
 
 impl Dump for CallExpr {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (pref_child, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        writeln!(stdout, "CallExpr: ").unwrap();
-
-        let prefix = format!("{}{}", prefix, pref_child);
+        start!("CallExpr", prefix, last, stdout);
+        
+        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
         self.callee.dump(&prefix, false, stdout);
         self.args.dump(&prefix, true, stdout);
     }
@@ -121,15 +109,9 @@ impl Dump for CallExpr {
 
 impl Dump for Arguments {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let (pref_child, pref) = Self::get_prefixes(last);
-
-        color!(stdout, Blue);
-        write!(stdout, "{}{}", prefix, pref).unwrap();
-
-        color!(stdout, Yellow, true);
-        writeln!(stdout, "Arguments: ").unwrap();
-
-        let prefix = format!("{}{}", prefix, pref_child);
+        start!("Arguments", prefix, last, stdout);
+        
+        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
         if let Some((last, args)) = self.args.split_last() {
             for arg in args.iter() {
                 arg.dump(&prefix, false, stdout);

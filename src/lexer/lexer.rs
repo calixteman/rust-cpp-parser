@@ -103,14 +103,18 @@ static CPP_KEYWORDS: phf::Map<&'static str, Token<'_>> = phf_map! {
     "case" => Token::Case,
     "catch" => Token::Catch,
     "char" => Token::Char,
-    "char16_t" => Token::Char16,
-    "char32_t" => Token::Char32,
+    "char8_t" => Token::Char8T,
+    "char16_t" => Token::Char16T,
+    "char32_t" => Token::Char32T,
     "class" => Token::Class,
     "compl" => Token::Compl,
     "const" => Token::Const,
+    "consteval" => Token::Consteval,
     "constexpr" => Token::Constexpr,
+    "constinit" => Token::Constinit,
     "const_cast" => Token::ConstCast,
     "continue" => Token::Continue,
+    "_Complex" => Token::Complex,
     "decltype" => Token::Decltype,
     "default" => Token::Default,
     "delete" => Token::Delete,
@@ -130,6 +134,7 @@ static CPP_KEYWORDS: phf::Map<&'static str, Token<'_>> = phf_map! {
     "friend" => Token::Friend,
     "goto" => Token::Goto,
     "if" => Token::If,
+    "_Imaginary" => Token::Imaginary,
     "inline" => Token::Inline,
     "int" => Token::Int,
     "long" => Token::Long,
@@ -174,7 +179,7 @@ static CPP_KEYWORDS: phf::Map<&'static str, Token<'_>> = phf_map! {
     "virtual" => Token::Virtual,
     "void" => Token::Void,
     "volatile" => Token::Volatile,
-    "wchar_t" => Token::Wchar,
+    "wchar_t" => Token::WcharT,
     "while" => Token::While,
     "xor" => Token::XorKw,
     "xor_eq" => Token::XorEq,
@@ -279,12 +284,16 @@ pub enum Token<'a> {
     Case,
     Catch,
     Char,
-    Char16,
-    Char32,
+    Char8T,
+    Char16T,
+    Char32T,
     Class,
     Compl,
+    Complex,
     Const,
+    Consteval,
     Constexpr,
+    Constinit,
     ConstCast,
     Continue,
     Decltype,
@@ -306,6 +315,7 @@ pub enum Token<'a> {
     Friend,
     Goto,
     If,
+    Imaginary,
     Inline,
     Int,
     Long,
@@ -350,7 +360,7 @@ pub enum Token<'a> {
     Virtual,
     Void,
     Volatile,
-    Wchar,
+    WcharT,
     While,
     XorKw,
     XorEq,
@@ -369,14 +379,14 @@ pub enum Token<'a> {
     PreprocUndef,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Location {
     pub pos: usize,
     pub line: u32,
     pub column: u32,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LocToken<'a> {
     pub tok: Token<'a>,
     pub file: Option<FileId>,
@@ -620,7 +630,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub(crate) fn get_identifier_or_keyword(&mut self) -> Option<Token<'a>> {
         let spos = self.buf.pos() - 1;
-        let mut keyword = true;
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
@@ -629,7 +638,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     break;
                 }
 
-                keyword = keyword && *kind == Kind::KEY;
                 self.buf.inc();
             } else {
                 break;
@@ -640,14 +648,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         if !self.buf.preproc_use() && self.macro_eval(id) {
             self.buf.switch_to_preproc();
             None
-        } else if keyword {
+        } else {
             if let Some(keyword) = CPP_KEYWORDS.get(id) {
                 Some(*keyword)
             } else {
                 Some(Token::Identifier(id))
             }
-        } else {
-            Some(Token::Identifier(id))
         }
     }
 
@@ -753,7 +759,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     pub(crate) fn get_greater(&mut self) -> Token<'a> {
         match self.buf.rem() {
             #[cold]
-            0 => Token::Lower,
+            0 => Token::Greater,
             #[cold]
             1 => {
                 let c = self.buf.next_char();
@@ -823,11 +829,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         self.get_preproc_keyword(true)
     }
 
-    pub(crate) fn next_useful(&mut self) -> Token<'a> {
+    pub(crate) fn next_useful(&mut self) -> LocToken<'a> {
         loop {
-            match self.next().tok {
+            let tok = self.next();
+            match tok.tok {
                 Token::Comment(_) => {}
-                tok => {
+                _ => {
                     return tok;
                 }
             }
@@ -1006,7 +1013,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         return loc!(self, get_basic_operator!(self, b'^', Xor, XorEqual), start);
                     }
                     b'_' => {
-                        if let Some(tok) = self.get_identifier() {
+                        if let Some(tok) = self.get_identifier_or_keyword() {
                             return loc!(self, tok, start);
                         }
                     }
