@@ -1,6 +1,6 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{ExpressionParser, Node, Parameters, ParametersParser};
+use crate::parser::expression::{Parameters, ParametersParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
@@ -39,48 +39,45 @@ pub struct Qualified {
 
 pub struct QualifiedParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
-    names: Vec<Name>,
 }
 
 impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
     pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
-        Self {
-            lexer,
-            names: Vec::new(),
-        }
+        Self { lexer }
     }
 
     pub(super) fn parse(
-        mut self,
+        self,
         tok: Option<LocToken<'a>>,
     ) -> (Option<LocToken<'a>>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        let mut names = Vec::new();
 
         loop {
             match tok.tok {
                 Token::ColonColon => {}
                 Token::Lower => {
-                    let name = if let Some(Name::Identifier(id)) = self.names.pop() {
+                    let name = if let Some(Name::Identifier(id)) = names.pop() {
                         id.val
                     } else {
                         unreachable!("Cannot have two templates args");
                     };
 
-                    let mut pp = ParametersParser::new(self.lexer, Token::Greater);
-                    let (tok, params) = pp.parse(None);
+                    let pp = ParametersParser::new(self.lexer, Token::Greater);
+                    let (_, params) = pp.parse(None);
 
-                    self.names.push(Name::Template(Template {
+                    names.push(Name::Template(Template {
                         val: name,
                         params: params.unwrap(),
                     }));
                 }
                 Token::Identifier(id) => {
-                    self.names.push(Name::Identifier(Identifier {
+                    names.push(Name::Identifier(Identifier {
                         val: id.to_string(),
                     }));
                 }
                 _ => {
-                    return (Some(tok), Some(Qualified { names: self.names }));
+                    return (Some(tok), Some(Qualified { names }));
                 }
             }
             tok = self.lexer.next_useful();
@@ -98,7 +95,7 @@ mod tests {
     #[test]
     fn test_name_one() {
         let mut l = Lexer::<DefaultContext>::new(b"abc");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(q.unwrap(), mk_id!("abc"));
@@ -107,7 +104,7 @@ mod tests {
     #[test]
     fn test_name_two() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg"));
@@ -116,7 +113,7 @@ mod tests {
     #[test]
     fn test_name_three() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg::hijkl");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg", "hijkl"));
@@ -125,7 +122,7 @@ mod tests {
     #[test]
     fn test_name_template_zero() {
         let mut l = Lexer::<DefaultContext>::new(b"A<>");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(
@@ -142,7 +139,7 @@ mod tests {
     #[test]
     fn test_name_template_one() {
         let mut l = Lexer::<DefaultContext>::new(b"A<B>");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(
@@ -159,7 +156,7 @@ mod tests {
     #[test]
     fn test_name_complex() {
         let mut l = Lexer::<DefaultContext>::new(b"A::B<C::D, E::F, G>::H<I>");
-        let mut p = QualifiedParser::new(&mut l);
+        let p = QualifiedParser::new(&mut l);
         let (_, q) = p.parse(None);
 
         assert_eq!(

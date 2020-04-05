@@ -12,3 +12,6 @@ pub use self::reference::*;
 
 pub mod function;
 pub use self::function::*;
+
+pub mod array;
+pub use self::array::*;

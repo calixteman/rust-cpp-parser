@@ -1,5 +1,5 @@
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, LocToken};
 
 use super::super::r#type::CVQualifier;
 
@@ -27,21 +27,19 @@ impl Pointer {
 
 pub struct PointerDeclaratorParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
-    cv: CVQualifier,
 }
 
 impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
     pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
-        Self {
-            lexer,
-            cv: CVQualifier::empty(),
-        }
+        Self { lexer }
     }
 
-    pub(super) fn parse(mut self) -> (Option<LocToken<'a>>, Pointer) {
+    pub(super) fn parse(self) -> (Option<LocToken<'a>>, Pointer) {
+        let mut cv = CVQualifier::empty();
+
         let tok = loop {
             let tok = self.lexer.next_useful();
-            if self.cv.from_tok(&tok.tok) {
+            if cv.from_tok(&tok.tok) {
                 continue;
             }
 
@@ -52,7 +50,7 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
         let (tok, decl) = dp.parse(tok);
         let ptr = Pointer {
             decl: Box::new(decl.unwrap()),
-            cv: self.cv,
+            cv,
         };
 
         (tok, ptr)

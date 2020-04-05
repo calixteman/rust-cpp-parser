@@ -1,5 +1,6 @@
 use bitflags::bitflags;
 use phf::phf_map;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -185,7 +186,7 @@ static CPP_KEYWORDS: phf::Map<&'static str, Token<'_>> = phf_map! {
     "xor_eq" => Token::XorEq,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
     None,
     Eof,
@@ -619,9 +620,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
             if eval {
-                self.preproc_parse(*keyword)
+                self.preproc_parse(keyword.clone())
             } else {
-                *keyword
+                keyword.clone()
             }
         } else {
             Token::Identifier(id)
@@ -650,7 +651,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             None
         } else {
             if let Some(keyword) = CPP_KEYWORDS.get(id) {
-                Some(*keyword)
+                Some(keyword.clone())
             } else {
                 Some(Token::Identifier(id))
             }

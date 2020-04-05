@@ -42,7 +42,7 @@ impl<'a, 'b, PC: PreprocContext> TypeOrExprParser<'a, 'b, PC> {
     }
     
     pub(super) fn parse(
-        mut self,
+        self,
         tok: Option<LocToken<'a>>,
     ) -> (Option<LocToken<'a>>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());

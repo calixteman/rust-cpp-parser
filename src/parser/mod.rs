@@ -14,6 +14,9 @@ pub use self::declarator::*;
 pub mod expression;
 pub use self::expression::*;
 
+pub mod attributes;
+pub use self::attributes::*;
+
 /*pub mod types;
 pub use self::types::*;
 

@@ -1,21 +1,20 @@
+use super::super::r#type::{self, BaseType, CVQualifier, Primitive, Type};
+use super::array::{Array, ArrayParser};
+use super::function::{Function, FunctionParser};
+use super::pointer::{Pointer, PointerDeclaratorParser};
+use super::reference::{Reference, ReferenceDeclaratorParser};
+use super::specifier::Specifier;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-
-use super::specifier::Specifier;
-
-use super::super::r#type::{self, BaseType, CVQualifier, Primitive, Type};
-
-use super::pointer::{Pointer, PointerDeclaratorParser};
-
-use super::reference::{Reference, ReferenceDeclaratorParser};
-
-use super::function::{Parameter, ParameterListParser};
+use crate::parser::name::{Qualified, QualifiedParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Declarator {
     Pointer(Pointer),
     Reference(Reference),
-    Identifier(String),
+    Identifier(Qualified),
+    Function(Function),
+    Array(Array),
     None,
 }
 
@@ -27,54 +26,45 @@ pub struct Declaration {
 
 pub struct DeclSpecifierParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
-    spec: Specifier,
-    cv: CVQualifier,
-    ty_modif: r#type::Modifier,
 }
 
 impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
     pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
-        Self {
-            lexer,
-            spec: Specifier::empty(),
-            cv: CVQualifier::empty(),
-            ty_modif: r#type::Modifier::empty(),
-        }
+        Self { lexer }
     }
 
-    pub(super) fn get_type(self) -> Option<Type> {
-        if self.spec.is_empty() && self.cv.is_empty() && self.ty_modif.is_empty() {
-            None
-        } else {
-            Some(Type {
-                base: BaseType::Primitive(self.ty_modif.to_primitive()),
-                cv: self.cv,
-            })
-        }
-    }
+    pub(super) fn parse(self, tok: Option<LocToken<'a>>) -> (Option<LocToken<'a>>, Option<Type>) {
+        let mut spec = Specifier::empty();
+        let mut cv = CVQualifier::empty();
+        let mut ty_modif = r#type::Modifier::empty();
 
-    pub(super) fn parse(
-        mut self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Type>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         loop {
-            if self.cv.from_tok(&tok.tok) {
+            if cv.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
-            if self.spec.from_tok(&tok.tok) {
+            if spec.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
-            if self.ty_modif.from_tok(&tok.tok) {
+            if ty_modif.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
-            return (Some(tok), self.get_type());
+            let ty = if spec.is_empty() && cv.is_empty() && ty_modif.is_empty() {
+                None
+            } else {
+                Some(Type {
+                    base: BaseType::Primitive(ty_modif.to_primitive()),
+                    cv,
+                })
+            };
+
+            return (Some(tok), ty);
         }
     }
 }
@@ -108,23 +98,27 @@ impl<'a, 'b, PC: PreprocContext> DeclaratorParser<'a, 'b, PC> {
 
                 return (tok, Some(Declarator::Reference(decl)));
             }
-            Token::Identifier(id) => {
-                let id = id.to_string();
-                let mut plp = ParameterListParser::new(self.lexer);
-                let (tok, params) = plp.parse(None);
-                if let Some(params) = params {}
+            Token::Identifier(_) => {
+                let qp = QualifiedParser::new(self.lexer);
+                let (tok, qual) = qp.parse(Some(tok));
 
-                let tok = self.lexer.next_useful();
-                match tok.tok {
-                    Token::LeftParen => {
-                        let mut plp = ParameterListParser::new(self.lexer);
-                        let (tok, params) = plp.parse(None);
-                    }
-                    Token::LeftBrack => {}
-                    _ => {}
+                let fp = FunctionParser::new(self.lexer);
+                let (tok, function) = fp.parse(tok);
+
+                if let Some(mut function) = function {
+                    function.identifier = qual;
+                    return (tok, Some(Declarator::Function(function)));
                 }
 
-                return (None, Some(Declarator::Identifier(id.to_string())));
+                let ap = ArrayParser::new(self.lexer);
+                let (tok, array) = ap.parse(tok);
+
+                if let Some(mut array) = array {
+                    array.identifier = qual;
+                    return (tok, Some(Declarator::Array(array)));
+                }
+
+                return (tok, Some(Declarator::Identifier(qual.unwrap())));
             }
             _ => {
                 return (Some(tok), Some(Declarator::None));
@@ -166,8 +160,11 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
 #[cfg(test)]
 mod tests {
 
+    use super::super::function::*;
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::parser::expression::*;
+    use crate::parser::name::{Identifier, Name};
 
     #[test]
     fn test_primitive() {
@@ -280,7 +277,7 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier("x".to_string())),
+                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                     cv: CVQualifier::empty(),
                 })
             }
@@ -302,7 +299,7 @@ mod tests {
                     cv: CVQualifier::VOLATILE,
                 },
                 decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier("x".to_string())),
+                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                     cv: CVQualifier::CONST,
                 })
             }
@@ -325,7 +322,7 @@ mod tests {
                 },
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Identifier("x".to_string())),
+                        decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                         cv: CVQualifier::empty(),
                     })),
                     cv: CVQualifier::empty(),
@@ -351,7 +348,7 @@ mod tests {
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
                         decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier("x".to_string())),
+                            decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                             cv: CVQualifier::empty(),
                         })),
                         cv: CVQualifier::empty(),
@@ -379,7 +376,7 @@ mod tests {
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
                         decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier("x".to_string())),
+                            decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                             cv: CVQualifier::empty(),
                         })),
                         cv: CVQualifier::CONST,
@@ -405,7 +402,7 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier("x".to_string())),
+                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                     lvalue: true,
                 })
             }
@@ -427,7 +424,7 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier("x".to_string())),
+                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
                     lvalue: false,
                 })
             }
@@ -477,6 +474,173 @@ mod tests {
                     })),
                     cv: CVQualifier::empty(),
                 })
+            }
+        );
+    }
+
+    #[test]
+    fn test_fun_1() {
+        let mut l = Lexer::<DefaultContext>::new(b"int foo(int x)");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration {
+                ty: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                },
+                decl: Declarator::Function(Function {
+                    identifier: Some(mk_id!("foo")),
+                    params: vec![Parameter::Single(Single {
+                        ty: Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                        },
+                        decl: Declarator::Identifier(mk_id!("x")),
+                    })],
+                    cv: CVQualifier::empty(),
+                    refq: RefQualifier::None,
+                    except: None,
+                    trailing: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_fun_2() {
+        let mut l = Lexer::<DefaultContext>::new(b"int foo::bar(int x, const double * const y)");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration {
+                ty: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                },
+                decl: Declarator::Function(Function {
+                    identifier: Some(mk_id!("foo", "bar")),
+                    params: vec![
+                        Parameter::Single(Single {
+                            ty: Type {
+                                base: BaseType::Primitive(Primitive::Int),
+                                cv: CVQualifier::empty(),
+                            },
+                            decl: Declarator::Identifier(mk_id!("x")),
+                        }),
+                        Parameter::Single(Single {
+                            ty: Type {
+                                base: BaseType::Primitive(Primitive::Double),
+                                cv: CVQualifier::CONST,
+                            },
+                            decl: Declarator::Pointer(Pointer {
+                                decl: Box::new(Declarator::Identifier(mk_id!("y"))),
+                                cv: CVQualifier::CONST,
+                            }),
+                        })
+                    ],
+                    cv: CVQualifier::empty(),
+                    refq: RefQualifier::None,
+                    except: None,
+                    trailing: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_fun_1_init() {
+        let mut l = Lexer::<DefaultContext>::new(b"int foo(int x = 123)");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration {
+                ty: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                },
+                decl: Declarator::Function(Function {
+                    identifier: Some(mk_id!("foo")),
+                    params: vec![Parameter::Init(Init {
+                        ty: Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                        },
+                        decl: Declarator::Identifier(mk_id!("x")),
+                        init: Node::UInt(Box::new(UInt { value: 123 })),
+                    })],
+                    cv: CVQualifier::empty(),
+                    refq: RefQualifier::None,
+                    except: None,
+                    trailing: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_fun_1_init_extra() {
+        let mut l = Lexer::<DefaultContext>::new(b"int foo(int x = 123) const && throw(A, B) -> C");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration {
+                ty: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                },
+                decl: Declarator::Function(Function {
+                    identifier: Some(mk_id!("foo")),
+                    params: vec![Parameter::Init(Init {
+                        ty: Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                        },
+                        decl: Declarator::Identifier(mk_id!("x")),
+                        init: Node::UInt(Box::new(UInt { value: 123 })),
+                    })],
+                    cv: CVQualifier::CONST,
+                    refq: RefQualifier::RValue,
+                    except: Some(Exception::Throw(Some(vec![
+                        Some(Node::Qualified(Box::new(mk_id!("A")))),
+                        Some(Node::Qualified(Box::new(mk_id!("B")))),
+                    ],))),
+                    trailing: Some(Node::Qualified(Box::new(mk_id!("C")))),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_array() {
+        let mut l = Lexer::<DefaultContext>::new(b"int foo[123]");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration {
+                ty: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                },
+                decl: Declarator::Array(Array {
+                    identifier: Some(mk_id!("foo")),
+                    size: Some(Node::UInt(Box::new(UInt { value: 123 }))),
+                }),
             }
         );
     }

@@ -1,4 +1,4 @@
-use super::ast::{CallExpr, Node, SubscriptExpr, UInt};
+use super::ast::{CallExpr, Node, UInt};
 use super::operator::{BinaryOp, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
@@ -6,13 +6,13 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::name::{Qualified, QualifiedParser};
 //use crate::dump::Dump;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(PartialEq)]
 enum LastKind {
     Operator,
     Operand,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(PartialEq)]
 enum Associativity {
     LR,
     RL,
@@ -182,7 +182,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 Token::Sizeof => {
                     let tk = self.lexer.next_useful();
                     if tk.tok == Token::LeftParen {
-                        let mut pp = ParametersParser::new(self.lexer, Token::RightParen);
+                        let pp = ParametersParser::new(self.lexer, Token::RightParen);
                         let (tk, params) = pp.parse(None);
                         self.operands.push(Node::UnaryOp(Box::new(UnaryOp {
                             op: Operator::Sizeof,
@@ -225,15 +225,23 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.push_operator(Operator::Mod);
                 }
                 Token::LeftBrack => {
-                    self.flush_with_op(Operator::Subscript);
-                    let mut ep = ExpressionParser::new(&mut self.lexer, Token::RightBrack);
-                    let (tk, expr) = ep.parse(None);
-                    let array = self.operands.pop().unwrap();
-                    self.operands
-                        .push(Node::SubscriptExpr(Box::new(SubscriptExpr {
-                            array,
-                            index: expr.unwrap(),
-                        })));
+                    if self.last == LastKind::Operand {
+                        self.flush_with_op(Operator::Subscript);
+                        let mut ep = ExpressionParser::new(&mut self.lexer, Token::RightBrack);
+                        let (tk, expr) = ep.parse(None);
+                        if tk.map_or(true, |t| t.tok == Token::RightBrack) {
+                            let array = self.operands.pop().unwrap();
+                            self.operands.push(Node::BinaryOp(Box::new(BinaryOp {
+                                op: Operator::Subscript,
+                                arg1: array,
+                                arg2: expr.unwrap(),
+                            })));
+                        } else {
+                            unreachable!("Wrong token in array dimension");
+                        }
+                    } else {
+                        // TODO: lambda: https://en.cppreference.com/w/cpp/language/lambda
+                    }
                     self.last = LastKind::Operand;
                 }
                 Token::LeftShift => {
@@ -307,8 +315,8 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     if self.last == LastKind::Operand {
                         // We've a call
                         self.flush_with_op(Operator::Call);
-                        let mut pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (tk, params) = pp.parse(None);
+                        let pp = ParametersParser::new(self.lexer, Token::RightParen);
+                        let (_, params) = pp.parse(None);
                         let callee = self.operands.pop().unwrap();
                         self.operands.push(Node::CallExpr(Box::new(CallExpr {
                             callee,
@@ -492,9 +500,10 @@ mod tests {
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let node = parser.parse(None).1.unwrap();
 
-        let expected = node!(SubscriptExpr {
-            array: Node::Qualified(Box::new(mk_id!("abc"))),
-            index: Node::Qualified(Box::new(mk_id!("x"))),
+        let expected = node!(BinaryOp {
+            op: Operator::Subscript,
+            arg1: Node::Qualified(Box::new(mk_id!("abc"))),
+            arg2: Node::Qualified(Box::new(mk_id!("x"))),
         });
 
         assert_eq!(node, expected);
