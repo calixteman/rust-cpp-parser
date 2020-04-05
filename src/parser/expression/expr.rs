@@ -405,6 +405,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::name::*;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_add_associativity() {

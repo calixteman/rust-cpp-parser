@@ -286,6 +286,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::lexer::Token;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     macro_rules! eval {
         ( $name: expr, $lexer: expr ) => {{

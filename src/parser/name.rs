@@ -25,7 +25,7 @@ macro_rules! mk_id {
         Qualified {
             names: vec![
                 $(
-                    Name::Identifier(Identifier { val: $name.to_string()}),
+                    Name::Identifier(crate::parser::name::Identifier { val: $name.to_string()}),
                 )*
             ],
         }
@@ -91,6 +91,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::ast::*;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_name_one() {

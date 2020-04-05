@@ -6,13 +6,20 @@ use super::reference::{Reference, ReferenceDeclaratorParser};
 use super::specifier::Specifier;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::name::{Qualified, QualifiedParser};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Identifier {
+    pub(crate) identifier: Qualified,
+    pub(crate) attributes: Option<Attributes>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Declarator {
     Pointer(Pointer),
     Reference(Reference),
-    Identifier(Qualified),
+    Identifier(Identifier),
     Function(Function),
     Array(Array),
     None,
@@ -78,7 +85,11 @@ impl<'a, 'b, PC: PreprocContext> DeclaratorParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: LocToken<'a>) -> (Option<LocToken<'a>>, Option<Declarator>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<LocToken<'a>>,
+    ) -> (Option<LocToken<'a>>, Option<Declarator>) {
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         match tok.tok {
             Token::Star => {
                 let pdp = PointerDeclaratorParser::new(self.lexer);
@@ -102,11 +113,15 @@ impl<'a, 'b, PC: PreprocContext> DeclaratorParser<'a, 'b, PC> {
                 let qp = QualifiedParser::new(self.lexer);
                 let (tok, qual) = qp.parse(Some(tok));
 
+                let ap = AttributesParser::new(self.lexer);
+                let (tok, attributes) = ap.parse(tok);
+
                 let fp = FunctionParser::new(self.lexer);
                 let (tok, function) = fp.parse(tok);
 
                 if let Some(mut function) = function {
                     function.identifier = qual;
+                    function.id_attributes = attributes;
                     return (tok, Some(Declarator::Function(function)));
                 }
 
@@ -115,10 +130,17 @@ impl<'a, 'b, PC: PreprocContext> DeclaratorParser<'a, 'b, PC> {
 
                 if let Some(mut array) = array {
                     array.identifier = qual;
+                    array.id_attributes = attributes;
                     return (tok, Some(Declarator::Array(array)));
                 }
 
-                return (tok, Some(Declarator::Identifier(qual.unwrap())));
+                return (
+                    tok,
+                    Some(Declarator::Identifier(Identifier {
+                        identifier: qual.unwrap(),
+                        attributes,
+                    })),
+                );
             }
             _ => {
                 return (Some(tok), Some(Declarator::None));
@@ -145,7 +167,7 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
 
         if let Some(ty) = ty {
             let dp = DeclaratorParser::new(self.lexer);
-            let (tok, decl) = dp.parse(tok.unwrap());
+            let (tok, decl) = dp.parse(tok);
             if let Some(decl) = decl {
                 return (tok, Some(Declaration { ty, decl }));
             } else {
@@ -163,8 +185,10 @@ mod tests {
     use super::super::function::*;
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::parser::attributes::Attribute;
     use crate::parser::expression::*;
-    use crate::parser::name::{Identifier, Name};
+    use crate::parser::name::Name;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_primitive() {
@@ -277,7 +301,11 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                    decl: Box::new(Declarator::Identifier(Identifier {
+                        identifier: mk_id!("x"),
+                        attributes: None,
+                    })),
+                    attributes: None,
                     cv: CVQualifier::empty(),
                 })
             }
@@ -299,7 +327,11 @@ mod tests {
                     cv: CVQualifier::VOLATILE,
                 },
                 decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                    decl: Box::new(Declarator::Identifier(Identifier {
+                        identifier: mk_id!("x"),
+                        attributes: None,
+                    })),
+                    attributes: None,
                     cv: CVQualifier::CONST,
                 })
             }
@@ -322,9 +354,14 @@ mod tests {
                 },
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                        decl: Box::new(Declarator::Identifier(Identifier {
+                            identifier: mk_id!("x"),
+                            attributes: None,
+                        })),
+                        attributes: None,
                         cv: CVQualifier::empty(),
                     })),
+                    attributes: None,
                     cv: CVQualifier::empty(),
                 })
             }
@@ -348,11 +385,17 @@ mod tests {
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
                         decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                            decl: Box::new(Declarator::Identifier(Identifier {
+                                identifier: mk_id!("x"),
+                                attributes: None,
+                            })),
+                            attributes: None,
                             cv: CVQualifier::empty(),
                         })),
+                        attributes: None,
                         cv: CVQualifier::empty(),
                     })),
+                    attributes: None,
                     cv: CVQualifier::empty(),
                 })
             }
@@ -376,11 +419,17 @@ mod tests {
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
                         decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                            decl: Box::new(Declarator::Identifier(Identifier {
+                                identifier: mk_id!("x"),
+                                attributes: None,
+                            })),
+                            attributes: None,
                             cv: CVQualifier::empty(),
                         })),
+                        attributes: None,
                         cv: CVQualifier::CONST,
                     })),
+                    attributes: None,
                     cv: CVQualifier::empty(),
                 })
             }
@@ -402,7 +451,11 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                    decl: Box::new(Declarator::Identifier(Identifier {
+                        identifier: mk_id!("x"),
+                        attributes: None,
+                    })),
+                    attributes: None,
                     lvalue: true,
                 })
             }
@@ -424,7 +477,11 @@ mod tests {
                     cv: CVQualifier::empty(),
                 },
                 decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier(mk_id!("x"))),
+                    decl: Box::new(Declarator::Identifier(Identifier {
+                        identifier: mk_id!("x"),
+                        attributes: None,
+                    })),
+                    attributes: None,
                     lvalue: false,
                 })
             }
@@ -447,6 +504,7 @@ mod tests {
                 },
                 decl: Declarator::Reference(Reference {
                     decl: Box::new(Declarator::None),
+                    attributes: None,
                     lvalue: false,
                 })
             }
@@ -470,8 +528,10 @@ mod tests {
                 decl: Declarator::Pointer(Pointer {
                     decl: Box::new(Declarator::Pointer(Pointer {
                         decl: Box::new(Declarator::None),
+                        attributes: None,
                         cv: CVQualifier::empty(),
                     })),
+                    attributes: None,
                     cv: CVQualifier::empty(),
                 })
             }
@@ -494,16 +554,22 @@ mod tests {
                 },
                 decl: Declarator::Function(Function {
                     identifier: Some(mk_id!("foo")),
+                    id_attributes: None,
                     params: vec![Parameter::Single(Single {
+                        attributes: None,
                         ty: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
                         },
-                        decl: Declarator::Identifier(mk_id!("x")),
+                        decl: Declarator::Identifier(Identifier {
+                            identifier: mk_id!("x"),
+                            attributes: None,
+                        }),
                     })],
                     cv: CVQualifier::empty(),
                     refq: RefQualifier::None,
                     except: None,
+                    attributes: None,
                     trailing: None,
                 }),
             }
@@ -526,21 +592,31 @@ mod tests {
                 },
                 decl: Declarator::Function(Function {
                     identifier: Some(mk_id!("foo", "bar")),
+                    id_attributes: None,
                     params: vec![
                         Parameter::Single(Single {
+                            attributes: None,
                             ty: Type {
                                 base: BaseType::Primitive(Primitive::Int),
                                 cv: CVQualifier::empty(),
                             },
-                            decl: Declarator::Identifier(mk_id!("x")),
+                            decl: Declarator::Identifier(Identifier {
+                                identifier: mk_id!("x"),
+                                attributes: None,
+                            }),
                         }),
                         Parameter::Single(Single {
+                            attributes: None,
                             ty: Type {
                                 base: BaseType::Primitive(Primitive::Double),
                                 cv: CVQualifier::CONST,
                             },
                             decl: Declarator::Pointer(Pointer {
-                                decl: Box::new(Declarator::Identifier(mk_id!("y"))),
+                                decl: Box::new(Declarator::Identifier(Identifier {
+                                    identifier: mk_id!("y"),
+                                    attributes: None,
+                                })),
+                                attributes: None,
                                 cv: CVQualifier::CONST,
                             }),
                         })
@@ -548,6 +624,7 @@ mod tests {
                     cv: CVQualifier::empty(),
                     refq: RefQualifier::None,
                     except: None,
+                    attributes: None,
                     trailing: None,
                 }),
             }
@@ -570,17 +647,23 @@ mod tests {
                 },
                 decl: Declarator::Function(Function {
                     identifier: Some(mk_id!("foo")),
+                    id_attributes: None,
                     params: vec![Parameter::Init(Init {
+                        attributes: None,
                         ty: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
                         },
-                        decl: Declarator::Identifier(mk_id!("x")),
+                        decl: Declarator::Identifier(Identifier {
+                            identifier: mk_id!("x"),
+                            attributes: None,
+                        }),
                         init: Node::UInt(Box::new(UInt { value: 123 })),
                     })],
                     cv: CVQualifier::empty(),
                     refq: RefQualifier::None,
                     except: None,
+                    attributes: None,
                     trailing: None,
                 }),
             }
@@ -589,7 +672,9 @@ mod tests {
 
     #[test]
     fn test_fun_1_init_extra() {
-        let mut l = Lexer::<DefaultContext>::new(b"int foo(int x = 123) const && throw(A, B) -> C");
+        let mut l = Lexer::<DefaultContext>::new(
+            b"int foo([[attribute]] int x = 123) const && throw(A, B) [[noreturn]] -> C",
+        );
         let p = DeclarationParser::new(&mut l);
         let (_, decl) = p.parse(None);
         let decl = decl.unwrap();
@@ -603,12 +688,22 @@ mod tests {
                 },
                 decl: Declarator::Function(Function {
                     identifier: Some(mk_id!("foo")),
+                    id_attributes: None,
                     params: vec![Parameter::Init(Init {
+                        attributes: Some(vec![Attribute {
+                            namespace: None,
+                            name: "attribute".to_string(),
+                            arg: None,
+                            has_using: false,
+                        }]),
                         ty: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
                         },
-                        decl: Declarator::Identifier(mk_id!("x")),
+                        decl: Declarator::Identifier(Identifier {
+                            identifier: mk_id!("x"),
+                            attributes: None,
+                        }),
                         init: Node::UInt(Box::new(UInt { value: 123 })),
                     })],
                     cv: CVQualifier::CONST,
@@ -617,6 +712,12 @@ mod tests {
                         Some(Node::Qualified(Box::new(mk_id!("A")))),
                         Some(Node::Qualified(Box::new(mk_id!("B")))),
                     ],))),
+                    attributes: Some(vec![Attribute {
+                        namespace: None,
+                        name: "noreturn".to_string(),
+                        arg: None,
+                        has_using: false,
+                    }]),
                     trailing: Some(Node::Qualified(Box::new(mk_id!("C")))),
                 }),
             }
@@ -639,7 +740,9 @@ mod tests {
                 },
                 decl: Declarator::Array(Array {
                     identifier: Some(mk_id!("foo")),
+                    id_attributes: None,
                     size: Some(Node::UInt(Box::new(UInt { value: 123 }))),
+                    attributes: None,
                 }),
             }
         );

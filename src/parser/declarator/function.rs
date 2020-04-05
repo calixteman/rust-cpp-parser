@@ -1,5 +1,6 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expression::{ExpressionParser, Node, Parameters, ParametersParser};
 use crate::parser::name::Qualified;
 
@@ -8,12 +9,14 @@ use super::decl::{DeclarationParser, Declarator, DeclaratorParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Single {
+    pub(crate) attributes: Option<Attributes>,
     pub(crate) ty: Type,
     pub(crate) decl: Declarator,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Init {
+    pub(crate) attributes: Option<Attributes>,
     pub(crate) ty: Type,
     pub(crate) decl: Declarator,
     pub(crate) init: Node,
@@ -41,10 +44,12 @@ pub enum Exception {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Function {
     pub(crate) identifier: Option<Qualified>,
+    pub(crate) id_attributes: Option<Attributes>,
     pub(crate) params: Vec<Parameter>,
     pub(crate) cv: CVQualifier,
     pub(crate) refq: RefQualifier,
     pub(crate) except: Option<Exception>,
+    pub(crate) attributes: Option<Attributes>,
     pub(crate) trailing: Option<Node>,
 }
 
@@ -69,14 +74,18 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
         let mut params = Vec::new();
 
         loop {
+            let ap = AttributesParser::new(self.lexer);
+            let (tok, attributes) = ap.parse(None);
+
             let dp = DeclarationParser::new(self.lexer);
-            let (tok, decl) = dp.parse(None);
+            let (tok, decl) = dp.parse(tok);
             let decl = decl.unwrap();
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             match tok.tok {
                 Token::Comma => {
                     params.push(Parameter::Single(Single {
+                        attributes,
                         ty: decl.ty,
                         decl: decl.decl,
                     }));
@@ -87,6 +96,7 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
                     let tok = tok.unwrap();
 
                     params.push(Parameter::Init(Init {
+                        attributes,
                         ty: decl.ty,
                         decl: decl.decl,
                         init: expr.unwrap(),
@@ -104,6 +114,7 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
                 }
                 Token::RightParen => {
                     params.push(Parameter::Single(Single {
+                        attributes,
                         ty: decl.ty,
                         decl: decl.decl,
                     }));
@@ -157,6 +168,9 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         let ep = ExceptionParser::new(self.lexer);
         let (tok, except) = ep.parse(None);
 
+        let ap = AttributesParser::new(self.lexer);
+        let (tok, attributes) = ap.parse(tok);
+
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, trailing) = if tok.tok == Token::Arrow {
@@ -168,10 +182,12 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let fun = Function {
             identifier: None,
+            id_attributes: None,
             params,
             cv,
             refq,
             except,
+            attributes,
             trailing,
         };
 

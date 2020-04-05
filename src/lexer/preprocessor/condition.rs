@@ -736,6 +736,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_condition_base() {

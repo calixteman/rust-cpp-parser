@@ -9,6 +9,8 @@ pub struct Attribute {
     pub has_using: bool,
 }
 
+pub type Attributes = Vec<Attribute>;
+
 struct UsingParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
@@ -473,19 +475,20 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
     }
 }
 
-pub struct AttributesParser<'a, 'b, PC: PreprocContext> {
+struct AttributeParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
-impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
+    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    pub(super) fn parse(
+    fn parse(
         self,
+        attributes: &mut Attributes,
         tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Vec<Attribute>>) {
+    ) -> (Option<LocToken<'a>>, bool) {
         // [[ attribute-list ]]
         // [[ using attribute-namespace : attribute-list ]]
         //
@@ -497,10 +500,8 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::DoubleLeftBrack {
-            return (Some(tok), None);
+            return (Some(tok), false);
         }
-
-        let mut attributes = Vec::new();
 
         let up = UsingParser::new(self.lexer);
         let (tok, default_ns) = up.parse();
@@ -526,7 +527,7 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
             match tok.tok {
                 Token::Comma => {}
                 Token::DoubleRightBrack => {
-                    return (None, Some(attributes));
+                    return (None, true);
                 }
                 _ => {
                     unreachable!("Invalid token in attributes: {:?}", tok);
@@ -538,11 +539,48 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
     }
 }
 
+pub struct AttributesParser<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
+}
+
+impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
+    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+        Self { lexer }
+    }
+
+    pub(super) fn parse(
+        self,
+        tok: Option<LocToken<'a>>,
+    ) -> (Option<LocToken<'a>>, Option<Attributes>) {
+        let mut attributes = Vec::new();
+        let mut tok = tok;
+        let mut has_attributes = false;
+
+        loop {
+            let ap = AttributeParser::new(self.lexer);
+            let (tk, has_attr) = ap.parse(&mut attributes, tok);
+            tok = tk;
+            has_attributes |= has_attr;
+
+            if !has_attr {
+                break;
+            }
+        }
+
+        if has_attributes {
+            (tok, Some(attributes))
+        } else {
+            (tok, None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_attr_single() {
@@ -621,6 +659,37 @@ mod tests {
                     name: "debug".to_string(),
                     arg: None,
                     has_using: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_attr_several() {
+        let mut l = Lexer::<DefaultContext>::new(b"[[A]] [[B]] [[C]]");
+        let p = AttributesParser::new(&mut l);
+        let (_, a) = p.parse(None);
+
+        assert_eq!(
+            a.unwrap(),
+            vec![
+                Attribute {
+                    namespace: None,
+                    name: "A".to_string(),
+                    arg: None,
+                    has_using: false,
+                },
+                Attribute {
+                    namespace: None,
+                    name: "B".to_string(),
+                    arg: None,
+                    has_using: false,
+                },
+                Attribute {
+                    namespace: None,
+                    name: "C".to_string(),
+                    arg: None,
+                    has_using: false,
                 },
             ]
         );

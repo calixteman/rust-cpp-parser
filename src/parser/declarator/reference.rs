@@ -1,11 +1,13 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 
 use super::decl::{Declarator, DeclaratorParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Reference {
     pub(crate) decl: Box<Declarator>,
+    pub(crate) attributes: Option<Attributes>,
     pub(crate) lvalue: bool,
 }
 
@@ -30,11 +32,14 @@ impl<'a, 'b, PC: PreprocContext> ReferenceDeclaratorParser<'a, 'b, PC> {
     }
 
     pub(super) fn parse(self) -> (Option<LocToken<'a>>, Reference) {
-        let tok = self.lexer.next_useful();
+        let ap = AttributesParser::new(self.lexer);
+        let (tok, attributes) = ap.parse(None);
+
         let dp = DeclaratorParser::new(self.lexer);
         let (tok, decl) = dp.parse(tok);
         let reference = Reference {
             decl: Box::new(decl.unwrap()),
+            attributes,
             lvalue: self.lvalue,
         };
 

@@ -1,5 +1,6 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expression::{ExpressionParser, Node, Parameters, ParametersParser};
 use crate::parser::name::Qualified;
 
@@ -9,7 +10,9 @@ use super::decl::{DeclarationParser, Declarator, DeclaratorParser};
 #[derive(Clone, Debug, PartialEq)]
 pub struct Array {
     pub(crate) identifier: Option<Qualified>,
+    pub(crate) id_attributes: Option<Attributes>,
     pub(crate) size: Option<Node>,
+    pub(crate) attributes: Option<Attributes>,
 }
 
 pub struct ArrayParser<'a, 'b, PC: PreprocContext> {
@@ -30,9 +33,14 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
         let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
         let (tok, expr) = ep.parse(None);
 
+        let ap = AttributesParser::new(self.lexer);
+        let (tok, attributes) = ap.parse(tok);
+
         let array = Array {
             identifier: None,
+            id_attributes: None,
             size: expr,
+            attributes,
         };
 
         (tok, Some(array))
