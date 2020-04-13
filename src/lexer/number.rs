@@ -324,7 +324,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 return Token::DotStar;
             }
         }
-        return Token::Dot;
+        Token::Dot
     }
 
     #[inline(always)]
@@ -397,19 +397,19 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 }
                 let num = 16 * num + d;
                 let (dec, exp) = self.get_hex_after_dot(num);
-                return self.get_typed_float(get_hex_decimal(dec, exp));
+                self.get_typed_float(get_hex_decimal(dec, exp))
             } else if c == b'p' || c == b'P' {
                 let exp = self.get_exponent();
-                return self.get_typed_float(get_hex_decimal(num, exp));
+                self.get_typed_float(get_hex_decimal(num, exp))
             } else {
-                return self.get_typed_float_suf(c, num as f64);
+                self.get_typed_float_suf(c, num as f64)
             }
         } else if c == b'p' || c == b'P' {
             self.buf.inc();
             let exp = self.get_exponent();
-            return self.get_typed_float(get_hex_decimal(num, exp));
+            self.get_typed_float(get_hex_decimal(num, exp))
         } else {
-            return self.get_typed_int(num);
+            self.get_typed_int(num)
         }
     }
 
@@ -452,7 +452,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 break;
             }
         }
-        return self.get_typed_int(num);
+        self.get_typed_int(num)
     }
 
     #[inline(always)]
@@ -477,7 +477,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 break;
             }
         }
-        return num;
+        num
     }
 
     #[inline(always)]
@@ -612,7 +612,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             }
         }
 
-        return Token::LiteralInt(num);
+        Token::LiteralInt(num)
     }
 
     #[inline(always)]
@@ -713,10 +713,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             self.skip_exponent();
                         }
                     }
-                } else if c == b'b' {
-                    self.buf.inc();
-                    self.skip_int();
-                } else if b'0' <= c && c <= b'9' {
+                } else if c == b'b' || (b'0' <= c && c <= b'9') {
                     self.buf.inc();
                     self.skip_int();
                 } else if c == b'e' || c == b'E' {

@@ -17,6 +17,7 @@ pub(crate) enum Kind {
     HEX, // x...
     UNS, // u...
     UNL, // U...
+    NLI, // \n
 }
 
 #[rustfmt::skip]
@@ -24,7 +25,7 @@ const ECHARS: [Kind; 256] = [
     // 0 NUL   1 SOH      2 STX      3 ETX      4 EOT      5 ENQ      6 ACK      7 BEL
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     // 8 BS    9 HT       A NL       B VT       C NP       D CR       E SO       F SI
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
+    Kind::NON, Kind::NON, Kind::NLI, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     // 10 DLE  11 DC1     12 DC2     13 DC3     14 DC4     15 NAK     16 SYN     17 ETB
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     // 18 CAN  19 EM      1A SUB     1B ESC     1C FS      1D GS      1E RS      1F US
@@ -75,7 +76,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub(crate) fn get_oct_char(&mut self, start: u32) -> u32 {
         let mut num = start;
-        loop {
+        // \ooo: max len is 3 and we've already one digit
+        for _ in 0..2 {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
                 if b'0' <= c && c <= b'7' {
@@ -144,10 +146,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             let c8 = self.buf.next_char_n(7);
             self.buf.inc_n(8);
             // TODO: maybe check if we've hex digits...
-            (0x10000000 * Self::get_hex_digit(c1)
-                + 0x1000000 * Self::get_hex_digit(c2)
-                + 0x100000 * Self::get_hex_digit(c3)
-                + 0x10000 * Self::get_hex_digit(c4)
+            (0x1000_0000 * Self::get_hex_digit(c1)
+                + 0x100_0000 * Self::get_hex_digit(c2)
+                + 0x10_0000 * Self::get_hex_digit(c3)
+                + 0x1_0000 * Self::get_hex_digit(c4)
                 + 0x1000 * Self::get_hex_digit(c5)
                 + 0x100 * Self::get_hex_digit(c6)
                 + 0x10 * Self::get_hex_digit(c7)
@@ -158,31 +160,35 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_escape(&mut self) -> u32 {
+    pub(crate) fn get_escape(&mut self) -> Option<u32> {
         if self.buf.has_char() {
             let c = self.buf.next_char();
             self.buf.inc();
             let kind = unsafe { ECHARS.get_unchecked(c as usize) };
             match kind {
-                Kind::SEL => u32::from(c),
-                Kind::AAA => 0x07,
-                Kind::BBB => 0x08,
-                Kind::FFF => 0x0C,
-                Kind::NNN => 0x0A,
-                Kind::RRR => 0x0D,
-                Kind::TTT => 0x09,
-                Kind::VVV => 0x0B,
+                Kind::SEL => Some(u32::from(c)),
+                Kind::AAA => Some(0x07),
+                Kind::BBB => Some(0x08),
+                Kind::FFF => Some(0x0C),
+                Kind::NNN => Some(0x0A),
+                Kind::RRR => Some(0x0D),
+                Kind::TTT => Some(0x09),
+                Kind::VVV => Some(0x0B),
                 Kind::OCT => {
                     let first = u32::from(c - b'0');
-                    self.get_oct_char(first)
+                    Some(self.get_oct_char(first))
                 }
-                Kind::HEX => self.get_hex_char(),
-                Kind::UNS => self.get_universal_short(),
-                Kind::UNL => self.get_universal_long(),
+                Kind::HEX => Some(self.get_hex_char()),
+                Kind::UNS => Some(self.get_universal_short()),
+                Kind::UNL => Some(self.get_universal_long()),
+                Kind::NLI => {
+                    self.buf.add_new_line();
+                    None
+                }
                 _ => unreachable!(),
             }
         } else {
-            0
+            None
         }
     }
 
@@ -197,16 +203,16 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     #[inline(always)]
     pub(crate) fn get_c_char_u32(&mut self) -> u32 {
+        // TODO: LiteralSupport.cpp
         let mut val: u32 = 0;
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
                 if c == b'\\' {
                     self.buf.inc();
-                    let e = self.get_escape();
-                    // TODO: not sure that's correct
-                    // e.g. \x12\x0034 == 1234 or 120034 ?
-                    val = val * Self::get_shift(e) + e;
+                    if let Some(e) = self.get_escape() {
+                        val = val * Self::get_shift(e) + e;
+                    }
                 } else if c == b'\'' {
                     self.buf.inc();
                     break;

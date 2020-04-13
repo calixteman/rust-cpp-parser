@@ -32,10 +32,10 @@ pub enum Operator {
 
 impl Operator {
     #[inline(always)]
-    pub(crate) fn operate(&self, stack: &mut Vec<Int>) {
+    pub(crate) fn operate(self, stack: &mut Vec<Int>) {
         use Operator::*;
 
-        match *self {
+        match self {
             Plus => {}
             Minus => {
                 stack.last_mut().unwrap().minus();
@@ -170,8 +170,8 @@ impl Int {
     #[inline(always)]
     fn not(&mut self) {
         *self = match self {
-            Int::Unsigned(n) => Int::Unsigned((!(*n != 0)) as u64),
-            Int::Signed(n) => Int::Unsigned((!(*n != 0)) as u64),
+            Int::Unsigned(n) => Int::Unsigned((*n == 0) as u64),
+            Int::Signed(n) => Int::Unsigned((*n == 0) as u64),
         }
     }
 
@@ -638,7 +638,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
                     self.last = LastKind::Operand;
                 }
                 Token::Identifier(id) => {
-                    self.handle_id(id);
+                    self.handle_id(&id);
                 }
                 Token::AndKw => {
                     if self.last == LastKind::Operand {

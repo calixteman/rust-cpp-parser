@@ -1,4 +1,4 @@
-use super::ast::Node;
+use super::ExprNode;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
@@ -64,18 +64,18 @@ pub enum Operator {
 }
 
 impl Operator {
-    pub fn operate(&self, stack: &mut Vec<Node>) {
+    pub fn operate(&self, stack: &mut Vec<ExprNode>) {
         use Operator::*;
 
         match *self {
             Plus | Minus | Not | BitNeg | Sizeof | PreInc | PreDec | Indirection | AddressOf => {
                 let arg = stack.pop().unwrap();
-                stack.push(Node::UnaryOp(Box::new(UnaryOp { op: *self, arg })));
+                stack.push(ExprNode::UnaryOp(Box::new(UnaryOp { op: *self, arg })));
             }
             _ => {
                 let arg2 = stack.pop().unwrap();
                 let arg1 = stack.pop().unwrap();
-                stack.push(Node::BinaryOp(Box::new(BinaryOp {
+                stack.push(ExprNode::BinaryOp(Box::new(BinaryOp {
                     op: *self,
                     arg1,
                     arg2,
@@ -88,12 +88,12 @@ impl Operator {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BinaryOp {
     pub op: Operator,
-    pub arg1: Node,
-    pub arg2: Node,
+    pub arg1: ExprNode,
+    pub arg2: ExprNode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnaryOp {
     pub op: Operator,
-    pub arg: Node,
+    pub arg: ExprNode,
 }

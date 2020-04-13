@@ -3,7 +3,6 @@ use cpp_parser::defaults;
 use cpp_parser::lexer::preprocessor::context::DefaultContext;
 use cpp_parser::lexer::source;
 use cpp_parser::lexer::{Lexer, Token};
-use std::fs;
 use std::path::PathBuf;
 
 fn main() {

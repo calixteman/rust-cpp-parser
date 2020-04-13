@@ -210,7 +210,7 @@ impl MacroLine {
     }
 
     #[inline(always)]
-    pub(crate) fn eval<'a>(&'a self, out: &mut Vec<u8>, info: &FileInfo) {
+    pub(crate) fn eval(self, out: &mut Vec<u8>, info: &FileInfo) {
         if let Some(last) = out.last() {
             if *last != b' ' {
                 out.push(b' ');
@@ -232,12 +232,7 @@ impl MacroFile {
     }
 
     #[inline(always)]
-    pub(crate) fn eval<'a, PC: PreprocContext>(
-        &'a self,
-        out: &mut Vec<u8>,
-        context: &PC,
-        info: &FileInfo,
-    ) {
+    pub(crate) fn eval<PC: PreprocContext>(self, out: &mut Vec<u8>, context: &PC, info: &FileInfo) {
         if let Some(last) = out.last() {
             if *last != b' ' {
                 out.push(b' ');
@@ -396,11 +391,11 @@ mod tests {
         assert_eq!(p.next().tok, Token::While);
         assert_eq!(p.next().tok, Token::Eol);
         assert_eq!(p.next().tok, Token::PreprocDefine);
-        assert_eq!(p.next().tok, Token::Identifier("lewhi"));
+        assert_eq!(p.next().tok, Token::Identifier("lewhi".to_string()));
         assert_eq!(p.next().tok, Token::Eol);
         assert_eq!(p.next().tok, Token::PreprocDefine);
-        assert_eq!(p.next().tok, Token::Identifier("bar"));
-        assert_eq!(p.next().tok, Token::Identifier("foo"));
+        assert_eq!(p.next().tok, Token::Identifier("bar".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("foo".to_string()));
         assert_eq!(p.next().tok, Token::Eol);
     }
 

@@ -1,5 +1,5 @@
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, LocToken};
 use crate::parser::attributes::{Attributes, AttributesParser};
 
 use super::decl::{Declarator, DeclaratorParser};
@@ -12,7 +12,7 @@ pub struct Reference {
 }
 
 impl Reference {
-    pub fn decl(&self) -> &Box<Declarator> {
+    pub fn decl(&self) -> &Declarator {
         &self.decl
     }
 

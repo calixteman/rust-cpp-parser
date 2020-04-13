@@ -1,17 +1,14 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::expression::{ExpressionParser, Node, Parameters, ParametersParser};
+use crate::parser::expression::{ExprNode, ExpressionParser};
 use crate::parser::name::Qualified;
-
-use super::super::r#type::{CVQualifier, Type};
-use super::decl::{DeclarationParser, Declarator, DeclaratorParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Array {
     pub(crate) identifier: Option<Qualified>,
     pub(crate) id_attributes: Option<Attributes>,
-    pub(crate) size: Option<Node>,
+    pub(crate) size: Option<ExprNode>,
     pub(crate) attributes: Option<Attributes>,
 }
 

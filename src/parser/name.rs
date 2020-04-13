@@ -49,13 +49,23 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         tok: Option<LocToken<'a>>,
+        first: Option<String>,
     ) -> (Option<LocToken<'a>>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut names = Vec::new();
 
+        let mut is_last_name = if let Some(first) = first {
+            names.push(Name::Identifier(Identifier { val: first }));
+            true
+        } else {
+            false
+        };
+
         loop {
             match tok.tok {
-                Token::ColonColon => {}
+                Token::ColonColon => {
+                    is_last_name = false;
+                }
                 Token::Lower => {
                     let name = if let Some(Name::Identifier(id)) = names.pop() {
                         id.val
@@ -70,11 +80,15 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
                         val: name,
                         params: params.unwrap(),
                     }));
+
+                    is_last_name = true;
                 }
-                Token::Identifier(id) => {
-                    names.push(Name::Identifier(Identifier {
-                        val: id.to_string(),
-                    }));
+                Token::Identifier(_) if is_last_name => {
+                    return (Some(tok), Some(Qualified { names }));
+                }
+                Token::Identifier(id) if !is_last_name => {
+                    names.push(Name::Identifier(Identifier { val: id }));
+                    is_last_name = true;
                 }
                 _ => {
                     return (Some(tok), Some(Qualified { names }));
@@ -90,14 +104,14 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::ast::*;
+    use crate::parser::expression::*;
     use pretty_assertions::{assert_eq, assert_ne};
 
     #[test]
     fn test_name_one() {
         let mut l = Lexer::<DefaultContext>::new(b"abc");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(q.unwrap(), mk_id!("abc"));
     }
@@ -106,7 +120,7 @@ mod tests {
     fn test_name_two() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg"));
     }
@@ -115,7 +129,7 @@ mod tests {
     fn test_name_three() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg::hijkl");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg", "hijkl"));
     }
@@ -124,7 +138,7 @@ mod tests {
     fn test_name_template_zero() {
         let mut l = Lexer::<DefaultContext>::new(b"A<>");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(
             q.unwrap(),
@@ -141,14 +155,14 @@ mod tests {
     fn test_name_template_one() {
         let mut l = Lexer::<DefaultContext>::new(b"A<B>");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(
             q.unwrap(),
             Qualified {
                 names: vec![Name::Template(Template {
                     val: "A".to_string(),
-                    params: vec![Some(Node::Qualified(Box::new(mk_id!("B")))),],
+                    params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("B")))),],
                 }),],
             }
         );
@@ -158,7 +172,7 @@ mod tests {
     fn test_name_complex() {
         let mut l = Lexer::<DefaultContext>::new(b"A::B<C::D, E::F, G>::H<I>");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None);
+        let (_, q) = p.parse(None, None);
 
         assert_eq!(
             q.unwrap(),
@@ -170,14 +184,14 @@ mod tests {
                     Name::Template(Template {
                         val: "B".to_string(),
                         params: vec![
-                            Some(Node::Qualified(Box::new(mk_id!("C", "D")))),
-                            Some(Node::Qualified(Box::new(mk_id!("E", "F")))),
-                            Some(Node::Qualified(Box::new(mk_id!("G")))),
+                            Some(ExprNode::Qualified(Box::new(mk_id!("C", "D")))),
+                            Some(ExprNode::Qualified(Box::new(mk_id!("E", "F")))),
+                            Some(ExprNode::Qualified(Box::new(mk_id!("G")))),
                         ]
                     }),
                     Name::Template(Template {
                         val: "H".to_string(),
-                        params: vec![Some(Node::Qualified(Box::new(mk_id!("I")))),]
+                        params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("I")))),]
                     })
                 ]
             }

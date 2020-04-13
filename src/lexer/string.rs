@@ -110,41 +110,53 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     #[inline(always)]
     pub(crate) fn get_string(&mut self) -> Token<'a> {
-        return Token::LiteralString(self.get_string_content());
+        Token::LiteralString(self.get_string_content())
     }
 
     #[inline(always)]
-    pub(crate) fn get_string_content(&mut self) -> &'a [u8] {
-        let spos = self.buf.pos();
+    pub(crate) fn get_string_content(&mut self) -> String {
+        let mut buf = Vec::new();
+        let mut spos = self.buf.pos();
+        let mut ch = String::new();
+
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
                 if c == b'\\' {
+                    let pos = self.buf.pos();
                     self.buf.inc();
-                    if self.buf.has_char() {
-                        let c = self.buf.next_char();
-                        if c == b'\n' {
-                            self.buf.add_new_line();
-                        }
-                        self.buf.inc();
-                    } else {
-                        return self.buf.slice(spos);
+                    if let Some(code) = self.get_escape() {
+                        buf.extend_from_slice(self.buf.slice_p(spos, pos));
+                        ch.push(std::char::from_u32(code).unwrap());
+                        buf.extend_from_slice(ch.as_bytes());
+                        ch.clear();
+                        spos = self.buf.pos();
                     }
                 } else if c == b'\"' {
-                    let s = self.buf.slice(spos);
+                    let s = if buf.is_empty() {
+                        String::from_utf8(self.buf.slice(spos).to_vec()).unwrap()
+                    } else {
+                        buf.extend_from_slice(self.buf.slice(spos));
+                        String::from_utf8(buf).unwrap()
+                    };
                     self.buf.inc();
                     return s;
                 } else {
                     self.buf.inc();
                 }
             } else {
-                return self.buf.slice(spos);
+                return if buf.is_empty() {
+                    String::from_utf8(self.buf.slice(spos).to_vec()).unwrap()
+                } else {
+                    buf.extend_from_slice(self.buf.slice(spos));
+                    String::from_utf8(buf).unwrap()
+                };
             }
         }
     }
 
     #[inline(always)]
-    pub(crate) fn get_r_string_content(&mut self) -> &'a [u8] {
+    pub(crate) fn get_r_string_content(&mut self) -> String {
         let spos = self.buf.pos();
         loop {
             if self.buf.has_char() {
@@ -154,7 +166,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     break;
                 }
             } else {
-                return self.buf.slice(spos);
+                return String::from_utf8(self.buf.slice(spos).to_vec()).unwrap();
             }
         }
 
@@ -184,7 +196,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             delim_pos += 1;
                         } else if c == b'\"' {
                             self.buf.inc();
-                            return self.buf.slice_p(spos, rspos);
+                            return String::from_utf8(self.buf.slice_p(spos, rspos).to_vec())
+                                .unwrap();
                         } else if c == b'\n' {
                             self.buf.add_new_line();
                             self.buf.inc();
@@ -200,7 +213,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     self.buf.inc();
                 }
             } else {
-                return self.buf.slice(spos);
+                return String::from_utf8(self.buf.slice(spos).to_vec()).unwrap();
             }
         }
     }

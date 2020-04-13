@@ -108,7 +108,7 @@ impl IncludeLocator for EmptyContext {
 
     fn set_source(&mut self, _source: SourceMutex) {}
 
-    fn set_sys_paths<P: AsRef<Path>>(&mut self, paths: &[P]) {}
+    fn set_sys_paths<P: AsRef<Path>>(&mut self, _paths: &[P]) {}
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -177,11 +177,11 @@ impl<IL: IncludeLocator> PreprocContext for Context<IL> {
     }
 
     fn add_function(&mut self, name: String, mac: MacroFunction) {
-        self.macros.insert(name.clone(), Macro::Function(mac));
+        self.macros.insert(name, Macro::Function(mac));
     }
 
     fn add_object(&mut self, name: String, mac: MacroObject) {
-        self.macros.insert(name.clone(), Macro::Object(mac));
+        self.macros.insert(name, Macro::Object(mac));
     }
 
     fn undef(&mut self, name: &str) {
@@ -196,10 +196,18 @@ impl<IL: IncludeLocator> PreprocContext for Context<IL> {
         if let Some(mac) = self.macros.get(name) {
             match mac {
                 Macro::Object(m) => {
-                    return if m.in_use.get() { None } else { Some(mac) };
+                    if m.in_use.get() {
+                        None
+                    } else {
+                        Some(mac)
+                    }
                 }
                 Macro::Function(m) => {
-                    return if m.in_use.get() { None } else { Some(mac) };
+                    if m.in_use.get() {
+                        None
+                    } else {
+                        Some(mac)
+                    }
                 }
                 Macro::Line(_) | Macro::File(_) | Macro::Counter(_) => Some(mac),
             }
@@ -212,7 +220,7 @@ impl<IL: IncludeLocator> PreprocContext for Context<IL> {
         if let Some(mac) = self.get(name) {
             match mac {
                 Macro::Object(mac) => MacroType::Object(&mac),
-                Macro::Function(mac) => MacroType::Function((mac.len(), mac.va_args.clone())),
+                Macro::Function(mac) => MacroType::Function((mac.len(), mac.va_args)),
                 Macro::Line(mac) => MacroType::Line(*mac),
                 Macro::File(mac) => MacroType::File(*mac),
                 Macro::Counter(mac) => MacroType::Counter(mac),
@@ -346,7 +354,7 @@ impl PreprocContext for StatsContext {
 
     fn get(&self, name: &str) -> Option<&Macro> {
         let mac = self.default.get(name);
-        if let Some(mac) = mac {
+        if mac.is_some() {
             if let Some(stat) = self.stats.get(name) {
                 stat.counter.set(stat.counter.get() + 1);
             }
@@ -356,13 +364,10 @@ impl PreprocContext for StatsContext {
 
     fn get_type(&self, name: &str) -> MacroType {
         let typ = self.default.get_type(name);
-        match typ {
-            MacroType::Object(_) => {
-                if let Some(stat) = self.stats.get(name) {
-                    stat.counter.set(stat.counter.get() + 1);
-                }
+        if let MacroType::Object(_) = typ {
+            if let Some(stat) = self.stats.get(name) {
+                stat.counter.set(stat.counter.get() + 1);
             }
-            _ => {}
         }
         typ
     }

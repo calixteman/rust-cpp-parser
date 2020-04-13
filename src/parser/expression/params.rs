@@ -1,10 +1,10 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{ExpressionParser, Node};
+use crate::parser::expression::{ExprNode, ExpressionParser};
 
-pub type Parameters = Vec<Option<Node>>;
+pub type Parameters = Vec<Option<ExprNode>>;
 
-pub struct ParametersParser<'a, 'b, PC: PreprocContext> {
+pub(crate) struct ParametersParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
     term: Token<'a>,
 }

@@ -28,7 +28,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
 
         let comment = self.buf.slice(spos);
-        return Token::Comment(comment);
+        Token::Comment(comment)
     }
 
     pub(crate) fn get_single_comment(&mut self) -> Token<'a> {
@@ -52,7 +52,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
 
         let comment = self.buf.slice(spos);
-        return Token::Comment(comment);
+        Token::Comment(comment)
     }
 
     #[inline(always)]

@@ -1,6 +1,6 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{ExpressionParser, Node, Parameters, ParametersParser};
+use crate::parser::expression::{ExpressionParser, ExprNode, Parameters, ParametersParser};
 
 
 pub struct TypeOrExprParser<'a, 'b, PC: PreprocContext> {

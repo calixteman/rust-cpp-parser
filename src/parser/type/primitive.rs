@@ -1,4 +1,4 @@
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::Token;
 use bitflags::bitflags;
 
 bitflags! {

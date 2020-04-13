@@ -22,25 +22,22 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
 
     fn parse(self) -> (Option<LocToken<'a>>, Option<String>) {
         let tok = self.lexer.next_useful();
-        match tok.tok {
-            Token::Using => {
+        if tok.tok == Token::Using {
+            let tok = self.lexer.next_useful();
+            if let Token::Identifier(ns) = tok.tok {
+                let ns = Some(ns.to_string());
                 let tok = self.lexer.next_useful();
-                if let Token::Identifier(ns) = tok.tok {
-                    let ns = Some(ns.to_string());
-                    let tok = self.lexer.next_useful();
-                    match tok.tok {
-                        Token::Colon => {
-                            return (None, ns);
-                        }
-                        _ => {
-                            unreachable!("Invalid token in attributes: {:?}", tok);
-                        }
+                match tok.tok {
+                    Token::Colon => {
+                        return (None, ns);
                     }
-                } else {
-                    unreachable!("Invalid token in attributes: {:?}", tok);
+                    _ => {
+                        unreachable!("Invalid token in attributes: {:?}", tok);
+                    }
                 }
+            } else {
+                unreachable!("Invalid token in attributes: {:?}", tok);
             }
-            _ => {}
         }
         (Some(tok), None)
     }
@@ -49,7 +46,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributeArg {
     pub tokens: Vec<Token<'static>>,
-    buf: Box<Vec<u8>>,
+    buf: Vec<u8>,
 }
 
 struct AttributeArgTemp {
@@ -76,61 +73,17 @@ impl AttributeArgTemp {
                 self.buf.extend_from_slice(s);
                 Comment(b"")
             }
-            LiteralString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralString(b"")
-            }
-            LiteralLString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralLString(b"")
-            }
-            LiteralUString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralUString(b"")
-            }
-            LiteralUUString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralUUString(b"")
-            }
-            LiteralU8String(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralU8String(b"")
-            }
-            LiteralRString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralRString(b"")
-            }
-            LiteralLRString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralLRString(b"")
-            }
-            LiteralURString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralURString(b"")
-            }
-            LiteralUURString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralUURString(b"")
-            }
-            LiteralU8RString(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                LiteralU8RString(b"")
-            }
-            Identifier(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s.as_bytes());
-                Identifier("")
-            }
+            LiteralString(s) => LiteralString(s),
+            LiteralLString(s) => LiteralLString(s),
+            LiteralUString(s) => LiteralUString(s),
+            LiteralUUString(s) => LiteralUUString(s),
+            LiteralU8String(s) => LiteralU8String(s),
+            LiteralRString(s) => LiteralRString(s),
+            LiteralLRString(s) => LiteralLRString(s),
+            LiteralURString(s) => LiteralURString(s),
+            LiteralUURString(s) => LiteralUURString(s),
+            LiteralU8RString(s) => LiteralU8RString(s),
+            Identifier(s) => Identifier(s),
             None => None,
             Eof => Eof,
             Eol => Eol,
@@ -318,12 +271,12 @@ impl AttributeArgTemp {
 
         let mut args = AttributeArg {
             tokens: self.tokens,
-            buf: Box::new(self.buf),
+            buf: self.buf,
         };
 
         for (pos, start, end) in self.lens {
             // TODO: I'm not super happy with that...
-            // I tryed tio play around std::pin::Pin without any success
+            // I tryed to play around std::pin::Pin without any success
             let s = unsafe {
                 &*std::mem::transmute::<&[u8], *const [u8]>(&args.buf.get_unchecked(start..end))
             };
@@ -332,39 +285,6 @@ impl AttributeArgTemp {
                 Comment(_) => {
                     args.tokens[pos] = Comment(s);
                 }
-                LiteralString(_) => {
-                    args.tokens[pos] = LiteralString(s);
-                }
-                LiteralLString(_) => {
-                    args.tokens[pos] = LiteralLString(s);
-                }
-                LiteralUString(_) => {
-                    args.tokens[pos] = LiteralUString(s);
-                }
-                LiteralUUString(_) => {
-                    args.tokens[pos] = LiteralUUString(s);
-                }
-                LiteralU8String(_) => {
-                    args.tokens[pos] = LiteralU8String(s);
-                }
-                LiteralRString(_) => {
-                    args.tokens[pos] = LiteralRString(s);
-                }
-                LiteralLRString(_) => {
-                    args.tokens[pos] = LiteralLRString(s);
-                }
-                LiteralURString(_) => {
-                    args.tokens[pos] = LiteralURString(s);
-                }
-                LiteralUURString(_) => {
-                    args.tokens[pos] = LiteralUURString(s);
-                }
-                LiteralU8RString(_) => {
-                    args.tokens[pos] = LiteralU8RString(s);
-                }
-                Identifier(_) => unsafe {
-                    args.tokens[pos] = Identifier(std::str::from_utf8_unchecked(s));
-                },
                 _ => {}
             }
         }
@@ -454,13 +374,12 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
     fn parse(self, tok: LocToken<'a>) -> (Option<LocToken<'a>>, (Option<String>, String)) {
         match tok.tok {
             Token::Identifier(id) => {
-                let id = id.to_string();
                 let tk = self.lexer.next_useful();
                 if tk.tok == Token::ColonColon {
                     let ns = Some(id);
                     let tk = self.lexer.next_useful();
                     if let Token::Identifier(id) = tk.tok {
-                        (None, (ns, id.to_string()))
+                        (None, (ns, id))
                     } else {
                         unreachable!("Invalid token in attributes: {:?}", tk);
                     }
@@ -628,8 +547,8 @@ mod tests {
                 namespace: None,
                 name: "deprecated".to_string(),
                 arg: Some(AttributeArg {
-                    tokens: vec![Token::LiteralString(b"because"),],
-                    buf: Box::new(b"because".to_vec()),
+                    tokens: vec![Token::LiteralString("because".to_string()),],
+                    buf: vec![],
                 }),
                 has_using: false
             },]
@@ -650,7 +569,7 @@ mod tests {
                     name: "opt".to_string(),
                     arg: Some(AttributeArg {
                         tokens: vec![Token::LiteralInt(1),],
-                        buf: Box::new(vec![]),
+                        buf: vec![],
                     }),
                     has_using: true,
                 },

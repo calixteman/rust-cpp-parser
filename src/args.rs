@@ -19,22 +19,6 @@ macro_rules! skip_whites {
     }};
 }
 
-macro_rules! skip_until {
-    ( $lexer: expr, $char: expr) => {{
-        loop {
-            if $lexer.has_char() {
-                let c = $lexer.next_char();
-                if c == $char {
-                    break;
-                }
-                $lexer.pos += 1;
-            } else {
-                break;
-            }
-        }
-    }};
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Macro {
     Defined((String, String)),

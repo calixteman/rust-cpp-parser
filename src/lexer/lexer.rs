@@ -1,6 +1,5 @@
 use bitflags::bitflags;
 use phf::phf_map;
-use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -8,7 +7,7 @@ use std::path::PathBuf;
 use super::buffer::{Buffer, BufferData};
 use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
-use super::source::{self, FileId, SourceMutex};
+use super::source::{FileId, SourceMutex};
 use super::string::StringType;
 use crate::args;
 
@@ -232,16 +231,16 @@ pub enum Token<'a> {
     LiteralLongLong(u64),
     LiteralULong(u64),
     LiteralULongLong(u64),
-    LiteralString(&'a [u8]),
-    LiteralLString(&'a [u8]),
-    LiteralUString(&'a [u8]),
-    LiteralUUString(&'a [u8]),
-    LiteralU8String(&'a [u8]),
-    LiteralRString(&'a [u8]),
-    LiteralLRString(&'a [u8]),
-    LiteralURString(&'a [u8]),
-    LiteralUURString(&'a [u8]),
-    LiteralU8RString(&'a [u8]),
+    LiteralString(String),
+    LiteralLString(String),
+    LiteralUString(String),
+    LiteralUUString(String),
+    LiteralU8String(String),
+    LiteralRString(String),
+    LiteralLRString(String),
+    LiteralURString(String),
+    LiteralUURString(String),
+    LiteralU8RString(String),
     ColonColon,
     Colon,
     SemiColon,
@@ -258,7 +257,7 @@ pub enum Token<'a> {
     RightShiftEqual,
     Question,
     At,
-    Identifier(&'a str),
+    Identifier(String),
     LeftBrack,
     DoubleLeftBrack,
     Backslash,
@@ -580,7 +579,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             self.buf.switch_to_preproc();
             None
         } else {
-            Some(Token::Identifier(id))
+            Some(Token::Identifier(id.to_string()))
         }
     }
 
@@ -625,7 +624,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 keyword.clone()
             }
         } else {
-            Token::Identifier(id)
+            Token::Identifier(id.to_string())
         }
     }
 
@@ -649,12 +648,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         if !self.buf.preproc_use() && self.macro_eval(id) {
             self.buf.switch_to_preproc();
             None
+        } else if let Some(keyword) = CPP_KEYWORDS.get(id) {
+            Some(keyword.clone())
         } else {
-            if let Some(keyword) = CPP_KEYWORDS.get(id) {
-                Some(keyword.clone())
-            } else {
-                Some(Token::Identifier(id))
-            }
+            Some(Token::Identifier(id.to_string()))
         }
     }
 
@@ -666,7 +663,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 return Token::NotEqual;
             }
         }
-        return Token::Not;
+        Token::Not
     }
 
     pub(crate) fn get_minus(&mut self) -> Token<'a> {
@@ -809,7 +806,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 return Token::DivideEqual;
             }
         }
-        return Token::Divide;
+        Token::Divide
     }
 
     pub(crate) fn get_backslash(&mut self) -> Option<Token<'a>> {
@@ -834,7 +831,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         loop {
             let tok = self.next();
             match tok.tok {
-                Token::Comment(_) => {}
+                Token::Comment(_) | Token::Eol => {}
                 _ => {
                     return tok;
                 }
@@ -1164,11 +1161,11 @@ mod tests {
     fn test_keywords() {
         let mut p = Lexer::<DefaultContext>::new(b"while foa whila for While For static_cast");
         assert_eq!(p.next().tok, Token::While);
-        assert_eq!(p.next().tok, Token::Identifier("foa"));
-        assert_eq!(p.next().tok, Token::Identifier("whila"));
+        assert_eq!(p.next().tok, Token::Identifier("foa".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("whila".to_string()));
         assert_eq!(p.next().tok, Token::For);
-        assert_eq!(p.next().tok, Token::Identifier("While"));
-        assert_eq!(p.next().tok, Token::Identifier("For"));
+        assert_eq!(p.next().tok, Token::Identifier("While".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("For".to_string()));
         assert_eq!(p.next().tok, Token::StaticCast);
     }
 
@@ -1177,26 +1174,26 @@ mod tests {
         let mut p = Lexer::<DefaultContext>::new(
             b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123",
         );
-        assert_eq!(p.next().tok, Token::Identifier("hello"));
-        assert_eq!(p.next().tok, Token::Identifier("world"));
-        assert_eq!(p.next().tok, Token::Identifier("whilee"));
-        assert_eq!(p.next().tok, Token::Identifier("Roo"));
-        assert_eq!(p.next().tok, Token::Identifier("Lar"));
-        assert_eq!(p.next().tok, Token::Identifier("uoo"));
-        assert_eq!(p.next().tok, Token::Identifier("Uar"));
-        assert_eq!(p.next().tok, Token::Identifier("u851"));
+        assert_eq!(p.next().tok, Token::Identifier("hello".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("world".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("whilee".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("Roo".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("Lar".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("uoo".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("Uar".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("u851".to_string()));
         assert_eq!(
             p.next().tok,
-            Token::Identifier("hello_world_WORLD_HELLO123")
+            Token::Identifier("hello_world_WORLD_HELLO123".to_string())
         );
     }
 
     #[test]
     fn test_divide() {
         let mut p = Lexer::<DefaultContext>::new(b"a / b");
-        assert_eq!(p.next().tok, Token::Identifier("a"));
+        assert_eq!(p.next().tok, Token::Identifier("a".to_string()));
         assert_eq!(p.next().tok, Token::Divide);
-        assert_eq!(p.next().tok, Token::Identifier("b"));
+        assert_eq!(p.next().tok, Token::Identifier("b".to_string()));
     }
 
     #[test]
@@ -1208,44 +1205,66 @@ mod tests {
     #[test]
     fn test_string() {
         let mut p = Lexer::<DefaultContext>::new(b"\"foo\" \"foo\\\"bar\"");
-        assert_eq!(p.next().tok, Token::LiteralString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralString("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(b"u\"foo\" u\"foo\\\"bar\"");
-        assert_eq!(p.next().tok, Token::LiteralUString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralUString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralUString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralUString("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(b"U\"foo\" U\"foo\\\"bar\"");
-        assert_eq!(p.next().tok, Token::LiteralUUString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralUUString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralUUString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralUUString("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(b"u8\"foo\" u8\"foo\\\"bar\"");
-        assert_eq!(p.next().tok, Token::LiteralU8String(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralU8String(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralU8String("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralU8String("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(b"L\"foo\" L\"foo\\\"bar\"");
-        assert_eq!(p.next().tok, Token::LiteralLString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralLString(b"foo\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralLString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralLString("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(
             b"R\"hello(foo)hello\" R\"world(foo\n\\\"bar)world\" R\"world(foo)world  )world\"",
         );
-        assert_eq!(p.next().tok, Token::LiteralRString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralRString(b"foo\n\\\"bar"));
-        assert_eq!(p.next().tok, Token::LiteralRString(b"foo)world  "));
+        assert_eq!(p.next().tok, Token::LiteralRString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("foo\n\\\"bar".to_string())
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("foo)world  ".to_string())
+        );
 
         let mut p =
             Lexer::<DefaultContext>::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
-        assert_eq!(p.next().tok, Token::LiteralLRString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralUURString(b"foo\n\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralLRString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralUURString("foo\n\\\"bar".to_string())
+        );
 
         let mut p =
             Lexer::<DefaultContext>::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
-        assert_eq!(p.next().tok, Token::LiteralURString(b"foo"));
-        assert_eq!(p.next().tok, Token::LiteralU8RString(b"foo\n\\\"bar"));
+        assert_eq!(p.next().tok, Token::LiteralURString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralU8RString("foo\n\\\"bar".to_string())
+        );
 
         let mut p = Lexer::<DefaultContext>::new(b"R\"(abc)\ndef)\n)\"");
-        assert_eq!(p.next().tok, Token::LiteralRString(b"abc)\ndef)\n"));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("abc)\ndef)\n".to_string())
+        );
+
+        let mut p =
+            Lexer::<DefaultContext>::new(b"\"test\\0\\\\\\\"\\t\\a\\b\\234\\u1234\\U0010ffff\"");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralString("test\u{0}\\\"\t\u{7}\u{8}\u{9c}\u{1234}\u{10ffff}".to_string())
+        );
     }
 
     #[test]

@@ -1,25 +1,7 @@
 #[macro_export]
-macro_rules! color {
-    ( $stdout: ident, $color: ident) => {
-        $stdout
-            .set_color(ColorSpec::new().set_fg(Some(Color::$color)))
-            .unwrap();
-    };
-    ( $stdout: ident, $color: ident, $intense: ident) => {
-        $stdout
-            .set_color(
-                ColorSpec::new()
-                    .set_fg(Some(Color::$color))
-                    .set_intense($intense),
-            )
-            .unwrap();
-    };
-}
-
-#[macro_export]
 macro_rules! node {
     ( $kind: ident $($toks:tt)*) => {
-        Node::$kind(Box::new($kind $( $toks )*))
+        ExprNode::$kind(Box::new($kind $( $toks )*))
     };
 }
 

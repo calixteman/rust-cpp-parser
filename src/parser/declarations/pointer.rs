@@ -13,7 +13,7 @@ pub struct Pointer {
 }
 
 impl Pointer {
-    pub fn decl(&self) -> &Box<Declarator> {
+    pub fn decl(&self) -> &Declarator {
         &self.decl
     }
 

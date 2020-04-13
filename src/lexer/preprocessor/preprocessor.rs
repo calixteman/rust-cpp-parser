@@ -5,7 +5,6 @@ use super::context::{IfKind, IfState, PreprocContext};
 use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
 use crate::lexer::buffer::FileInfo;
 use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::include::PathIndex;
 use crate::lexer::string::StringType;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
@@ -426,10 +425,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     }
                 }
                 MacroToken::WhiteStringify | MacroToken::Stringify => {
-                    if tok == MacroToken::WhiteStringify {
-                        if last_kind != LastKind::Space {
-                            out.push(b' ');
-                        }
+                    if tok == MacroToken::WhiteStringify && last_kind != LastKind::Space {
+                        out.push(b' ');
                     }
                     let id = self.get_preproc_identifier();
                     if let Some(arg_pos) = args.get(id) {
@@ -446,12 +443,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     last_kind = LastKind::None;
                 }
                 MacroToken::Concat => {
-                    match last_kind {
-                        LastKind::Arg(n) => {
-                            actions.pop();
-                            actions.push(Action::Concat(n));
-                        }
-                        _ => {}
+                    if let LastKind::Arg(n) = last_kind {
+                        actions.pop();
+                        actions.push(Action::Concat(n));
                     }
                     last_kind = LastKind::Concat;
                 }
@@ -753,7 +747,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     #[inline(always)]
     pub(crate) fn get_endif(&mut self) -> bool {
-        if let Some(_) = self.context.if_state() {
+        if self.context.if_state().is_some() {
             self.context.rm_if();
             if let Some(state) = self.context.if_state() {
                 *state == IfState::Eval

@@ -5,15 +5,17 @@ bitflags! {
     pub struct Specifier: u16 {
         const TYPEDEF = 0b1;
         const INLINE = 0b10;
-        const FRIEND = 0b100;
-        const CONSTEVAL = 0b1000;
-        const CONSTEXPR = 0b1_0000;
-        const CONSTINIT = 0b10_0000;
-        const REGISTER = 0b100_0000;
-        const STATIC = 0b1000_0000;
-        const THREAD_LOCAL = 0b1_0000_0000;
-        const EXTERN = 0b10_0000_0000;
-        const MUTABLE = 0b100_0000_0000;
+        const VIRTUAL = 0b100;
+        const EXPLICIT = 0b1000;
+        const FRIEND = 0b1_0000;
+        const CONSTEVAL = 0b10_0000;
+        const CONSTEXPR = 0b100_0000;
+        const CONSTINIT = 0b1000_0000;
+        const REGISTER = 0b1_0000_0000;
+        const STATIC = 0b10_0000_0000;
+        const THREAD_LOCAL = 0b100_0000_0000;
+        const EXTERN = 0b1000_0000_0000;
+        const MUTABLE = 0b1_0000_0000_0000;
     }
 }
 
@@ -26,6 +28,14 @@ impl Specifier {
             }
             Token::Inline => {
                 *self |= Specifier::INLINE;
+                true
+            }
+            Token::Virtual => {
+                *self |= Specifier::VIRTUAL;
+                true
+            }
+            Token::Explicit => {
+                *self |= Specifier::EXPLICIT;
                 true
             }
             Token::Friend => {
@@ -64,6 +74,25 @@ impl Specifier {
                 *self |= Specifier::MUTABLE;
                 true
             }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_specifier(tok: &Token) -> bool {
+        match tok {
+            Token::Typedef
+            | Token::Inline
+            | Token::Virtual
+            | Token::Explicit
+            | Token::Friend
+            | Token::Consteval
+            | Token::Constexpr
+            | Token::Constinit
+            | Token::Register
+            | Token::Static
+            | Token::ThreadLocal
+            | Token::Extern
+            | Token::Mutable => true,
             _ => false,
         }
     }

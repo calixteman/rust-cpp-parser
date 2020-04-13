@@ -22,4 +22,11 @@ impl CVQualifier {
             _ => false,
         }
     }
+
+    pub(crate) fn is_cv(tok: &Token) -> bool {
+        match tok {
+            Token::Const | Token::Volatile => true,
+            _ => false,
+        }
+    }
 }

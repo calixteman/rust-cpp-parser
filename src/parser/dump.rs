@@ -3,6 +3,24 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLoc
 
 use crate::parser::expression::*;
 
+#[macro_export]
+macro_rules! color {
+    ( $stdout: ident, $color: ident) => {
+        $stdout
+            .set_color(ColorSpec::new().set_fg(Some(Color::$color)))
+            .unwrap();
+    };
+    ( $stdout: ident, $color: ident, $intense: ident) => {
+        $stdout
+            .set_color(
+                ColorSpec::new()
+                    .set_fg(Some(Color::$color))
+                    .set_intense($intense),
+            )
+            .unwrap();
+    };
+}
+
 macro_rules! start {
     ( $name: expr, $prefix: ident, $last: ident, $out: ident) => {
         color!($out, Blue);
@@ -46,21 +64,32 @@ impl Dump for ExprNode {
             ExprNode::UnaryOp(x) => x.dump(prefix, last, stdout),
             ExprNode::BinaryOp(x) => x.dump(prefix, last, stdout),
             ExprNode::CallExpr(x) => x.dump(prefix, last, stdout),
-            ExprNode::Id(x) => x.dump(prefix, last, stdout),
+            ExprNode::Qualified(x) => x.dump(prefix, last, stdout),
             ExprNode::UInt(x) => x.dump(prefix, last, stdout),
-            ExprNode::Arguments(x) => x.dump(prefix, last, stdout),
+            _ => {}
         }
     }
 }
 
-impl Dump for Id {
+/*impl Dump for Qualified {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
         start!("Identifier", prefix, last, stdout);
         
         color!(stdout, White);
+        if let Some((last, names)) = self.names.split_last() {
+            for name in names.iter() {
+                let name = match name {
+                    Identifier(id) => id.val,
+                    Template(
+                }
+                write!("{}::", )
+            }
+            last.dump(&prefix, true, stdout);
+        }
+        
         writeln!(stdout, "{}", self.name).unwrap();
     }
-}
+}*/
 
 impl Dump for UInt {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
@@ -106,9 +135,9 @@ impl Dump for CallExpr {
     }
 }
 
-impl Dump for Arguments {
+impl Dump for Parameters {
     fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("Arguments", prefix, last, stdout);
+        start!("Parameters", prefix, last, stdout);
         
         let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
         if let Some((last, args)) = self.args.split_last() {

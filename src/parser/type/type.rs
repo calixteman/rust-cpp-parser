@@ -1,9 +1,11 @@
 use super::cv::CVQualifier;
 use super::primitive::Primitive;
+use crate::parser::name::Qualified;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BaseType {
     Primitive(Primitive),
+    UD(Qualified),
 }
 
 #[derive(Clone, Debug, PartialEq)]
