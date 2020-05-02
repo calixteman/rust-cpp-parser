@@ -14,6 +14,7 @@ use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
+use crate::errors::Error;
 use crate::args;
 
 #[derive(PartialEq)]
@@ -507,6 +508,7 @@ pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) context: PC,
     pub(crate) comment: Option<&'a [u8]>,
     pub(crate) start: Location,
+    pub(crate) errors: Vec<Error>,
 }
 
 macro_rules! get_operator {
@@ -565,6 +567,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context: PC::default(),
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -574,6 +577,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context,
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -636,6 +640,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context,
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -645,6 +650,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub fn get_context(&self) -> &PC {
         &self.context
+    }
+
+    pub fn get_errors(&self) -> &[Error] {
+        &self.errors
     }
 
     pub fn consume_tokens(&mut self, n: usize) {
@@ -720,7 +729,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
             if eval {
-                self.preproc_parse(keyword.clone())
+                self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
+                    self.errors.push(error);
+                    Token::Eof
+                })
             } else {
                 keyword.clone()
             }
@@ -1014,6 +1026,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             line: self.buf.get_line(),
             column: self.buf.get_column(),
         }
+    }
+
+    pub(super) fn span(&self) -> (Option<FileId>, Location, Location) {
+        (self.buf.get_source_id(), self.start, self.location())
     }
 
     pub fn next_token(&mut self) -> Token {

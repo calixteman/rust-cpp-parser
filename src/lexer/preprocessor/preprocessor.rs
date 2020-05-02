@@ -11,6 +11,7 @@ use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
 use crate::lexer::buffer::FileInfo;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::string::StringType;
+use crate::errors::Error;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -104,10 +105,10 @@ pub enum MacroToken<'a> {
 
 impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
-    pub fn preproc_parse(&mut self, instr: Token) -> Token {
+    pub fn preproc_parse(&mut self, instr: Token) -> Result<Token, Error> {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
-        match instr {
+        Ok(match instr {
             Token::PreprocInclude => {
                 self.get_include(false);
                 Token::PreprocInclude
@@ -122,37 +123,37 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             }
             Token::PreprocIf => {
                 if !self.get_if(IfKind::If) {
-                    self.skip_until_else_endif();
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocIf
             }
             Token::PreprocIfdef => {
                 if !self.get_if(IfKind::Ifdef) {
-                    self.skip_until_else_endif();
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocIfdef
             }
             Token::PreprocIfndef => {
                 if !self.get_if(IfKind::Ifndef) {
-                    self.skip_until_else_endif();
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocIfndef
             }
             Token::PreprocElif => {
                 if !self.get_elif() {
-                    self.skip_until_else_endif();
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocElif
             }
             Token::PreprocElse => {
                 if !self.get_else() {
-                    self.skip_until_else_endif();
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocElse
             }
             Token::PreprocEndif => {
-                if !self.get_endif() {
-                    self.skip_until_else_endif();
+                if !self.get_endif()? {
+                    self.skip_until_else_endif()?;
                 }
                 Token::PreprocEndif
             }
@@ -171,7 +172,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 Token::PreprocError
             }
             _ => instr,
-        }
+        })
     }
 
     #[inline(always)]
@@ -604,7 +605,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_until_else_endif(&mut self) {
+    pub(crate) fn skip_until_else_endif(&mut self) -> Result<(), Error> {
         // skip until #else, #endif
         // need to lex to avoid to catch #else or #endif in a string, comment
         // or something like #define foo(else) #else (who want to do that ???)
@@ -612,8 +613,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         loop {
             let spos = self.buf.pos();
             skip_whites!(self);
-            if self.stop_skipping() {
-                return;
+            if self.stop_skipping()? {
+                return Ok(());
             }
             if spos == self.buf.pos() || self.buf.prev_char() != b'\n' {
                 break;
@@ -636,8 +637,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         loop {
                             let spos = self.buf.pos();
                             skip_whites!(self);
-                            if self.stop_skipping() {
-                                return;
+                            if self.stop_skipping()? {
+                                return Ok(());
                             }
                             if spos == self.buf.pos() || self.buf.prev_char() != b'\n' {
                                 break;
@@ -653,13 +654,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 break;
             }
         }
+        Ok(())
     }
 
     #[inline(always)]
-    fn stop_skipping(&mut self) -> bool {
+    fn stop_skipping(&mut self) -> Result<bool, Error> {
         // we must be after a newline and skipped whites
         // the goal is to avoid to catch #define foo(else) #else
-        if self.buf.has_char() {
+        Ok(if self.buf.has_char() {
             let c = self.buf.next_char();
             if c == b'#' {
                 // we've a hash at the beginning of a line
@@ -672,7 +674,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     Token::PreprocIfndef => self.get_if(IfKind::Ifndef),
                     Token::PreprocElif => self.get_elif(),
                     Token::PreprocElse => self.get_else(),
-                    Token::PreprocEndif => self.get_endif(),
+                    Token::PreprocEndif => self.get_endif()?,
                     _ => false,
                 }
             } else {
@@ -680,7 +682,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             }
         } else {
             true
-        }
+        })
     }
 
     #[inline(always)]
@@ -751,16 +753,16 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_endif(&mut self) -> bool {
+    pub(crate) fn get_endif(&mut self) -> Result<bool, Error> {
         if self.context.if_state().is_some() {
             self.context.rm_if();
-            if let Some(state) = self.context.if_state() {
+            Ok(if let Some(state) = self.context.if_state() {
                 *state == IfState::Eval
             } else {
                 true
-            }
+            })
         } else {
-            true
+            error!(self.span(), "reached #endif without preceeding #if");
         }
     }
 
