@@ -4,7 +4,8 @@
 // copied, modified, or distributed except according to those terms.
 
 use bitflags::bitflags;
-use phf::phf_map;
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
 
 use super::lexer::{self, Lexer, Token};
 use super::preprocessor::context::PreprocContext;
@@ -139,7 +140,7 @@ const NUMCHARS: [Nums; 256] = [
     // 78  x   79  y      7A  z      7B  {      7C  |      7D  }      7E  ~      7F DEL
     Nums::LET, Nums::LET, Nums::LET, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
     Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
-    Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, // 
+    Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
     Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
     Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
     Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
@@ -166,30 +167,34 @@ enum IntType {
     UserDefined(String),
 }
 
-static INT_SUFFIXES: phf::Map<&'static str, IntType> = phf_map! {
-    "u" => IntType::U,
-    "U" => IntType::U,
-    "l" => IntType::L,
-    "L" => IntType::L,
-    "ul" => IntType::UL,
-    "Ul" => IntType::UL,
-    "uL" => IntType::UL,
-    "UL" => IntType::UL,
-    "lu" => IntType::UL,
-    "lU" => IntType::UL,
-    "Lu" => IntType::UL,
-    "LU" => IntType::UL,
-    "ll" => IntType::LL,
-    "LL" => IntType::LL,
-    "llu" => IntType::ULL,
-    "llU" => IntType::ULL,
-    "LLu" => IntType::ULL,
-    "LLU" => IntType::ULL,
-    "ull" => IntType::ULL,
-    "Ull" => IntType::ULL,
-    "uLL" => IntType::ULL,
-    "ULL" => IntType::ULL,
-};
+lazy_static! {
+    static ref INT_SUFFIXES: HashMap<&'static str, IntType> = {
+        let mut map = HashMap::with_capacity(32);
+        map.insert("u", IntType::U);
+        map.insert("U", IntType::U);
+        map.insert("l", IntType::L);
+        map.insert("L", IntType::L);
+        map.insert("ul", IntType::UL);
+        map.insert("Ul", IntType::UL);
+        map.insert("uL", IntType::UL);
+        map.insert("UL", IntType::UL);
+        map.insert("lu", IntType::UL);
+        map.insert("lU", IntType::UL);
+        map.insert("Lu", IntType::UL);
+        map.insert("LU", IntType::UL);
+        map.insert("ll", IntType::LL);
+        map.insert("LL", IntType::LL);
+        map.insert("llu", IntType::ULL);
+        map.insert("llU", IntType::ULL);
+        map.insert("LLu", IntType::ULL);
+        map.insert("LLU", IntType::ULL);
+        map.insert("ull", IntType::ULL);
+        map.insert("Ull", IntType::ULL);
+        map.insert("uLL", IntType::ULL);
+        map.insert("ULL", IntType::ULL);
+        map
+    };
+}
 
 #[derive(Clone)]
 enum FloatType {
@@ -198,12 +203,16 @@ enum FloatType {
     UserDefined(String),
 }
 
-static FLOAT_SUFFIXES: phf::Map<&'static str, FloatType> = phf_map! {
-    "f" => FloatType::F,
-    "F" => FloatType::F,
-    "l" => FloatType::L,
-    "L" => FloatType::L,
-};
+lazy_static! {
+    static ref FLOAT_SUFFIXES: HashMap<&'static str, FloatType> = {
+        let mut map = HashMap::with_capacity(4);
+        map.insert("f", FloatType::F);
+        map.insert("F", FloatType::F);
+        map.insert("l", FloatType::L);
+        map.insert("L", FloatType::L);
+        map
+    };
+}
 
 #[inline(always)]
 pub(crate) fn get_decimal(dec: u64, exp: i64) -> f64 {

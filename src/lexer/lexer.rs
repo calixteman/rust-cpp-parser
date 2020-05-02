@@ -3,7 +3,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use phf::phf_map;
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -74,139 +75,144 @@ pub(super) const CHARS: [Kind; 256] = [
     Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
 ];
 
-static PREPROC_KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
-    "define" => Token::PreprocDefine,
-    "elif" => Token::PreprocElif,
-    "else" => Token::PreprocElse,
-    "endif" => Token::PreprocEndif,
-    "error" => Token::PreprocError,
-    "if" => Token::PreprocIf,
-    "ifdef" => Token::PreprocIfdef,
-    "ifndef" => Token::PreprocIfndef,
-    "include" => Token::PreprocInclude,
-    "include_next" => Token::PreprocIncludeNext,
-    "line" => Token::PreprocLine,
-    "pragma" => Token::PreprocPragma,
-    "undef" => Token::PreprocUndef,
-};
-
-static CPP_KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
-    "alignas" => Token::Alignas,
-    "alignof" => Token::Alignof,
-    "and" => Token::AndKw,
-    "and_eq" => Token::AndEq,
-    "asm" => Token::Asm,
-    "auto" => Token::Auto,
-    "bitand" => Token::BitAnd,
-    "bitor" => Token::BitOr,
-    "bool" => Token::Bool,
-    "break" => Token::Break,
-    "case" => Token::Case,
-    "catch" => Token::Catch,
-    "__cdecl" => Token::Cdecl,
-    "char" => Token::Char,
-    "char8_t" => Token::Char8T,
-    "char16_t" => Token::Char16T,
-    "char32_t" => Token::Char32T,
-    "class" => Token::Class,
-    "__clrcall" => Token::Clrcall,
-    "co_await" => Token::CoAwait,
-    "co_return" => Token::CoReturn,
-    "co_yield" => Token::CoYield,
-    "compl" => Token::Compl,
-    "concept" => Token::Concept,
-    "const" => Token::Const,
-    "consteval" => Token::Consteval,
-    "constexpr" => Token::Constexpr,
-    "constinit" => Token::Constinit,
-    "const_cast" => Token::ConstCast,
-    "continue" => Token::Continue,
-    "_Complex" => Token::Complex,
-    "decltype" => Token::Decltype,
-    "default" => Token::Default,
-    "delete" => Token::Delete,
-    "do" => Token::Do,
-    "double" => Token::Double,
-    "dynamic_cast" => Token::DynamicCast,
-    "else" => Token::Else,
-    "endif" => Token::Endif,
-    "enum" => Token::Enum,
-    "explicit" => Token::Explicit,
-    "export" => Token::Export,
-    "extern" => Token::Extern,
-    "false" => Token::False,
-    "__fastcall" => Token::Fastcall,
-    "final" => Token::Final,
-    "float" => Token::Float,
-    "for" => Token::For,
-    "friend" => Token::Friend,
-    "__func__" => Token::Func,
-    "__FUNCTION__" => Token::Function,
-    "goto" => Token::Goto,
-    "if" => Token::If,
-    "_Imaginary" => Token::Imaginary,
-    "import" => Token::Import,
-    "inline" => Token::Inline,
-    "int" => Token::Int,
-    "long" => Token::Long,
-    "module" => Token::Module,
-    "mutable" => Token::Mutable,
-    "namespace" => Token::Namespace,
-    "new" => Token::New,
-    "noexcept" => Token::Noexcept,
-    "not" => Token::NotKw,
-    "not_eq" => Token::NotEq,
-    "nullptr" => Token::Nullptr,
-    "operator" => Token::Operator,
-    "or" => Token::OrKw,
-    "or_eq" => Token::OrEq,
-    "override" => Token::Override,
-    "__PRETTY_FUNCTION__" => Token::PrettyFunction,
-    "private" => Token::Private,
-    "protected" => Token::Protected,
-    "public" => Token::Public,
-    "requires" => Token::Requires,
-    "register" => Token::Register,
-    "reinterpret_cast" => Token::ReinterpretCast,
-    "restrict" => Token::Restrict,
-    "return" => Token::Return,
-    "__restrict" => Token::MSRestrict,
-    "short" => Token::Short,
-    "signed" => Token::Signed,
-    "sizeof" => Token::Sizeof,
-    "__sptr" => Token::MSSptr,
-    "static" => Token::Static,
-    "static_assert" => Token::StaticAssert,
-    "_Static_assert" => Token::CStaticAssert,
-    "static_cast" => Token::StaticCast,
-    "__stdcall" => Token::Stdcall,
-    "struct" => Token::Struct,
-    "switch" => Token::Switch,
-    "template" => Token::Template,
-    "this" => Token::This,
-    "__thiscall" => Token::Thiscall,
-    "thread_local" => Token::ThreadLocal,
-    "throw" => Token::Throw,
-    "true" => Token::True,
-    "try" => Token::Try,
-    "typedef" => Token::Typedef,
-    "typeid" => Token::Typeid,
-    "typename" => Token::Typename,
-    "_unaligned" => Token::MS1Unaligned,
-    "__unaligned" => Token::MSUnaligned,
-    "union" => Token::Union,
-    "unsigned" => Token::Unsigned,
-    "__uptr" => Token::MSUptr,
-    "using" => Token::Using,
-    "__vectorcall" => Token::Vectorcall,
-    "virtual" => Token::Virtual,
-    "void" => Token::Void,
-    "volatile" => Token::Volatile,
-    "wchar_t" => Token::WcharT,
-    "while" => Token::While,
-    "xor" => Token::XorKw,
-    "xor_eq" => Token::XorEq,
-};
+lazy_static! {
+    static ref PREPROC_KEYWORDS: HashMap<&'static str, Token> = {
+        let mut map = HashMap::with_capacity(16);
+        map.insert("define", Token::PreprocDefine);
+        map.insert("elif", Token::PreprocElif);
+        map.insert("else", Token::PreprocElse);
+        map.insert("endif", Token::PreprocEndif);
+        map.insert("error", Token::PreprocError);
+        map.insert("if", Token::PreprocIf);
+        map.insert("ifdef", Token::PreprocIfdef);
+        map.insert("ifndef", Token::PreprocIfndef);
+        map.insert("include", Token::PreprocInclude);
+        map.insert("include_next", Token::PreprocIncludeNext);
+        map.insert("line", Token::PreprocLine);
+        map.insert("pragma", Token::PreprocPragma);
+        map.insert("undef", Token::PreprocUndef);
+        map
+    };
+    static ref CPP_KEYWORDS: HashMap<&'static str, Token> = {
+        let mut map = HashMap::with_capacity(128);
+        map.insert("alignas", Token::Alignas);
+        map.insert("alignof", Token::Alignof);
+        map.insert("and", Token::AndKw);
+        map.insert("and_eq", Token::AndEq);
+        map.insert("asm", Token::Asm);
+        map.insert("auto", Token::Auto);
+        map.insert("bitand", Token::BitAnd);
+        map.insert("bitor", Token::BitOr);
+        map.insert("bool", Token::Bool);
+        map.insert("break", Token::Break);
+        map.insert("case", Token::Case);
+        map.insert("catch", Token::Catch);
+        map.insert("__cdecl", Token::Cdecl);
+        map.insert("char", Token::Char);
+        map.insert("char8_t", Token::Char8T);
+        map.insert("char16_t", Token::Char16T);
+        map.insert("char32_t", Token::Char32T);
+        map.insert("class", Token::Class);
+        map.insert("__clrcall", Token::Clrcall);
+        map.insert("co_await", Token::CoAwait);
+        map.insert("co_return", Token::CoReturn);
+        map.insert("co_yield", Token::CoYield);
+        map.insert("compl", Token::Compl);
+        map.insert("concept", Token::Concept);
+        map.insert("const", Token::Const);
+        map.insert("consteval", Token::Consteval);
+        map.insert("constexpr", Token::Constexpr);
+        map.insert("constinit", Token::Constinit);
+        map.insert("const_cast", Token::ConstCast);
+        map.insert("continue", Token::Continue);
+        map.insert("_Complex", Token::Complex);
+        map.insert("decltype", Token::Decltype);
+        map.insert("default", Token::Default);
+        map.insert("delete", Token::Delete);
+        map.insert("do", Token::Do);
+        map.insert("double", Token::Double);
+        map.insert("dynamic_cast", Token::DynamicCast);
+        map.insert("else", Token::Else);
+        map.insert("endif", Token::Endif);
+        map.insert("enum", Token::Enum);
+        map.insert("explicit", Token::Explicit);
+        map.insert("export", Token::Export);
+        map.insert("extern", Token::Extern);
+        map.insert("false", Token::False);
+        map.insert("__fastcall", Token::Fastcall);
+        map.insert("final", Token::Final);
+        map.insert("float", Token::Float);
+        map.insert("for", Token::For);
+        map.insert("friend", Token::Friend);
+        map.insert("__func__", Token::Func);
+        map.insert("__FUNCTION__", Token::Function);
+        map.insert("goto", Token::Goto);
+        map.insert("if", Token::If);
+        map.insert("_Imaginary", Token::Imaginary);
+        map.insert("import", Token::Import);
+        map.insert("inline", Token::Inline);
+        map.insert("int", Token::Int);
+        map.insert("long", Token::Long);
+        map.insert("module", Token::Module);
+        map.insert("mutable", Token::Mutable);
+        map.insert("namespace", Token::Namespace);
+        map.insert("new", Token::New);
+        map.insert("noexcept", Token::Noexcept);
+        map.insert("not", Token::NotKw);
+        map.insert("not_eq", Token::NotEq);
+        map.insert("nullptr", Token::Nullptr);
+        map.insert("operator", Token::Operator);
+        map.insert("or", Token::OrKw);
+        map.insert("or_eq", Token::OrEq);
+        map.insert("override", Token::Override);
+        map.insert("__PRETTY_FUNCTION__", Token::PrettyFunction);
+        map.insert("private", Token::Private);
+        map.insert("protected", Token::Protected);
+        map.insert("public", Token::Public);
+        map.insert("requires", Token::Requires);
+        map.insert("register", Token::Register);
+        map.insert("reinterpret_cast", Token::ReinterpretCast);
+        map.insert("restrict", Token::Restrict);
+        map.insert("return", Token::Return);
+        map.insert("__restrict", Token::MSRestrict);
+        map.insert("short", Token::Short);
+        map.insert("signed", Token::Signed);
+        map.insert("sizeof", Token::Sizeof);
+        map.insert("__sptr", Token::MSSptr);
+        map.insert("static", Token::Static);
+        map.insert("static_assert", Token::StaticAssert);
+        map.insert("_Static_assert", Token::CStaticAssert);
+        map.insert("static_cast", Token::StaticCast);
+        map.insert("__stdcall", Token::Stdcall);
+        map.insert("struct", Token::Struct);
+        map.insert("switch", Token::Switch);
+        map.insert("template", Token::Template);
+        map.insert("this", Token::This);
+        map.insert("__thiscall", Token::Thiscall);
+        map.insert("thread_local", Token::ThreadLocal);
+        map.insert("throw", Token::Throw);
+        map.insert("true", Token::True);
+        map.insert("try", Token::Try);
+        map.insert("typedef", Token::Typedef);
+        map.insert("typeid", Token::Typeid);
+        map.insert("typename", Token::Typename);
+        map.insert("_unaligned", Token::MS1Unaligned);
+        map.insert("__unaligned", Token::MSUnaligned);
+        map.insert("union", Token::Union);
+        map.insert("unsigned", Token::Unsigned);
+        map.insert("__uptr", Token::MSUptr);
+        map.insert("using", Token::Using);
+        map.insert("__vectorcall", Token::Vectorcall);
+        map.insert("virtual", Token::Virtual);
+        map.insert("void", Token::Void);
+        map.insert("volatile", Token::Volatile);
+        map.insert("wchar_t", Token::WcharT);
+        map.insert("while", Token::While);
+        map.insert("xor", Token::XorKw);
+        map.insert("xor_eq", Token::XorEq);
+        map
+    };
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
