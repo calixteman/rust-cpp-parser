@@ -167,9 +167,21 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 Token::PreprocPragma
             }
             Token::PreprocError => {
-                skip_until!(self, b'\n');
-                self.buf.add_new_line();
-                Token::PreprocError
+                let mut buf = Vec::new();
+                loop {
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
+                        if c == b'\n' {
+                            break;
+                        }
+                        buf.push(c);
+                        self.buf.inc();
+                    } else {
+                        break;
+                    }
+                };
+                let msg = String::from_utf8_lossy(&buf);
+                error!(self.span(), "reached #error directive: {}", msg);
             }
             _ => instr,
         })
