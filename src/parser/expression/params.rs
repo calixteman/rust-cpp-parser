@@ -41,7 +41,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
         }
 
         loop {
-            let mut ep = ExpressionParser::new(self.lexer, self.term.clone());
+            let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
             let (tk, expr) = ep.parse(Some(tok));
 
             params.push(expr);

@@ -36,7 +36,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
             unreachable!("Invalid token in static_assert: {:?}", tok);
         }
 
-        let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
+        let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
         let (tok, expr) = ep.parse(None);
 
         let condition = if let Some(cond) = expr {

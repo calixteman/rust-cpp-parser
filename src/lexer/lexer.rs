@@ -214,6 +214,8 @@ lazy_static! {
     };
 }
 
+// TODO: group token by kind, for example put all the literal together
+// it should speed up literal detection for example in using range
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     None,

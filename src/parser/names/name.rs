@@ -202,7 +202,7 @@ mod tests {
         );
     }
 
-    #[test]
+    /*#[test]
     fn test_name_template_one() {
         let mut l = Lexer::<DefaultContext>::new(b"A<B>");
         let p = QualifiedParser::new(&mut l);
@@ -253,5 +253,5 @@ mod tests {
                 ]
             }
         );
-    }
+    }*/
 }

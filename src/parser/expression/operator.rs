@@ -51,8 +51,7 @@ pub enum Operator {
     BitOr,
     And,
     Or,
-    Question,
-    Colon,
+    Conditional,
     Throw,
     CoYield,
     Assign,
@@ -79,6 +78,16 @@ impl Operator {
                 let arg = stack.pop().unwrap();
                 stack.push(ExprNode::UnaryOp(Box::new(UnaryOp { op: self, arg })));
             }
+            Conditional => {
+                let right = stack.pop().unwrap();
+                let left = stack.pop().unwrap();
+                let condition = stack.pop().unwrap();
+                stack.push(ExprNode::Conditional(Box::new(super::Conditional {
+                    condition,
+                    left,
+                    right,
+                })));
+            }
             _ => {
                 let arg2 = stack.pop().unwrap();
                 let arg1 = stack.pop().unwrap();
@@ -103,4 +112,11 @@ pub struct BinaryOp {
 pub struct UnaryOp {
     pub op: Operator,
     pub arg: ExprNode,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Conditional {
+    pub condition: ExprNode,
+    pub left: ExprNode,
+    pub right: ExprNode,
 }

@@ -53,6 +53,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let (tok, params) = pp.parse(tok, None);
 
             self.operators.push(Operator::Parenthesis);
+            self.level += 1;
             self.operands.push(ExprNode::CallExpr(Box::new(CallExpr {
                 callee: ctyp.node(),
                 params: params.unwrap(),
@@ -64,7 +65,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::RightParen {
             // (T (***a...: function call
-            let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
+            let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
             for p in pointers {
                 match p.kind {
                     PtrKind::Pointer => {
@@ -86,6 +87,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let (tok, params) = pp.parse(tok, first);
 
             self.operators.push(Operator::Parenthesis);
+            self.level += 1;
             self.operands.push(ExprNode::CallExpr(Box::new(CallExpr {
                 callee: ctyp.node(),
                 params: params.unwrap(),
@@ -220,6 +222,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 } else {
                     // Not a pointer => bin operation: mul, bitand, and
                     self.operators.push(Operator::Parenthesis);
+                    self.level += 1;
                     self.operands.push(ExprNode::Qualified(Box::new(qual)));
 
                     let op = match kind {
@@ -325,6 +328,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 return tok;
             } else {
                 self.operators.push(Operator::Parenthesis);
+                self.level += 1;
                 self.operands.push(ExprNode::Qualified(Box::new(qual)));
                 self.last = LastKind::Operand;
 

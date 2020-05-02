@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::list::{ListInitialization, ListInitializationParser};
-use super::operator::{BinaryOp, Operator, UnaryOp};
+use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
@@ -26,6 +26,7 @@ pub struct This {}
 pub enum ExprNode {
     UnaryOp(Box<UnaryOp>),
     BinaryOp(Box<BinaryOp>),
+    Conditional(Box<Conditional>),
     CallExpr(Box<CallExpr>),
     Qualified(Box<Qualified>),
     ListInit(Box<ListInitialization>),
@@ -89,9 +90,10 @@ fn precedence(op: Operator) -> (u32, Associativity) {
         BitOr => (13, Associativity::LR),
         And => (14, Associativity::LR),
         Or => (15, Associativity::LR),
-        Question | Colon | Throw | CoYield | Assign | AddAssign | SubAssign | MulAssign
-        | DivAssign | ModAssign | LShiftAssign | RShiftAssign | AndAssign | XorAssign
-        | OrAssign => (16, Associativity::RL),
+        Conditional | Throw | CoYield | Assign | AddAssign | SubAssign | MulAssign | DivAssign
+        | ModAssign | LShiftAssign | RShiftAssign | AndAssign | XorAssign | OrAssign => {
+            (16, Associativity::RL)
+        }
         Comma => (17, Associativity::LR),
     }
 }
@@ -116,6 +118,7 @@ pub struct ExpressionParser<'a, 'b, PC: PreprocContext> {
     pub(super) operators: Vec<Operator>,
     pub(super) last: LastKind,
     pub(super) term: Token,
+    pub(super) level: usize,
 }
 
 impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
@@ -126,6 +129,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             operators: Vec::new(),
             last: LastKind::Operator,
             term,
+            level: 0,
         }
     }
 
@@ -206,6 +210,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
+            if tok.tok == self.term && self.level == 0 {
+                return (Some(tok), self.get_node());
+            }
+
             match tok.tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {
@@ -442,19 +450,18 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     }
                 }
                 Token::Question => {
-                    self.push_operator(Operator::Question);
-                }
-                Token::Colon => {
-                    self.flush_with_op(Operator::Colon);
-                    if self
-                        .operators
-                        .last()
-                        .map_or(true, |&top| top != Operator::Question)
-                    {
-                        return (Some(tok), self.get_node());
+                    let mut ep = ExpressionParser::new(self.lexer, Token::Colon);
+                    let (tok, expr) = ep.parse(None);
+                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+
+                    if tok.tok != Token::Colon {
+                        unreachable!("Wrong token conditional operator: {:?}", tok);
                     }
+
+                    let left = expr.unwrap();
+                    self.operands.push(left);
+                    self.push_operator(Operator::Conditional);
                     self.last = LastKind::Operator;
-                    self.operators.push(Operator::Colon);
                 }
                 Token::LeftParen => {
                     if self.last == LastKind::Operand {
@@ -493,18 +500,14 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.last = LastKind::Operand;
                 }
                 Token::Comma => {
-                    if self.is_nested() {
-                        self.push_operator(Operator::Comma);
-                    } else {
-                        return (Some(tok), self.get_node());
-                    }
+                    self.push_operator(Operator::Comma);
                 }
                 Token::RightParen => {
-                    if self.is_terminal(Token::RightParen) {
+                    if self.level == 0 {
                         return (Some(tok), self.get_node());
-                    } else {
-                        self.flush_until_paren();
                     }
+                    self.level -= 1;
+                    self.flush_until_paren();
                 }
                 Token::Equal => {
                     self.push_operator(Operator::Assign);
@@ -867,6 +870,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::names::Qualified;
+    use crate::parser::r#type::{BaseType, CVQualifier, Primitive, Type};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1053,14 +1057,37 @@ mod tests {
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let node = parser.parse(None).1.unwrap();
 
-        let expected = node!(BinaryOp {
-            op: Operator::Question,
-            arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-            arg2: node!(BinaryOp {
-                op: Operator::Colon,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("b"))),
+        let expected = node!(Conditional {
+            condition: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            left: ExprNode::Qualified(Box::new(mk_id!("b"))),
+            right: ExprNode::Qualified(Box::new(mk_id!("c"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_question_2() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a ? (void)b,c : d");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let node = parser.parse(None).1.unwrap();
+
+        let expected = node!(Conditional {
+            condition: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            left: node!(BinaryOp {
+                op: Operator::Comma,
+                arg1: node!(BinaryOp {
+                    op: Operator::Cast,
+                    arg1: ExprNode::Type(Box::new(Type {
+                        base: BaseType::Primitive(Primitive::Void),
+                        cv: CVQualifier::empty(),
+                        pointers: None,
+                    })),
+                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                }),
                 arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
             }),
+            right: ExprNode::Qualified(Box::new(mk_id!("d"))),
         });
 
         assert_eq!(node, expected);
