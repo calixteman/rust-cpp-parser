@@ -237,7 +237,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let buf = self
                     .context
                     .find(false, path, next, source_id, path_index)
-                    .unwrap();
+                    .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
                 self.buf.add_buffer(buf);
             }
             IncludeType::Angle(path) => {
@@ -246,7 +246,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let buf = self
                     .context
                     .find(true, path, next, source_id, path_index)
-                    .unwrap();
+                    .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
                 self.buf.add_buffer(buf);
             }
             IncludeType::Other => {
@@ -264,14 +264,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             let buf = self
                                 .context
                                 .find(false, path, next, source_id, path_index)
-                                .unwrap();
+                                .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
                             self.buf.add_buffer(buf);
                         }
                         IncludeType::Angle(path) => {
                             let buf = self
                                 .context
                                 .find(true, path, next, source_id, path_index)
-                                .unwrap();
+                                .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
                             self.buf.add_buffer(buf);
                         }
                         _ => {
