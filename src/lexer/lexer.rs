@@ -56,22 +56,22 @@ pub(super) const CHARS: [Kind; 256] = [
     Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, //
     // 78  x   79  y      7A  z      7B  {      7C  |      7D  }      7E  ~      7F DEL
     Kind::KEY, Kind::KEY, Kind::KEY, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
 ];
 
 static PREPROC_KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
@@ -145,9 +145,11 @@ static CPP_KEYWORDS: phf::Map<&'static str, Token> = phf_map! {
     "goto" => Token::Goto,
     "if" => Token::If,
     "_Imaginary" => Token::Imaginary,
+    "import" => Token::Import,
     "inline" => Token::Inline,
     "int" => Token::Int,
     "long" => Token::Long,
+    "module" => Token::Module,
     "mutable" => Token::Mutable,
     "namespace" => Token::Namespace,
     "new" => Token::New,
@@ -363,9 +365,11 @@ pub enum Token {
     Goto,
     If,
     Imaginary,
+    Import,
     Inline,
     Int,
     Long,
+    Module,
     Mutable,
     Namespace,
     New,
@@ -1167,6 +1171,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     b'~' => {
                         return loc!(self, Token::Tilde, start);
                     }
+                    b'\x7F'..=b'\xFF' => {
+                        if let Some(tok) = self.get_identifier() {
+                            return loc!(self, tok, start);
+                        }
+                    }
                     _ => {}
                 }
             } else {
@@ -1212,6 +1221,15 @@ mod tests {
             p.next().tok,
             Token::Identifier("hello_world_WORLD_HELLO123".to_string())
         );
+    }
+
+    #[test]
+    fn test_identifiers_utf8() {
+        let mut p = Lexer::<DefaultContext>::new("🌹 🌵 🌻 🌷🌷🌷🌷🌷🌷".as_bytes());
+        assert_eq!(p.next().tok, Token::Identifier("🌹".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("🌵".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("🌻".to_string()));
+        assert_eq!(p.next().tok, Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string()));
     }
 
     #[test]
