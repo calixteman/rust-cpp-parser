@@ -563,6 +563,22 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                         continue;
                     }
                 }
+                Token::Final => {
+                    tok = self.handle_id("final".to_string());
+                    continue;
+                }
+                Token::Import => {
+                    tok = self.handle_id("import".to_string());
+                    continue;
+                }
+                Token::Module => {
+                    tok = self.handle_id("module".to_string());
+                    continue;
+                }
+                Token::Override => {
+                    tok = self.handle_id("override".to_string());
+                    continue;
+                }
                 Token::Identifier(id) => {
                     tok = self.handle_id(id);
                     continue;

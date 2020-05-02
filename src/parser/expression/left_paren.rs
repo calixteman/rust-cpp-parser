@@ -158,6 +158,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             return None;
         }
 
+        // TODO: handle case where id is final, override, ...
         if let Token::Identifier(id) = tok.tok {
             let qp = QualifiedParser::new(self.lexer);
             let (tok, qual) = qp.parse(None, Some(id));
@@ -252,7 +253,11 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     | Token::Star
                     | Token::LeftParen
                     | Token::PlusPlus
-                    | Token::MinusMinus => None,
+                    | Token::MinusMinus => {
+                        // record token and parse again when we've enough info
+                        // to guess if the name is a type or not
+                        None
+                    }
                     Token::Identifier(_)
                     | Token::Not
                     | Token::LiteralChar(_)
