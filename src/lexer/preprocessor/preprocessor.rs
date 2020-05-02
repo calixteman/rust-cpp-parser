@@ -99,7 +99,7 @@ pub enum MacroToken<'a> {
 
 impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
-    pub fn preproc_parse(&mut self, instr: Token<'a>) -> Token<'a> {
+    pub fn preproc_parse(&mut self, instr: Token) -> Token {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
         match instr {
@@ -818,7 +818,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_parse_args() {
@@ -1166,10 +1166,7 @@ mod tests {
         assert_eq!(p.next().tok, Token::Eol);
         assert_eq!(p.next().tok, Token::LiteralInt(4));
         assert_eq!(p.next().tok, Token::Eol);
-        assert_eq!(
-            std::mem::discriminant(&p.next().tok),
-            std::mem::discriminant(&Token::Comment(&[]))
-        );
+        assert_eq!(p.next().tok, Token::Comment);
         assert_eq!(p.next().tok, Token::Eol);
         assert_eq!(p.next().tok, Token::LiteralInt(9));
     }

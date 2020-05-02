@@ -6,11 +6,11 @@ use crate::parser::expression::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct If {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) constexpr: bool,
-    pub(crate) condition: ExprNode,
-    pub(crate) then: Box<Statement>,
-    pub(crate) r#else: Option<Box<Statement>>,
+    pub attributes: Option<Attributes>,
+    pub constexpr: bool,
+    pub condition: ExprNode,
+    pub then: Statement,
+    pub r#else: Option<Statement>,
 }
 
 pub struct IfStmtParser<'a, 'b, PC: PreprocContext> {
@@ -22,10 +22,7 @@ impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<If>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<If>) {
         let mut tok = self.lexer.next_useful();
         let constexpr = if tok.tok == Token::Constexpr {
             tok = self.lexer.next_useful();
@@ -64,8 +61,8 @@ impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
                 attributes,
                 constexpr,
                 condition: condition.unwrap(),
-                then: Box::new(then.unwrap()),
-                r#else: r#else.map(Box::new),
+                then: then.unwrap(),
+                r#else,
             }),
         )
     }

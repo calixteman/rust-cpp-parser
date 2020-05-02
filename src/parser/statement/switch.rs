@@ -6,9 +6,9 @@ use crate::parser::expression::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Switch {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) condition: ExprNode,
-    pub(crate) cases: Box<Statement>,
+    pub attributes: Option<Attributes>,
+    pub condition: ExprNode,
+    pub cases: Statement,
 }
 
 pub struct SwitchStmtParser<'a, 'b, PC: PreprocContext> {
@@ -23,7 +23,7 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Switch>) {
+    ) -> (Option<LocToken>, Option<Switch>) {
         let tok = self.lexer.next_useful();
         if tok.tok != Token::LeftParen {
             unreachable!("Invalid token in switch statement: {:?}", tok);
@@ -46,7 +46,7 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
             Some(Switch {
                 attributes,
                 condition: condition.unwrap(),
-                cases: Box::new(cases.unwrap()),
+                cases: cases.unwrap(),
             }),
         )
     }
@@ -54,9 +54,8 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Case {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) value: ExprNode,
-    pub(crate) then: Box<Statement>,
+    pub attributes: Option<Attributes>,
+    pub value: ExprNode,
 }
 
 pub struct CaseStmtParser<'a, 'b, PC: PreprocContext> {
@@ -68,10 +67,7 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Case>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Case>) {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
         let (tok, value) = ep.parse(None);
 
@@ -80,15 +76,11 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
             unreachable!("Invalid token in case statement: {:?}", tok);
         }
 
-        let sp = StatementParser::new(self.lexer);
-        let (tok, then) = sp.parse(None);
-
         (
-            tok,
+            None,
             Some(Case {
                 attributes,
                 value: value.unwrap(),
-                then: Box::new(then.unwrap()),
             }),
         )
     }
@@ -96,8 +88,7 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Default {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) then: Box<Statement>,
+    pub attributes: Option<Attributes>,
 }
 
 pub struct DefaultStmtParser<'a, 'b, PC: PreprocContext> {
@@ -112,21 +103,12 @@ impl<'a, 'b, PC: PreprocContext> DefaultStmtParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Default>) {
+    ) -> (Option<LocToken>, Option<Default>) {
         let tok = self.lexer.next_useful();
         if tok.tok != Token::Colon {
             unreachable!("Invalid token in case statement: {:?}", tok);
         }
 
-        let sp = StatementParser::new(self.lexer);
-        let (tok, then) = sp.parse(None);
-
-        (
-            tok,
-            Some(Default {
-                attributes,
-                then: Box::new(then.unwrap()),
-            }),
-        )
+        (None, Some(Default { attributes }))
     }
 }

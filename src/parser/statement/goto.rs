@@ -1,11 +1,18 @@
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
+use crate::parser::expression::{ExprNode, ExpressionParser};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Label {
+    Id(String),
+    Expr(ExprNode),
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Goto {
     pub(crate) attributes: Option<Attributes>,
-    pub(crate) val: String,
+    pub(crate) label: Label,
 }
 
 pub struct GotoStmtParser<'a, 'b, PC: PreprocContext> {
@@ -17,10 +24,7 @@ impl<'a, 'b, PC: PreprocContext> GotoStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Goto>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Goto>) {
         let tok = self.lexer.next_useful();
 
         match tok.tok {
@@ -28,9 +32,21 @@ impl<'a, 'b, PC: PreprocContext> GotoStmtParser<'a, 'b, PC> {
                 None,
                 Some(Goto {
                     attributes,
-                    val: id,
+                    label: Label::Id(id),
                 }),
             ),
+            Token::Star => {
+                let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
+                let (tok, expr) = ep.parse(None);
+
+                (
+                    tok,
+                    Some(Goto {
+                        attributes,
+                        label: Label::Expr(expr.unwrap()),
+                    }),
+                )
+            }
             _ => {
                 unreachable!("Invalid token in goto statement: {:?}", tok);
             }

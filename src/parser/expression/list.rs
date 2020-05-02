@@ -15,8 +15,8 @@ impl<'a, 'b, PC: PreprocContext> ListInitializationParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<ListInitialization>) {
+        tok: Option<LocToken>,
+    ) -> (Option<LocToken>, Option<ListInitialization>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok.tok != Token::LeftBrace {
@@ -24,6 +24,6 @@ impl<'a, 'b, PC: PreprocContext> ListInitializationParser<'a, 'b, PC> {
         }
 
         let pp = ParametersParser::new(self.lexer, Token::RightBrace);
-        pp.parse(None)
+        pp.parse(None, None)
     }
 }

@@ -6,9 +6,9 @@ use crate::parser::expression::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct While {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) condition: ExprNode,
-    pub(crate) body: Box<Statement>,
+    pub attributes: Option<Attributes>,
+    pub condition: ExprNode,
+    pub body: Statement,
 }
 
 pub struct WhileStmtParser<'a, 'b, PC: PreprocContext> {
@@ -20,10 +20,7 @@ impl<'a, 'b, PC: PreprocContext> WhileStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<While>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<While>) {
         let tok = self.lexer.next_useful();
 
         if tok.tok != Token::LeftParen {
@@ -45,7 +42,7 @@ impl<'a, 'b, PC: PreprocContext> WhileStmtParser<'a, 'b, PC> {
             tok,
             Some(While {
                 attributes,
-                body: Box::new(body.unwrap()),
+                body: body.unwrap(),
                 condition: condition.unwrap(),
             }),
         )

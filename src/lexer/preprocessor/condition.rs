@@ -698,7 +698,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
                 Token::False => {
                     self.handle_id("false");
                 }
-                Token::Comment(_) => {}
+                Token::Comment => {}
                 Token::Question => {
                     self.push_operator(Operator::Question);
                 }
@@ -736,7 +736,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_condition_base() {

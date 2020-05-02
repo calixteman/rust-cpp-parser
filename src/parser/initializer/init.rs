@@ -1,12 +1,15 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{ExprNode, ExpressionParser, Parameters, ParametersParser};
+use crate::parser::expression::{
+    ExprNode, ExpressionParser, ListInitialization, ListInitializationParser, Parameters,
+    ParametersParser,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Initializer {
     Equal(ExprNode),
     Paren(Parameters),
-    Brace(Parameters),
+    Brace(ListInitialization),
 }
 
 pub struct InitializerParser<'a, 'b, PC: PreprocContext> {
@@ -18,10 +21,7 @@ impl<'a, 'b, PC: PreprocContext> InitializerParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Initializer>) {
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Initializer>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         match tok.tok {
@@ -32,12 +32,12 @@ impl<'a, 'b, PC: PreprocContext> InitializerParser<'a, 'b, PC> {
             }
             Token::LeftParen => {
                 let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                let (tok, params) = pp.parse(None);
+                let (tok, params) = pp.parse(None, None);
                 (tok, Some(Initializer::Paren(params.unwrap())))
             }
             Token::LeftBrace => {
-                let pp = ParametersParser::new(self.lexer, Token::RightBrace);
-                let (tok, params) = pp.parse(None);
+                let lip = ListInitializationParser::new(self.lexer);
+                let (tok, params) = lip.parse(Some(tok));
                 (tok, Some(Initializer::Brace(params.unwrap())))
             }
             _ => (Some(tok), None),

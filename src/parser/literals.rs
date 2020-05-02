@@ -18,6 +18,7 @@ pub enum FloatLiteral {
     Float(f64),
     Double(f64),
     LongDouble(f64),
+    FloatUD(Box<(f64, String)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +33,11 @@ pub enum CharLiteral {
     UChar(u32),
     UUChar(u32),
     U8Char(u32),
+    CharUD(Box<(u32, String)>),
+    LCharUD(Box<(u32, String)>),
+    UCharUD(Box<(u32, String)>),
+    UUCharUD(Box<(u32, String)>),
+    U8CharUD(Box<(u32, String)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +57,16 @@ pub enum StrLiteral {
     URStr(String),
     UURStr(String),
     U8RStr(String),
+    StrUD(Box<(String, String)>),
+    LStrUD(Box<(String, String)>),
+    UStrUD(Box<(String, String)>),
+    UUStrUD(Box<(String, String)>),
+    U8StrUD(Box<(String, String)>),
+    RStrUD(Box<(String, String)>),
+    LRStrUD(Box<(String, String)>),
+    URStrUD(Box<(String, String)>),
+    UURStrUD(Box<(String, String)>),
+    U8RStrUD(Box<(String, String)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +78,3 @@ pub struct Str {
 pub struct Bool {
     pub value: bool,
 }
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Nullptr {}

@@ -5,8 +5,8 @@
 //pub use self::dump::*;
 
 #[macro_use]
-pub mod name;
-pub use self::name::*;
+pub mod names;
+pub use self::names::*;
 
 pub mod r#type;
 pub use self::r#type::*;

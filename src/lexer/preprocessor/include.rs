@@ -292,7 +292,7 @@ mod tests {
     use crate::lexer::preprocessor::context::{Context, DefaultContext};
     use crate::lexer::preprocessor::macros::Macro;
     use crate::lexer::source::SourceLocator;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     macro_rules! eval {
         ( $name: expr, $lexer: expr ) => {{

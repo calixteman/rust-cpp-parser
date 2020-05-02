@@ -3,11 +3,19 @@ use super::operator::{BinaryOp, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
+use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::literals::{
-    Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Nullptr, Str, StrLiteral,
+    Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
 };
-use crate::parser::name::{Qualified, QualifiedParser};
+use crate::parser::names::{Qualified, QualifiedParser};
+use crate::parser::r#type::Type;
 //use crate::dump::Dump;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Nullptr {}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct This {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprNode {
@@ -23,6 +31,9 @@ pub enum ExprNode {
     Str(Box<Str>),
     Bool(Box<Bool>),
     Nullptr(Box<Nullptr>),
+    This(Box<This>),
+    Type(Box<Type>),
+    None,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,7 +49,7 @@ pub struct InitExpr {
 }
 
 #[derive(PartialEq)]
-enum LastKind {
+pub(super) enum LastKind {
     Operator,
     Operand,
 }
@@ -54,10 +65,13 @@ fn precedence(op: Operator) -> (u32, Associativity) {
     use Operator::*;
 
     match op {
+        Parenthesis => (0, Associativity::LR),
         ScopeResolution => (1, Associativity::LR),
         PostInc | PostDec | Call | Dot | Arrow | Subscript => (2, Associativity::LR),
-        PreInc | PreDec | Plus | Minus | Indirection | AddressOf | Not | BitNeg | Sizeof | New
-        | NewArray | Delete | DeleteArray | CoAwait => (3, Associativity::RL),
+        PreInc | PreDec | Plus | Minus | Indirection | AddressOf | AddressOfLabel | Not
+        | BitNeg | Sizeof | New | NewArray | Delete | DeleteArray | CoAwait | Cast => {
+            (3, Associativity::RL)
+        }
         DotIndirection | ArrowIndirection => (4, Associativity::LR),
         Mul | Div | Mod => (5, Associativity::LR),
         Add | Sub => (6, Associativity::LR),
@@ -74,14 +88,13 @@ fn precedence(op: Operator) -> (u32, Associativity) {
         | DivAssign | ModAssign | LShiftAssign | RShiftAssign | AndAssign | XorAssign
         | OrAssign => (16, Associativity::RL),
         Comma => (17, Associativity::LR),
-        Parenthesis => (0, Associativity::LR),
     }
 }
 
 #[inline(always)]
 fn check_precedence(left: Operator, right: Operator) -> bool {
     // TODO: replace this by a table
-    // a + b * c => prec(+) <= prec(*) is true so * has precedence on +
+    // a + b * c => prec(*) < prec(+) is true so * has precedence on +
     let (l_prec, l_assoc) = precedence(left);
     let (r_prec, _) = precedence(right);
 
@@ -93,15 +106,15 @@ fn check_precedence(left: Operator, right: Operator) -> bool {
 }
 
 pub struct ExpressionParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
-    operands: Vec<ExprNode>,
-    operators: Vec<Operator>,
-    last: LastKind,
-    term: Token<'a>,
+    pub(super) lexer: &'b mut Lexer<'a, PC>,
+    pub(super) operands: Vec<ExprNode>,
+    pub(super) operators: Vec<Operator>,
+    pub(super) last: LastKind,
+    pub(super) term: Token,
 }
 
 impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token<'a>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token) -> Self {
         Self {
             lexer,
             operands: Vec::new(),
@@ -111,13 +124,13 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         }
     }
 
-    fn push_operator(&mut self, op: Operator) {
+    pub(super) fn push_operator(&mut self, op: Operator) {
         self.flush_with_op(op);
         self.last = LastKind::Operator;
         self.operators.push(op);
     }
 
-    fn flush_with_op(&mut self, op: Operator) {
+    pub(super) fn flush_with_op(&mut self, op: Operator) {
         loop {
             if let Some(top) = self.operators.last() {
                 if *top != Operator::Parenthesis && check_precedence(*top, op) {
@@ -130,13 +143,13 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         }
     }
 
-    fn flush(&mut self) {
+    pub(super) fn flush(&mut self) {
         while let Some(op) = self.operators.pop() {
             op.operate(&mut self.operands);
         }
     }
 
-    fn get_node(&mut self) -> Option<ExprNode> {
+    pub(crate) fn get_node(&mut self) -> Option<ExprNode> {
         self.flush();
         self.operands.pop()
     }
@@ -158,11 +171,11 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         self.operators.contains(&Operator::Parenthesis)
     }
 
-    fn is_terminal(&mut self, tok: Token<'a>) -> bool {
-        self.term == tok || tok == Token::RightParen && !self.is_nested()
+    fn is_terminal(&mut self, tok: Token) -> bool {
+        self.term == tok || (tok == Token::RightParen && !self.is_nested())
     }
 
-    fn handle_id(&mut self, id: String) -> LocToken<'a> {
+    fn handle_id(&mut self, id: String) -> LocToken {
         let qp = QualifiedParser::new(self.lexer);
         let (tk, qual) = qp.parse(None, Some(id));
 
@@ -175,19 +188,16 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 
     pub(crate) fn parse_with_id(
         &mut self,
-        tok: Option<LocToken<'a>>,
+        tok: Option<LocToken>,
         name: Qualified,
-    ) -> (Option<LocToken<'a>>, Option<ExprNode>) {
+    ) -> (Option<LocToken>, Option<ExprNode>) {
         self.operands.push(ExprNode::Qualified(Box::new(name)));
         self.last = LastKind::Operand;
 
         self.parse(tok)
     }
 
-    pub(crate) fn parse(
-        &mut self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<ExprNode>) {
+    pub(crate) fn parse(&mut self, tok: Option<LocToken>) -> (Option<LocToken>, Option<ExprNode>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
@@ -236,7 +246,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     let tk = self.lexer.next_useful();
                     if tk.tok == Token::LeftParen {
                         let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (_, params) = pp.parse(None);
+                        let (_, params) = pp.parse(None, None);
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
                             op: Operator::Sizeof,
                             arg: params.unwrap().pop().unwrap().unwrap(),
@@ -401,7 +411,11 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     }
                 }
                 Token::AndAnd => {
-                    self.push_operator(Operator::And);
+                    if self.last == LastKind::Operand {
+                        self.push_operator(Operator::And);
+                    } else {
+                        self.push_operator(Operator::AddressOfLabel);
+                    }
                 }
                 Token::AndKw => {
                     if self.last == LastKind::Operand {
@@ -426,14 +440,23 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.push_operator(Operator::Question);
                 }
                 Token::Colon => {
-                    self.push_operator(Operator::Colon);
+                    self.flush_with_op(Operator::Colon);
+                    if self
+                        .operators
+                        .last()
+                        .map_or(true, |&top| top != Operator::Question)
+                    {
+                        return (Some(tok), self.get_node());
+                    }
+                    self.last = LastKind::Operator;
+                    self.operators.push(Operator::Colon);
                 }
                 Token::LeftParen => {
                     if self.last == LastKind::Operand {
                         // We've a call
                         self.flush_with_op(Operator::Call);
                         let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (_, params) = pp.parse(None);
+                        let (_, params) = pp.parse(None, None);
                         let callee = self.operands.pop().unwrap();
                         self.operands.push(ExprNode::CallExpr(Box::new(CallExpr {
                             callee,
@@ -441,8 +464,9 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                         })));
                         self.last = LastKind::Operand;
                     } else {
-                        self.operators.push(Operator::Parenthesis);
-                        self.last = LastKind::Operator;
+                        let tk = self.parse_left_paren();
+                        tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                        continue;
                     }
                 }
                 Token::LeftBrace => {
@@ -568,6 +592,36 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     })));
                     self.last = LastKind::Operand;
                 }
+                Token::LiteralCharUD(x) => {
+                    self.operands.push(ExprNode::Char(Box::new(Char {
+                        value: CharLiteral::CharUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralLCharUD(x) => {
+                    self.operands.push(ExprNode::Char(Box::new(Char {
+                        value: CharLiteral::LCharUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralUUCharUD(x) => {
+                    self.operands.push(ExprNode::Char(Box::new(Char {
+                        value: CharLiteral::UUCharUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralUCharUD(x) => {
+                    self.operands.push(ExprNode::Char(Box::new(Char {
+                        value: CharLiteral::UCharUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralU8CharUD(x) => {
+                    self.operands.push(ExprNode::Char(Box::new(Char {
+                        value: CharLiteral::U8CharUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
                 Token::LiteralDouble(x) => {
                     self.operands.push(ExprNode::Float(Box::new(Float {
                         value: FloatLiteral::Double(x),
@@ -577,6 +631,12 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 Token::LiteralFloat(x) => {
                     self.operands.push(ExprNode::Float(Box::new(Float {
                         value: FloatLiteral::Float(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralFloatUD(x) => {
+                    self.operands.push(ExprNode::Float(Box::new(Float {
+                        value: FloatLiteral::FloatUD(x),
                     })));
                     self.last = LastKind::Operand;
                 }
@@ -682,8 +742,72 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     })));
                     self.last = LastKind::Operand;
                 }
+                Token::LiteralStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::StrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralLStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::LStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralUStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::UStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralUUStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::UUStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralU8StringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::U8StrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralRStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::RStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralLRStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::LRStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralURStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::URStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralUURStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::UURStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
+                Token::LiteralU8RStringUD(x) => {
+                    self.operands.push(ExprNode::Str(Box::new(Str {
+                        value: StrLiteral::U8RStrUD(x),
+                    })));
+                    self.last = LastKind::Operand;
+                }
                 Token::Nullptr => {
                     self.operands.push(ExprNode::Nullptr(Box::new(Nullptr {})));
+                    self.last = LastKind::Operand;
+                }
+                Token::This => {
+                    self.operands.push(ExprNode::This(Box::new(This {})));
                     self.last = LastKind::Operand;
                 }
                 Token::True => {
@@ -697,8 +821,18 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.last = LastKind::Operand;
                 }
                 _ => {
-                    //eprintln!("COUCOU {:?}\n{:?}\n", self.operands, self.operators);
-                    return (Some(tok), self.get_node());
+                    let dsp = DeclSpecifierParser::new(self.lexer);
+                    let (tk, (_, typ, _)) = dsp.parse(Some(tok), None);
+
+                    if let Some(typ) = typ {
+                        self.operands.push(ExprNode::Type(Box::new(typ)));
+                        self.last = LastKind::Operand;
+                        tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                        continue;
+                    } else {
+                        //eprintln!("COUCOU {:?}\n{:?}\n", self.operands, self.operators);
+                        return (tk, self.get_node());
+                    }
                 }
             }
             tok = self.lexer.next_useful();
@@ -711,20 +845,39 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::name::*;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use crate::parser::names::Qualified;
+    use pretty_assertions::assert_eq;
 
     #[test]
-    fn test_add_associativity() {
-        let mut lexer = Lexer::<DefaultContext>::new(b"a + (b + c)");
+    fn test_add_associativity_lr() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a + b + c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let node = parser.parse(None).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
+            arg1: node!(BinaryOp {
+                op: Operator::Add,
+                arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
+                arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+            }),
+            arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_add_associativity_rl() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a = b = c");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let node = parser.parse(None).1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Assign,
             arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
             arg2: node!(BinaryOp {
-                op: Operator::Add,
+                op: Operator::Assign,
                 arg1: ExprNode::Qualified(Box::new(mk_id!("b"))),
                 arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
             }),
@@ -867,6 +1020,25 @@ mod tests {
             arg: node!(UnaryOp {
                 op: Operator::PostInc,
                 arg: ExprNode::Qualified(Box::new(mk_id!("p"))),
+            }),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_question_1() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a ? b : c");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let node = parser.parse(None).1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Question,
+            arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: node!(BinaryOp {
+                op: Operator::Colon,
+                arg1: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
             }),
         });
 

@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 use super::preprocessor::include::PathIndex;
 use super::source::FileId;
 
@@ -63,11 +61,11 @@ impl<'a> Buffer<'a> {
         let mut ret = Self {
             stack: Vec::new(),
             preproc: Vec::new(),
-            current: unsafe { MaybeUninit::uninit().assume_init() },
+            current: &[],
             len: buf.len(),
             position: Position::default(),
-            saved_position: unsafe { MaybeUninit::uninit().assume_init() },
-            saved_buf: unsafe { MaybeUninit::uninit().assume_init() },
+            saved_position: Position::default(),
+            saved_buf: &[],
         };
         ret.stack.push(BufferData {
             buf,
@@ -131,17 +129,12 @@ impl<'a> Buffer<'a> {
             return false;
         }
 
-        loop {
-            if let Some(data) = self.stack.last() {
-                if data.position.pos < data.buf.len() {
-                    self.current =
-                        unsafe { &*std::mem::transmute::<&[u8], *const [u8]>(&data.buf) };
-                    self.len = self.current.len();
-                    self.position = data.position.clone();
-                    return true;
-                }
-            } else {
-                break;
+        while let Some(data) = self.stack.last() {
+            if data.position.pos < data.buf.len() {
+                self.current = unsafe { &*std::mem::transmute::<&[u8], *const [u8]>(&data.buf) };
+                self.len = self.current.len();
+                self.position = data.position.clone();
+                return true;
             }
             self.stack.pop();
         }

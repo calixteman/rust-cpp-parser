@@ -21,7 +21,7 @@ impl<'a, 'b, PC: PreprocContext> ReturnStmtParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Return>) {
+    ) -> (Option<LocToken>, Option<Return>) {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
         let (tok, expr) = ep.parse(None);
 

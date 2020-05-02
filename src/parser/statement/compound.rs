@@ -21,7 +21,7 @@ impl<'a, 'b, PC: PreprocContext> CompoundStmtParser<'a, 'b, PC> {
     pub(crate) fn parse(
         self,
         attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Compound>) {
+    ) -> (Option<LocToken>, Option<Compound>) {
         let mut stmts = Vec::new();
         let mut tok = self.lexer.next_useful();
 

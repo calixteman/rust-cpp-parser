@@ -22,10 +22,7 @@ impl<'a, 'b, PC: PreprocContext> TopLevelParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<TopLevel>) {
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<TopLevel>) {
         let ep = ExternParser::new(self.lexer);
         let (tok, epr) = ep.parse(tok);
 
@@ -76,8 +73,8 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<DeclarationList>) {
+        tok: Option<LocToken>,
+    ) -> (Option<LocToken>, Option<DeclarationList>) {
         let mut tok = tok;
         let mut list = Vec::new();
 
@@ -101,8 +98,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::expression::*;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_titi() {

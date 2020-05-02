@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 use phf::phf_map;
 
-use super::lexer::{Lexer, Token};
+use super::lexer::{self, Lexer, Token};
 use super::preprocessor::context::PreprocContext;
 
 const POW_P_10: [f64; 309] = [
@@ -151,12 +151,14 @@ const NUMCHARS: [Nums; 256] = [
     Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, Nums::NON, //
 ];
 
+#[derive(Clone)]
 enum IntType {
     U,
     L,
     UL,
     LL,
     ULL,
+    UserDefined(String),
 }
 
 static INT_SUFFIXES: phf::Map<&'static str, IntType> = phf_map! {
@@ -184,16 +186,18 @@ static INT_SUFFIXES: phf::Map<&'static str, IntType> = phf_map! {
     "ULL" => IntType::ULL,
 };
 
+#[derive(Clone)]
 enum FloatType {
     F,
     L,
+    UserDefined(String),
 }
 
-static FLOAT_SUFFIXES: phf::Map<u8, FloatType> = phf_map! {
-    b'f' => FloatType::F,
-    b'F' => FloatType::F,
-    b'l' => FloatType::L,
-    b'L' => FloatType::L,
+static FLOAT_SUFFIXES: phf::Map<&'static str, FloatType> = phf_map! {
+    "f" => FloatType::F,
+    "F" => FloatType::F,
+    "l" => FloatType::L,
+    "L" => FloatType::L,
 };
 
 #[inline(always)]
@@ -260,8 +264,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
-                self.buf.inc();
                 if b'0' <= c && c <= b'9' {
+                    self.buf.inc();
                     if num > (std::u64::MAX >> 7) {
                         let shift = (self.buf.pos() - spos) as i64;
                         let exp = self.skip_and_get_exponent();
@@ -269,11 +273,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     }
                     num = 10 * num + u64::from(c - b'0');
                 } else if c == b'e' || c == b'E' {
+                    self.buf.inc();
                     let shift = (self.buf.pos() - spos) as i64;
                     let exp = self.get_exponent();
                     return (num, exp - shift);
                 } else {
-                    let shift = (self.buf.pos() - spos) as i64;
+                    let shift = (self.buf.pos() + 1 - spos) as i64;
                     return (num, -shift);
                 }
             } else {
@@ -304,14 +309,15 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_dot_or_number(&mut self) -> Token<'a> {
+    pub(crate) fn get_dot_or_number(&mut self) -> Token {
         if self.buf.has_char() {
             let c = self.buf.next_char();
-            self.buf.inc();
             if b'0' <= c && c <= b'9' {
+                self.buf.inc();
                 let (dec, exp) = self.get_number_after_dot(u64::from(c - b'0'));
                 return self.get_typed_float(get_decimal(dec, exp));
             } else if c == b'.' {
+                self.buf.inc();
                 if self.buf.has_char() {
                     let c = self.buf.next_char();
                     if c == b'.' {
@@ -381,7 +387,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_hex(&mut self) -> Token<'a> {
+    pub(crate) fn get_hex(&mut self) -> Token {
         let num = self.get_base_hex();
 
         let c = self.buf.next_char();
@@ -414,7 +420,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_oct(&mut self, start: u64) -> Token<'a> {
+    pub(crate) fn get_oct(&mut self, start: u64) -> Token {
         let mut num = start;
         loop {
             if self.buf.has_char() {
@@ -435,7 +441,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    fn get_bin(&mut self) -> Token<'a> {
+    fn get_bin(&mut self) -> Token {
         let mut num = 0;
         loop {
             if self.buf.has_char() {
@@ -463,7 +469,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let c = self.buf.next_char();
                 if b'0' <= c && c <= b'9' {
                     self.buf.inc();
-                    //self.debug("GET_LINE");
                     // TODO: not correct here... we should handle number differently (using biguint or something similar
                     if num <= std::u64::MAX / 10 {
                         num = 10 * num + u64::from(c - b'0');
@@ -481,7 +486,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_typed_int(&mut self, num: u64) -> Token<'a> {
+    pub(crate) fn get_typed_int(&mut self, num: u64) -> Token {
         if let Some(suf) = self.get_int_type() {
             match suf {
                 IntType::U => Token::LiteralUInt(num),
@@ -489,6 +494,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 IntType::UL => Token::LiteralULong(num),
                 IntType::LL => Token::LiteralLongLong(num),
                 IntType::ULL => Token::LiteralULongLong(num),
+                IntType::UserDefined(suf) => Token::LiteralIntUD(Box::new((num, suf))),
             }
         } else {
             Token::LiteralInt(num)
@@ -496,47 +502,67 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    fn get_int_type(&mut self) -> Option<&IntType> {
+    fn get_int_type(&mut self) -> Option<IntType> {
         if self.buf.has_char() {
             let c = self.buf.next_char();
-            if c == b'u' || c == b'l' || c == b'L' || c == b'U' {
+            let kind = unsafe { lexer::CHARS.get_unchecked(c as usize) };
+            if *kind != lexer::Kind::NON {
+                // we've a suffix
                 self.buf.inc();
                 let id = self.get_identifier_str();
-                return INT_SUFFIXES.get(id);
+                if let Some(suf) = INT_SUFFIXES.get(id) {
+                    return Some(suf.clone());
+                } else {
+                    return Some(IntType::UserDefined(id.to_string()));
+                }
             }
         }
         None
     }
 
     #[inline(always)]
-    pub(crate) fn get_typed_float(&mut self, num: f64) -> Token<'a> {
+    pub(crate) fn get_typed_float(&mut self, num: f64) -> Token {
         if self.buf.has_char() {
             let c = self.buf.next_char();
-            if let Some(suf) = FLOAT_SUFFIXES.get(&c) {
-                self.buf.inc();
-                return match suf {
-                    FloatType::F => Token::LiteralFloat(num),
-                    FloatType::L => Token::LiteralLongDouble(num),
-                };
-            }
+            self.get_typed_float_suf(c, num)
+        } else {
+            Token::LiteralDouble(num)
         }
-        Token::LiteralDouble(num)
     }
 
     #[inline(always)]
-    pub(crate) fn get_typed_float_suf(&mut self, suf: u8, num: f64) -> Token<'a> {
-        if let Some(suf) = FLOAT_SUFFIXES.get(&suf) {
+    fn get_float_type(&mut self, suf: u8) -> Option<FloatType> {
+        let kind = unsafe { lexer::CHARS.get_unchecked(suf as usize) };
+        if *kind != lexer::Kind::NON {
+            // we've a suffix
             self.buf.inc();
-            return match suf {
+            let id = self.get_identifier_str();
+            if let Some(suf) = FLOAT_SUFFIXES.get(id) {
+                Some(suf.clone())
+            } else {
+                Some(FloatType::UserDefined(id.to_string()))
+            }
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_typed_float_suf(&mut self, suf: u8, num: f64) -> Token {
+        if let Some(suf) = self.get_float_type(suf) {
+            self.buf.inc();
+            match suf {
                 FloatType::F => Token::LiteralFloat(num),
                 FloatType::L => Token::LiteralLongDouble(num),
-            };
+                FloatType::UserDefined(suf) => Token::LiteralFloatUD(Box::new((num, suf))),
+            }
+        } else {
+            Token::LiteralDouble(num)
         }
-        Token::LiteralDouble(num)
     }
 
     #[inline(always)]
-    pub(crate) fn get_number(&mut self, start: u64) -> Token<'a> {
+    pub(crate) fn get_number(&mut self, start: u64) -> Token {
         let num = start;
         if self.buf.has_char() {
             if num == 0 {
@@ -545,7 +571,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     // hex
                     self.buf.inc();
                     return self.get_hex();
-                } else if c == b'b' {
+                } else if c == b'b' || c == b'B' {
                     // binary
                     self.buf.inc();
                     return self.get_bin();
@@ -584,16 +610,18 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     if c == b'.' {
                         self.buf.inc();
                         let c = self.buf.next_char();
-                        self.buf.inc();
                         if b'0' <= c && c <= b'9' {
+                            self.buf.inc();
                             if num > (std::u64::MAX >> 7) {
                                 let exp = self.skip_and_get_exponent();
                                 return self.get_typed_float(get_decimal(num, exp));
                             }
                             let num = 10 * num + u64::from(c - b'0');
                             let (dec, exp) = self.get_number_after_dot(num);
+
                             return self.get_typed_float(get_decimal(dec, exp));
                         } else if c == b'e' || c == b'E' {
+                            self.buf.inc();
                             let exp = self.get_exponent();
                             return self.get_typed_float(get_decimal(num, exp));
                         } else {
@@ -616,7 +644,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_hex(&mut self) {
+    fn skip_hex(&mut self) {
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
@@ -632,7 +660,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_int(&mut self) {
+    fn skip_int(&mut self) {
         loop {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
@@ -648,7 +676,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_exponent(&mut self) {
+    fn skip_exponent(&mut self) {
         if self.buf.has_char() {
             let c = self.buf.next_char();
             if c == b'+' || c == b'-' {
@@ -659,7 +687,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_decimal(&mut self) {
+    fn skip_decimal(&mut self) {
         self.skip_int();
         if self.buf.has_char() {
             let c = self.buf.next_char();
@@ -671,7 +699,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_hex_decimal(&mut self) {
+    fn skip_hex_decimal(&mut self) {
         self.skip_hex();
         if self.buf.has_char() {
             let c = self.buf.next_char();
@@ -683,7 +711,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_type(&mut self) {
+    fn skip_type(&mut self) {
         if self.buf.has_char() {
             let c = self.buf.next_char();
             let kind = unsafe { *NUMCHARS.get_unchecked(c as usize) };
@@ -713,7 +741,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             self.skip_exponent();
                         }
                     }
-                } else if c == b'b' || (b'0' <= c && c <= b'9') {
+                } else if c == b'b' || c == b'B' || (b'0' <= c && c <= b'9') {
                     self.buf.inc();
                     self.skip_int();
                 } else if c == b'e' || c == b'E' {
@@ -739,5 +767,122 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::lexer::preprocessor::context::DefaultContext;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_number_hex() {
+        let mut p = Lexer::<DefaultContext>::new(b"0x12345 0xabcdef 0XA'1b2'C3D'4e5 0xaB1ul");
+        assert_eq!(p.next().tok, Token::LiteralInt(0x12345));
+        assert_eq!(p.next().tok, Token::LiteralInt(0xabcdef));
+        assert_eq!(p.next().tok, Token::LiteralInt(0xa1b2c3d4e5));
+        assert_eq!(p.next().tok, Token::LiteralULong(0xab1));
+    }
+
+    #[test]
+    fn test_number_oct() {
+        let mut p = Lexer::<DefaultContext>::new(b"012345 01357 012'34ul");
+        assert_eq!(p.next().tok, Token::LiteralInt(0o12345));
+        assert_eq!(p.next().tok, Token::LiteralInt(0o1357));
+        assert_eq!(p.next().tok, Token::LiteralULong(0o1234));
+    }
+
+    #[test]
+    fn test_number_bin() {
+        let mut p = Lexer::<DefaultContext>::new(b"0b110'001'110'010'010'110'011'101 0b1001ul");
+        assert_eq!(p.next().tok, Token::LiteralInt(0b110001110010010110011101));
+        assert_eq!(p.next().tok, Token::LiteralULong(0b1001));
+    }
+
+    #[test]
+    fn test_number_dec() {
+        let mut p = Lexer::<DefaultContext>::new(b"123 123e45 123e+45 123e-45");
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b"123. 123.e45 123.e+45 123.e-45");
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b"123.f 123.e45F 123.e+45L 123.e-45l");
+        assert_eq!(p.next().tok, Token::LiteralFloat(123.));
+        assert_eq!(p.next().tok, Token::LiteralFloat(123e45));
+        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e45));
+        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b"123.456 123.456e78 123.456e+78 123.456e-78 1.79769313486231570814527423731704357e+308L 2.2250738585072014e-308F");
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e-78));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralLongDouble(1.79769313486231570814527423731704357e+308)
+        );
+        assert_eq!(p.next().tok, Token::LiteralFloat(2.2250738585072014e-308));
+
+        let mut p = Lexer::<DefaultContext>::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b".123 .123e45 .123e+45 .123e-45");
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
+
+        let mut p = Lexer::<DefaultContext>::new(b"0 0. .0 0.0");
+        assert_eq!(p.next().tok, Token::LiteralInt(0));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+
+        let mut p = Lexer::<DefaultContext>::new(b"123 123u 123U 123llu 123LLu 123llU 123LLU 123ull 123Ull 123ULL 123lu 123ul 123uL 123L");
+        assert_eq!(p.next().tok, Token::LiteralInt(123));
+        assert_eq!(p.next().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralULong(123));
+        assert_eq!(p.next().tok, Token::LiteralLong(123));
+
+        let mut p = Lexer::<DefaultContext>::new(b"0x1.2p3 0x1.2p3F 0xA.Bp-1 0XAB1P-3");
+        assert_eq!(p.next().tok, Token::LiteralDouble(9.0));
+        assert_eq!(p.next().tok, Token::LiteralFloat(9.0));
+        assert_eq!(p.next().tok, Token::LiteralDouble(5.34375));
+        assert_eq!(p.next().tok, Token::LiteralDouble(342.125));
+    }
+
+    #[test]
+    fn test_number_ud() {
+        let mut p = Lexer::<DefaultContext>::new(b"12_km 12.34_km");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralIntUD(Box::new((12, "_km".to_string())))
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralFloatUD(Box::new((12.34, "_km".to_string())))
+        );
     }
 }

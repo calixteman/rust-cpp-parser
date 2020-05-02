@@ -25,6 +25,7 @@ bitflags! {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Primitive {
+    None,
     Void,
     Char,
     SignedChar,
@@ -157,6 +158,28 @@ impl Modifier {
                 *self |= Modifier::VOID;
                 true
             }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_primitive_part(tok: &Token) -> bool {
+        match tok {
+            Token::Signed
+            | Token::Unsigned
+            | Token::Char
+            | Token::Short
+            | Token::Int
+            | Token::Long
+            | Token::Float
+            | Token::Double
+            | Token::Complex
+            | Token::Imaginary
+            | Token::Bool
+            | Token::WcharT
+            | Token::Char8T
+            | Token::Char16T
+            | Token::Char32T
+            | Token::Void => true,
             _ => false,
         }
     }

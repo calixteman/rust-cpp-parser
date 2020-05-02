@@ -22,3 +22,9 @@ pub use self::r#while::*;
 
 pub mod goto;
 pub use self::goto::*;
+
+pub mod r#try;
+pub use self::r#try::*;
+
+pub mod r#for;
+pub use self::r#for::*;

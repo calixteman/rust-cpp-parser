@@ -6,20 +6,30 @@ pub type Parameters = Vec<Option<ExprNode>>;
 
 pub(crate) struct ParametersParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
-    term: Token<'a>,
+    term: Token,
 }
 
 impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token<'a>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token) -> Self {
         Self { lexer, term }
     }
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Parameters>) {
-        let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let mut params = Vec::new();
+        tok: Option<LocToken>,
+        first: Option<ExprNode>,
+    ) -> (Option<LocToken>, Option<Parameters>) {
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        let (mut tok, mut params) = if let Some(first) = first {
+            let tok = if tok.tok == Token::Comma {
+                self.lexer.next_useful()
+            } else {
+                tok
+            };
+            (tok, vec![Some(first)])
+        } else {
+            (tok, Vec::new())
+        };
 
         if tok.tok == self.term {
             return (None, Some(params));
@@ -39,7 +49,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
                     if tk.tok == self.term {
                         return (None, Some(params));
                     } else {
-                        unreachable!("Invalid token in qualified name: {:?}", tk);
+                        unreachable!("Invalid token in params: {:?}", tk);
                     }
                 }
             }

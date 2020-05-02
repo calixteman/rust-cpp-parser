@@ -1,7 +1,7 @@
 use super::{DeclarationList, DeclarationListParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::parser::declarations::{DeclHint, DeclarationParser};
+use crate::parser::declarations::{DeclHint, DeclarationParser, Specifier};
 use crate::parser::statement::Statement;
 use crate::{check_semicolon, check_semicolon_or_not};
 
@@ -31,7 +31,7 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken<'a>>) -> (Option<LocToken<'a>>, Option<EPRes>) {
+    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<EPRes>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::Extern {
             return (Some(tok), None);
@@ -69,7 +69,7 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
             }
         } else {
             let dp = DeclarationParser::new(self.lexer);
-            let hint = DeclHint::with_extern();
+            let hint = DeclHint::Specifier(Specifier::EXTERN);
             let (tok, decl) = dp.parse(Some(tok), Some(hint));
             let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
 

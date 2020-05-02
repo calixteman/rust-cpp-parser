@@ -1,66 +1,69 @@
 use super::super::r#type::{self, BaseType, CVQualifier, Type};
-use super::array::{Array, ArrayParser};
-use super::function::{Function, FunctionParser};
-use super::pointer::{Pointer, PointerDeclaratorParser};
-use super::reference::{Reference, ReferenceDeclaratorParser};
+use super::array::ArrayParser;
+use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
+use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
+use super::r#enum::EnumParser;
 use super::specifier::Specifier;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::expression::{ExprNode, ExpressionParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
-use crate::parser::name::{Qualified, QualifiedParser};
+use crate::parser::names::{Qualified, QualifiedParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
-    pub(crate) identifier: Qualified,
-    pub(crate) attributes: Option<Attributes>,
+    pub identifier: Option<Qualified>,
+    pub attributes: Option<Attributes>,
+}
+
+// TODO: handle structured bindings: https://en.cppreference.com/w/cpp/language/structured_binding
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypeDeclarator {
+    pub typ: Type,
+    pub specifier: Specifier,
+    pub identifier: Identifier,
+    pub init: Option<Initializer>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Declarator {
-    Pointer(Pointer),
-    Reference(Reference),
-    Identifier(Identifier),
-    Function(Box<Function>), // TODO: Box for the others too ??
-    Array(Array),
-    None,
+pub enum Declaration {
+    Type(TypeDeclarator),
+    Empty,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Declaration {
-    pub(crate) ty: Type,
-    pub(crate) spec: Specifier,
-    pub(crate) decl: Declarator,
-    pub(crate) init: Option<Initializer>,
+pub type Declarations = Vec<Declaration>;
+
+impl TypeDeclarator {
+    pub(crate) fn is_function(&self) -> bool {
+        if let BaseType::Function(_) = self.typ.base {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn has_semicolon(&self) -> bool {
+        if let BaseType::Function(fun) = &self.typ.base {
+            fun.body.is_none()
+        } else {
+            true
+        }
+    }
+}
+
+impl Declaration {
+    pub(crate) fn has_semicolon(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug)]
-pub(crate) struct DeclHint {
-    pub(crate) type_id: Option<Qualified>,
-    pub(crate) spec: Specifier,
-}
-
-impl DeclHint {
-    pub(crate) fn with_name(type_id: Option<Qualified>) -> Self {
-        Self {
-            type_id,
-            spec: Specifier::empty(),
-        }
-    }
-
-    pub(crate) fn with_extern() -> Self {
-        Self {
-            type_id: None,
-            spec: Specifier::EXTERN,
-        }
-    }
-
-    pub(crate) fn with_inline() -> Self {
-        Self {
-            type_id: None,
-            spec: Specifier::INLINE,
-        }
-    }
+pub(crate) enum DeclHint {
+    Name(Option<Qualified>),
+    Specifier(Specifier),
+    Modifier(r#type::Modifier),
+    Type(Type),
 }
 
 pub struct DeclSpecifierParser<'a, 'b, PC: PreprocContext> {
@@ -68,70 +71,117 @@ pub struct DeclSpecifierParser<'a, 'b, PC: PreprocContext> {
 }
 
 impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    pub(super) fn parse(
+    pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
+        tok: Option<LocToken>,
         hint: Option<DeclHint>,
-    ) -> (Option<LocToken<'a>>, Option<(Specifier, Type)>) {
-        let (mut type_id, mut spec) = if let Some(DeclHint { type_id, spec }) = hint {
-            (type_id, spec)
+    ) -> (
+        Option<LocToken>,
+        (Specifier, Option<Type>, Option<Qualified>),
+    ) {
+        let (mut typ, mut spec, mut ty_modif) = if let Some(hint) = hint {
+            match hint {
+                DeclHint::Name(id) => (
+                    id.map(BaseType::UD),
+                    Specifier::empty(),
+                    r#type::Modifier::empty(),
+                ),
+                DeclHint::Specifier(spec) => (None, spec, r#type::Modifier::empty()),
+                DeclHint::Modifier(modif) => (None, Specifier::empty(), modif),
+                DeclHint::Type(typ) => {
+                    return (tok, (Specifier::empty(), Some(typ), None));
+                }
+            }
         } else {
-            (None, Specifier::empty())
+            (None, Specifier::empty(), r#type::Modifier::empty())
         };
 
         let mut cv = CVQualifier::empty();
-        let mut ty_modif = r#type::Modifier::empty();
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         loop {
+            // const, volatile
             if cv.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
+            // typedef, inline, ...
             if spec.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
+            // unsigned, long, ...
             if ty_modif.from_tok(&tok.tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
-            if ty_modif.is_empty() && type_id.is_none() {
-                if let Token::Identifier(id) = tok.tok {
-                    let qp = QualifiedParser::new(self.lexer);
-                    let (tk, name) = qp.parse(None, Some(id));
+            if ty_modif.is_empty() && typ.is_none() {
+                // enum
+                let ep = EnumParser::new(self.lexer);
+                let (tk, en) = ep.parse(Some(tok));
 
-                    type_id = name;
+                if let Some(en) = en {
+                    typ = Some(BaseType::Enum(Box::new(en)));
                     tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                     continue;
                 }
+
+                // identifier
+                let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
+                if let Token::Identifier(id) = tk.tok {
+                    // TODO: check that the name is a type
+                    let qp = QualifiedParser::new(self.lexer);
+                    let (tk, name) = qp.parse(None, Some(id));
+                    let name = name.unwrap();
+                    if name.is_conv_op() {
+                        return (tk, (spec, None, Some(name)));
+                    }
+
+                    typ = Some(BaseType::UD(name));
+                    tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                    continue;
+                }
+
+                if tk.tok == Token::Auto {
+                    typ = Some(BaseType::Auto);
+                    tok = self.lexer.next_useful();
+                    continue;
+                }
+
+                tok = tk;
             }
 
-            let spec_ty = if let Some(type_id) = type_id {
-                Some((
+            let spec_ty = if let Some(base) = typ {
+                (
                     spec,
-                    Type {
-                        base: BaseType::UD(type_id),
+                    Some(Type {
+                        base,
                         cv,
-                    },
-                ))
-            } else if spec.is_empty() && cv.is_empty() && ty_modif.is_empty() {
-                None
+                        pointers: None,
+                    }),
+                    None,
+                )
+            } else if cv.is_empty() && ty_modif.is_empty() {
+                (spec, None, None)
             } else {
-                Some((
-                    spec,
-                    Type {
+                let typ = if ty_modif.is_empty() {
+                    None
+                } else {
+                    Some(Type {
                         base: BaseType::Primitive(ty_modif.to_primitive()),
                         cv,
-                    },
-                ))
+                        pointers: None,
+                    })
+                };
+
+                (spec, typ, None)
             };
 
             return (Some(tok), spec_ty);
@@ -139,103 +189,250 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
     }
 }
 
-pub struct DeclaratorParser<'a, 'b, PC: PreprocContext> {
+pub struct NoPtrDeclaratorParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
-impl<'a, 'b, PC: PreprocContext> DeclaratorParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    pub(super) fn parse(
+    pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Declarator>) {
-        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        match tok.tok {
-            Token::Star => {
-                let pdp = PointerDeclaratorParser::new(self.lexer);
-                let (tok, decl) = pdp.parse();
+        tok: Option<LocToken>,
+        typ: Type,
+        specifier: Specifier,
+        is_fun_arg: bool,
+    ) -> (Option<LocToken>, Option<TypeDeclarator>) {
+        let (tok, identifier) = if !is_fun_arg {
+            // declarator-id
+            let qp = QualifiedParser::new(self.lexer);
+            let (tok, identifier) = qp.parse(tok, None);
 
-                (tok, Some(Declarator::Pointer(decl)))
-            }
-            Token::And => {
-                let rdp = ReferenceDeclaratorParser::new(self.lexer, true /* lvalue */);
-                let (tok, decl) = rdp.parse();
+            // attributes
+            let ap = AttributesParser::new(self.lexer);
+            let (tok, attributes) = ap.parse(tok);
 
-                (tok, Some(Declarator::Reference(decl)))
-            }
-            Token::AndAnd => {
-                let rdp = ReferenceDeclaratorParser::new(self.lexer, false /* lvalue */);
-                let (tok, decl) = rdp.parse();
+            (
+                tok,
+                Identifier {
+                    identifier,
+                    attributes,
+                },
+            )
+        } else {
+            (
+                tok,
+                Identifier {
+                    identifier: None,
+                    attributes: None,
+                },
+            )
+        };
 
-                (tok, Some(Declarator::Reference(decl)))
-            }
-            Token::LeftParen => {
-                // We've a function pointer/reference
-                let dp = DeclaratorParser::new(self.lexer);
-                let (tok, decl) = dp.parse(None);
+        // function
+        let fp = FunctionParser::new(self.lexer);
+        let (tok, function) = fp.parse(tok, is_fun_arg);
 
-                if let Some(tok) = tok {
-                    if tok.tok == Token::RightParen {
-                        let fp = FunctionParser::new(self.lexer);
-                        let (tok, function) = fp.parse(None);
-
-                        if let Some(mut function) = function {
-                            function.ptr_decl = decl;
-                            (tok, Some(Declarator::Function(Box::new(function))))
-                        } else {
-                            unreachable!("Invalid function pointer");
-                        }
-                    } else {
-                        unreachable!("Invalid token in function pointer: {:?}", tok);
-                    }
-                } else {
-                    unreachable!("Invalid function pointer");
-                }
-            }
-            Token::Identifier(id) => {
-                let qp = QualifiedParser::new(self.lexer);
-                let (tok, qual) = qp.parse(None, Some(id));
-
-                let ap = AttributesParser::new(self.lexer);
-                let (tok, attributes) = ap.parse(tok);
-
-                let fp = FunctionParser::new(self.lexer);
-                let (tok, function) = fp.parse(tok);
-
-                if let Some(mut function) = function {
-                    function.identifier = qual;
-                    function.id_attributes = attributes;
-                    return (tok, Some(Declarator::Function(Box::new(function))));
-                }
-
-                let ap = ArrayParser::new(self.lexer);
-                let (tok, array) = ap.parse(tok);
-
-                if let Some(mut array) = array {
-                    array.identifier = qual;
-                    array.id_attributes = attributes;
-                    return (tok, Some(Declarator::Array(array)));
-                }
-
-                (
-                    tok,
-                    Some(Declarator::Identifier(Identifier {
-                        identifier: qual.unwrap(),
-                        attributes,
-                    })),
-                )
-            }
-            _ => (Some(tok), Some(Declarator::None)),
+        if let Some(mut function) = function {
+            function.return_type = Some(typ);
+            let typ = Type {
+                base: BaseType::Function(Box::new(function)),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            };
+            return (
+                tok,
+                Some(TypeDeclarator {
+                    typ,
+                    specifier,
+                    identifier,
+                    init: None,
+                }),
+            );
         }
+
+        // array
+        let ap = ArrayParser::new(self.lexer);
+        let (tok, array) = ap.parse(tok);
+
+        let typ = if let Some(mut array) = array {
+            array.base = Some(typ);
+            Type {
+                base: BaseType::Array(Box::new(array)),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            }
+        } else {
+            typ
+        };
+
+        // initializer
+        let ip = InitializerParser::new(self.lexer);
+        let (tok, init) = ip.parse(tok);
+
+        (
+            tok,
+            Some(TypeDeclarator {
+                typ,
+                specifier,
+                identifier,
+                init,
+            }),
+        )
+    }
+}
+
+pub struct TypeDeclaratorParser<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
+}
+
+impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+        Self { lexer }
+    }
+
+    pub(crate) fn parse(
+        self,
+        tok: Option<LocToken>,
+        hint: Option<DeclHint>,
+    ) -> (Option<LocToken>, Option<TypeDeclarator>) {
+        let dsp = DeclSpecifierParser::new(self.lexer);
+        let (tok, (spec, typ, op)) = dsp.parse(tok, hint);
+
+        let typ = if let Some(typ) = typ {
+            typ
+        } else {
+            // conversion operator
+            let codp = ConvOperatorDeclaratorParser::new(self.lexer);
+            let (tok, conv) = codp.parse(spec, op, tok);
+
+            return (tok, conv);
+        };
+
+        let mut typ = typ;
+
+        let ppdp = ParenPointerDeclaratorParser::new(self.lexer);
+        let (tok, (paren_decl, is_func_param)) = ppdp.parse(tok);
+
+        let tok = if !is_func_param {
+            // Pointer: *, &, &&
+            let pdp = PointerDeclaratorParser::new(self.lexer);
+            let (tok, ptrs) = pdp.parse(tok, None);
+
+            typ.pointers = ptrs;
+            tok
+        } else {
+            tok
+        };
+
+        // int (*f[1]) (int, int) == A *f[1] avec A = int ()(int, int)
+        // int (*f[2]) [3] == A * f[2] avec A = int[3]
+        // int (*f) (int) == A * f avec A = int () (int)
+
+        let npp = NoPtrDeclaratorParser::new(self.lexer);
+        let (tok, decl) = npp.parse(tok, typ, spec, is_func_param);
+        let mut decl = decl.unwrap();
+
+        if let Some(paren_decl) = paren_decl {
+            let TypeDeclarator {
+                typ,
+                specifier: _,
+                identifier,
+                init: _,
+            } = paren_decl;
+            let Type {
+                base,
+                cv: _,
+                pointers,
+            } = typ;
+
+            decl.identifier = identifier;
+
+            match base {
+                BaseType::None => {
+                    decl.typ.pointers = pointers;
+                }
+                BaseType::Array(mut array) => {
+                    // int (*f[2]) [3] == A * f[2] with A = int[3]
+                    // base == BaseType::Array(Array { base: Some(Type { base: None, cv, *}), dim: 2 })
+                    // decl.typ.base == BaseType::Array(Array { base: Some(Type { int, cv, }), dim = 3})
+                    if let Some(base) = array.base.as_mut() {
+                        std::mem::swap(&mut base.base, &mut decl.typ.base);
+                    }
+                    decl.typ.base = BaseType::Array(array);
+                }
+                _ => {
+                    unreachable!();
+                }
+            }
+        }
+
+        (tok, Some(decl))
     }
 
     pub(crate) fn is_decl_part(tok: &Token) -> bool {
         match tok {
             Token::Star | Token::And | Token::AndAnd | Token::Identifier(_) => true,
             _ => CVQualifier::is_cv(tok) || Specifier::is_specifier(tok),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeclOrExpr {
+    Decl(TypeDeclarator),
+    Expr(ExprNode),
+}
+
+pub(crate) struct DeclOrExprParser<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
+}
+
+impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+        Self { lexer }
+    }
+
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<DeclOrExpr>) {
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        match tok.tok {
+            Token::Identifier(id) => {
+                let qp = QualifiedParser::new(self.lexer);
+                let (tok, name) = qp.parse(None, Some(id));
+
+                let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                if TypeDeclaratorParser::<PC>::is_decl_part(&tok.tok) {
+                    let tp = TypeDeclaratorParser::new(self.lexer);
+                    let hint = DeclHint::Name(name);
+                    let (tok, typ) = tp.parse(Some(tok), Some(hint));
+
+                    (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
+                } else {
+                    let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
+                    let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap());
+
+                    (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+                }
+            }
+            _ => {
+                let tp = TypeDeclaratorParser::new(self.lexer);
+                let (tok, typ) = tp.parse(Some(tok), None);
+
+                if let Some(typ) = typ {
+                    return (tok, Some(DeclOrExpr::Decl(typ)));
+                }
+
+                let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
+                let (tok, expr) = ep.parse(tok);
+
+                if let Some(expr) = expr {
+                    return (tok, Some(DeclOrExpr::Expr(expr)));
+                }
+
+                (tok, None)
+            }
         }
     }
 }
@@ -251,31 +448,13 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
+        tok: Option<LocToken>,
         hint: Option<DeclHint>,
-    ) -> (Option<LocToken<'a>>, Option<Declaration>) {
-        let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, ty) = dsp.parse(tok, hint);
+    ) -> (Option<LocToken>, Option<Declaration>) {
+        let dp = TypeDeclaratorParser::new(self.lexer);
+        let (tok, decl) = dp.parse(tok, hint);
 
-        if let Some((spec, ty)) = ty {
-            let dp = DeclaratorParser::new(self.lexer);
-            let (tok, decl) = dp.parse(tok);
-
-            let ip = InitializerParser::new(self.lexer);
-            let (tok, init) = ip.parse(tok);
-
-            (
-                tok,
-                Some(Declaration {
-                    ty,
-                    spec,
-                    decl: decl.unwrap(),
-                    init,
-                }),
-            )
-        } else {
-            (tok, None)
-        }
+        (tok, decl.map(Declaration::Type))
     }
 }
 
@@ -285,12 +464,15 @@ mod tests {
     use super::super::function::*;
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::parser::array::*;
     use crate::parser::attributes::Attribute;
-    use crate::parser::expression::*;
+    use crate::parser::declarations::pointer::*;
+    use crate::parser::declarations::r#enum::*;
+    use crate::parser::expression::{self, *};
     use crate::parser::literals::{self, *};
-    use crate::parser::name::Name;
+    use crate::parser::names::{self, operator, Name};
     use crate::parser::r#type::Primitive;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_primitive() {
@@ -327,9 +509,9 @@ mod tests {
         ] {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
-            let (_, ty) = p.parse(None, None);
+            let (_, (_, ty, _)) = p.parse(None, None);
 
-            let ty = match ty.as_ref().unwrap().1.base() {
+            let ty = match ty.as_ref().unwrap().base() {
                 BaseType::Primitive(ty) => ty,
                 _ => unreachable!(),
             };
@@ -349,8 +531,8 @@ mod tests {
         ] {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
-            let (_, ty) = p.parse(None, None);
-            let ty = &ty.as_ref().unwrap().1;
+            let (_, (_, ty, _)) = p.parse(None, None);
+            let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_const(), "{}", buf);
 
@@ -374,8 +556,8 @@ mod tests {
         ] {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
-            let (_, ty) = p.parse(None, None);
-            let ty = &ty.as_ref().unwrap().1;
+            let (_, (_, ty, _)) = p.parse(None, None);
+            let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_volatile(), "{}", buf);
 
@@ -397,24 +579,24 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier(Identifier {
-                        identifier: mk_id!("x"),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Pointer,
                         attributes: None,
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
-                init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(
-                    literals::Nullptr {}
-                )))),
-            }
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
+            })
         );
     }
 
@@ -427,24 +609,24 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::UD(mk_id!("A", "B", "C")),
                     cv: CVQualifier::VOLATILE,
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier(Identifier {
-                        identifier: mk_id!("x"),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Pointer,
                         attributes: None,
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
-                init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(
-                    literals::Nullptr {}
-                )))),
-            }
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
+            })
         );
     }
 
@@ -457,22 +639,23 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::CONST,
+                    pointers: None,
                 },
-                spec: Specifier::empty(),
-                decl: Declarator::Identifier(Identifier {
-                    identifier: mk_id!("x"),
-                    attributes: None,
-                }),
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: Some(Initializer::Brace(vec![Some(ExprNode::Integer(Box::new(
                     literals::Integer {
                         value: IntLiteral::Int(314)
                     }
                 ))),])),
-            }
+            })
         );
     }
 
@@ -485,24 +668,26 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Short),
                     cv: CVQualifier::VOLATILE,
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Identifier(Identifier {
-                        identifier: mk_id!("x"),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Pointer,
                         attributes: None,
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::CONST,
-                }),
+                        cv: CVQualifier::CONST,
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: Some(Initializer::Equal(ExprNode::Qualified(Box::new(mk_id!(
                     "NULL"
                 ))))),
-            }
+            })
         );
     }
 
@@ -515,103 +700,37 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Identifier(Identifier {
-                            identifier: mk_id!("x"),
+                    pointers: Some(vec![
+                        Pointer {
+                            kind: PtrKind::Pointer,
                             attributes: None,
-                        })),
-                        attributes: None,
-                        cv: CVQualifier::empty(),
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                    ])
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
     #[test]
     fn test_triple_pointer() {
-        let mut l = Lexer::<DefaultContext>::new(b"char *** x");
-        let p = DeclarationParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
-        let decl = decl.unwrap();
-
-        assert_eq!(
-            decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Char),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            })),
-                            attributes: None,
-                            cv: CVQualifier::empty(),
-                        })),
-                        attributes: None,
-                        cv: CVQualifier::empty(),
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
-                init: None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_triple_pointer_ud_type() {
-        let mut l = Lexer::<DefaultContext>::new(b"A::B *** x");
-        let p = DeclarationParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
-        let decl = decl.unwrap();
-
-        assert_eq!(
-            decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::UD(mk_id!("A", "B")),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            })),
-                            attributes: None,
-                            cv: CVQualifier::empty(),
-                        })),
-                        attributes: None,
-                        cv: CVQualifier::empty(),
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
-                init: None,
-            }
-        );
-    }
-
-    #[test]
-    fn test_triple_constpointer() {
         let mut l = Lexer::<DefaultContext>::new(b"char ** const * x");
         let p = DeclarationParser::new(&mut l);
         let (_, decl) = p.parse(None, None);
@@ -619,30 +738,82 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            })),
+                    pointers: Some(vec![
+                        Pointer {
+                            kind: PtrKind::Pointer,
                             attributes: None,
                             cv: CVQualifier::empty(),
-                        })),
-                        attributes: None,
-                        cv: CVQualifier::CONST,
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::CONST,
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                    ])
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn test_triple_pointer_ud_type() {
+        let mut l = Lexer::<DefaultContext>::new(b"A::B ** const * x");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::UD(mk_id!("A", "B")),
+                    cv: CVQualifier::empty(),
+                    pointers: Some(vec![
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::CONST,
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                    ])
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: None,
+            })
         );
     }
 
@@ -655,22 +826,24 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier(Identifier {
-                        identifier: mk_id!("x"),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Reference,
                         attributes: None,
-                    })),
-                    attributes: None,
-                    lvalue: true,
-                }),
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -683,22 +856,24 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::Identifier(Identifier {
-                        identifier: mk_id!("x"),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::RValue,
                         attributes: None,
-                    })),
-                    attributes: None,
-                    lvalue: false,
-                }),
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -711,19 +886,24 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::RValue,
+                        attributes: None,
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
                 },
-                spec: Specifier::empty(),
-                decl: Declarator::Reference(Reference {
-                    decl: Box::new(Declarator::None),
-                    attributes: None,
-                    lvalue: false,
-                }),
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: None,
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -736,23 +916,133 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
+                    pointers: Some(vec![
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
+                        },
+                    ])
                 },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::None),
-                        attributes: None,
-                        cv: CVQualifier::empty(),
-                    })),
-                    attributes: None,
-                    cv: CVQualifier::empty(),
-                }),
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: None,
+                    attributes: None
+                },
                 init: None,
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn test_array_ptr() {
+        let mut l = Lexer::<DefaultContext>::new(b"int (*foo[2]) [3]");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Array(Box::new(Array {
+                        base: Some(Type {
+                            base: BaseType::Array(Box::new(Array {
+                                base: Some(Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                }),
+                                dimensions: vec![Dimension {
+                                    size: Some(ExprNode::Integer(Box::new(literals::Integer {
+                                        value: IntLiteral::Int(3)
+                                    }))),
+                                    attributes: None,
+                                }],
+                            })),
+                            cv: CVQualifier::empty(),
+                            pointers: Some(vec![Pointer {
+                                kind: PtrKind::Pointer,
+                                attributes: None,
+                                cv: CVQualifier::empty(),
+                                ms: MSModifier::empty(),
+                            }]),
+                        }),
+                        dimensions: vec![Dimension {
+                            size: Some(ExprNode::Integer(Box::new(literals::Integer {
+                                value: IntLiteral::Int(2)
+                            }))),
+                            attributes: None,
+                        }],
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
+                init: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_fun_no_name() {
+        let mut l = Lexer::<DefaultContext>::new(b"int *()");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: Some(vec![Pointer {
+                                kind: PtrKind::Pointer,
+                                attributes: None,
+                                cv: CVQualifier::empty(),
+                                ms: MSModifier::empty(),
+                            }]),
+                        }),
+                        params: vec![],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: None,
+                    attributes: None
+                },
+                init: None,
+            })
         );
     }
 
@@ -765,40 +1055,51 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Function(Box::new(Function {
-                    identifier: Some(mk_id!("foo")),
-                    ptr_decl: None,
-                    id_attributes: None,
-                    params: vec![Parameter {
-                        attributes: None,
-                        decl: Declaration {
-                            ty: Type {
-                                base: BaseType::Primitive(Primitive::Int),
-                                cv: CVQualifier::empty(),
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![Parameter {
+                            attributes: None,
+                            decl: TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("x")),
+                                    attributes: None
+                                },
+                                init: None
                             },
-                            spec: Specifier::empty(),
-                            decl: Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            }),
-                            init: None,
-                        },
-                    }],
+                        }],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
                     cv: CVQualifier::empty(),
-                    refq: RefQualifier::None,
-                    except: None,
-                    attributes: None,
-                    trailing: None,
-                    body: None,
-                })),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -811,48 +1112,64 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![Parameter {
+                            attributes: None,
+                            decl: TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("x")),
+                                    attributes: None
+                                },
+                                init: None
+                            },
+                        }],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
                     cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Function(Box::new(Function {
-                    identifier: None,
-                    ptr_decl: Some(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Pointer(Pointer {
-                            decl: Box::new(Declarator::None),
+                    pointers: Some(vec![
+                        Pointer {
+                            kind: PtrKind::Pointer,
                             attributes: None,
                             cv: CVQualifier::empty(),
-                        })),
-                        attributes: None,
-                        cv: CVQualifier::empty(),
-                    })),
-                    id_attributes: None,
-                    params: vec![Parameter {
-                        attributes: None,
-                        decl: Declaration {
-                            ty: Type {
-                                base: BaseType::Primitive(Primitive::Int),
-                                cv: CVQualifier::empty(),
-                            },
-                            spec: Specifier::empty(),
-                            decl: Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            }),
-                            init: None,
+                            ms: MSModifier::empty(),
+                        },
+                        Pointer {
+                            kind: PtrKind::Pointer,
+                            attributes: None,
+                            cv: CVQualifier::empty(),
+                            ms: MSModifier::empty(),
                         }
-                    }],
-                    cv: CVQualifier::empty(),
-                    refq: RefQualifier::None,
-                    except: None,
-                    attributes: None,
-                    trailing: None,
-                    body: None,
-                })),
+                    ]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: None,
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -865,48 +1182,64 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Double),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Pointer(Pointer {
-                    decl: Box::new(Declarator::Pointer(Pointer {
-                        decl: Box::new(Declarator::Function(Box::new(Function {
-                            identifier: Some(mk_id!("foo")),
-                            ptr_decl: None,
-                            id_attributes: None,
-                            params: vec![Parameter {
-                                attributes: None,
-                                decl: Declaration {
-                                    ty: Type {
-                                        base: BaseType::Primitive(Primitive::Int),
-                                        cv: CVQualifier::empty(),
-                                    },
-                                    spec: Specifier::empty(),
-                                    decl: Declarator::Identifier(Identifier {
-                                        identifier: mk_id!("x"),
-                                        attributes: None,
-                                    }),
-                                    init: None,
-                                }
-                            }],
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Double),
                             cv: CVQualifier::empty(),
-                            refq: RefQualifier::None,
-                            except: None,
+                            pointers: Some(vec![
+                                Pointer {
+                                    kind: PtrKind::Pointer,
+                                    attributes: None,
+                                    cv: CVQualifier::empty(),
+                                    ms: MSModifier::empty(),
+                                },
+                                Pointer {
+                                    kind: PtrKind::Pointer,
+                                    attributes: None,
+                                    cv: CVQualifier::empty(),
+                                    ms: MSModifier::empty(),
+                                },
+                            ]),
+                        }),
+                        params: vec![Parameter {
                             attributes: None,
-                            trailing: None,
-                            body: None,
-                        }))),
-                        attributes: None,
+                            decl: TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("x")),
+                                    attributes: None
+                                },
+                                init: None
+                            },
+                        }],
                         cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
                     })),
-                    attributes: None,
                     cv: CVQualifier::empty(),
-                }),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -919,61 +1252,74 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![
+                            Parameter {
+                                attributes: None,
+                                decl: TypeDeclarator {
+                                    typ: Type {
+                                        base: BaseType::Primitive(Primitive::Int),
+                                        cv: CVQualifier::empty(),
+                                        pointers: None,
+                                    },
+                                    specifier: Specifier::empty(),
+                                    identifier: Identifier {
+                                        identifier: Some(mk_id!("x")),
+                                        attributes: None
+                                    },
+                                    init: None
+                                },
+                            },
+                            Parameter {
+                                attributes: None,
+                                decl: TypeDeclarator {
+                                    typ: Type {
+                                        base: BaseType::Primitive(Primitive::Double),
+                                        cv: CVQualifier::CONST,
+                                        pointers: Some(vec![Pointer {
+                                            kind: PtrKind::Pointer,
+                                            attributes: None,
+                                            cv: CVQualifier::CONST,
+                                            ms: MSModifier::empty(),
+                                        }]),
+                                    },
+                                    specifier: Specifier::empty(),
+                                    identifier: Identifier {
+                                        identifier: Some(mk_id!("y")),
+                                        attributes: None
+                                    },
+                                    init: None
+                                },
+                            }
+                        ],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
                     cv: CVQualifier::empty(),
+                    pointers: None,
                 },
-                spec: Specifier::empty(),
-                decl: Declarator::Function(Box::new(Function {
+                specifier: Specifier::empty(),
+                identifier: Identifier {
                     identifier: Some(mk_id!("foo", "bar")),
-                    ptr_decl: None,
-                    id_attributes: None,
-                    params: vec![
-                        Parameter {
-                            attributes: None,
-                            decl: Declaration {
-                                ty: Type {
-                                    base: BaseType::Primitive(Primitive::Int),
-                                    cv: CVQualifier::empty(),
-                                },
-                                spec: Specifier::empty(),
-                                decl: Declarator::Identifier(Identifier {
-                                    identifier: mk_id!("x"),
-                                    attributes: None,
-                                }),
-                                init: None,
-                            }
-                        },
-                        Parameter {
-                            attributes: None,
-                            decl: Declaration {
-                                ty: Type {
-                                    base: BaseType::Primitive(Primitive::Double),
-                                    cv: CVQualifier::CONST,
-                                },
-                                spec: Specifier::empty(),
-                                decl: Declarator::Pointer(Pointer {
-                                    decl: Box::new(Declarator::Identifier(Identifier {
-                                        identifier: mk_id!("y"),
-                                        attributes: None,
-                                    })),
-                                    attributes: None,
-                                    cv: CVQualifier::CONST,
-                                }),
-                                init: None,
-                            }
-                        }
-                    ],
-                    cv: CVQualifier::empty(),
-                    refq: RefQualifier::None,
-                    except: None,
-                    attributes: None,
-                    trailing: None,
-                    body: None,
-                })),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -986,44 +1332,55 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Function(Box::new(Function {
-                    identifier: Some(mk_id!("foo")),
-                    ptr_decl: None,
-                    id_attributes: None,
-                    params: vec![Parameter {
-                        attributes: None,
-                        decl: Declaration {
-                            ty: Type {
-                                base: BaseType::Primitive(Primitive::Int),
-                                cv: CVQualifier::empty(),
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![Parameter {
+                            attributes: None,
+                            decl: TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("x")),
+                                    attributes: None
+                                },
+                                init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
+                                    literals::Integer {
+                                        value: IntLiteral::Int(123)
+                                    }
+                                ))))
                             },
-                            spec: Specifier::empty(),
-                            decl: Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            }),
-                            init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
-                                literals::Integer {
-                                    value: IntLiteral::Int(123)
-                                }
-                            )))),
-                        },
-                    }],
+                        }],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
                     cv: CVQualifier::empty(),
-                    refq: RefQualifier::None,
-                    except: None,
-                    attributes: None,
-                    trailing: None,
-                    body: None,
-                })),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -1038,57 +1395,68 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
-                    cv: CVQualifier::empty(),
-                },
-                spec: Specifier::empty(),
-                decl: Declarator::Function(Box::new(Function {
-                    identifier: Some(mk_id!("foo")),
-                    ptr_decl: None,
-                    id_attributes: None,
-                    params: vec![Parameter {
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![Parameter {
+                            attributes: Some(vec![Attribute {
+                                namespace: None,
+                                name: "attribute".to_string(),
+                                arg: None,
+                                has_using: false,
+                            }]),
+                            decl: TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("x")),
+                                    attributes: None,
+                                },
+                                init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
+                                    literals::Integer {
+                                        value: IntLiteral::Int(123)
+                                    }
+                                ))))
+                            },
+                        }],
+                        cv: CVQualifier::CONST,
+                        refq: RefQualifier::RValue,
+                        except: Some(Exception::Throw(Some(vec![
+                            Some(ExprNode::Qualified(Box::new(mk_id!("A")))),
+                            Some(ExprNode::Qualified(Box::new(mk_id!("B")))),
+                        ],))),
                         attributes: Some(vec![Attribute {
                             namespace: None,
-                            name: "attribute".to_string(),
+                            name: "noreturn".to_string(),
                             arg: None,
                             has_using: false,
                         }]),
-                        decl: Declaration {
-                            ty: Type {
-                                base: BaseType::Primitive(Primitive::Int),
-                                cv: CVQualifier::empty(),
-                            },
-                            spec: Specifier::empty(),
-                            decl: Declarator::Identifier(Identifier {
-                                identifier: mk_id!("x"),
-                                attributes: None,
-                            }),
-                            init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
-                                literals::Integer {
-                                    value: IntLiteral::Int(123)
-                                }
-                            )))),
-                        },
-                    }],
-                    cv: CVQualifier::CONST,
-                    refq: RefQualifier::RValue,
-                    except: Some(Exception::Throw(Some(vec![
-                        Some(ExprNode::Qualified(Box::new(mk_id!("A")))),
-                        Some(ExprNode::Qualified(Box::new(mk_id!("B")))),
-                    ],))),
-                    attributes: Some(vec![Attribute {
-                        namespace: None,
-                        name: "noreturn".to_string(),
-                        arg: None,
-                        has_using: false,
-                    }]),
-                    trailing: Some(ExprNode::Qualified(Box::new(mk_id!("C")))),
-                    body: None,
-                })),
+                        trailing: Some(ExprNode::Qualified(Box::new(mk_id!("C")))),
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
         );
     }
 
@@ -1101,22 +1469,210 @@ mod tests {
 
         assert_eq!(
             decl,
-            Declaration {
-                ty: Type {
-                    base: BaseType::Primitive(Primitive::Int),
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Array(Box::new(Array {
+                        base: Some(Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        dimensions: vec![Dimension {
+                            size: Some(ExprNode::Integer(Box::new(literals::Integer {
+                                value: IntLiteral::Int(123)
+                            }))),
+                            attributes: None,
+                        }],
+                    })),
                     cv: CVQualifier::empty(),
+                    pointers: None,
                 },
-                spec: Specifier::empty(),
-                decl: Declarator::Array(Array {
+                specifier: Specifier::empty(),
+                identifier: Identifier {
                     identifier: Some(mk_id!("foo")),
-                    id_attributes: None,
-                    size: Some(ExprNode::Integer(Box::new(literals::Integer {
-                        value: IntLiteral::Int(123)
-                    }))),
-                    attributes: None,
-                }),
+                    attributes: None
+                },
                 init: None,
-            }
+            })
+        );
+    }
+
+    #[test]
+    fn test_enum() {
+        let mut l = Lexer::<DefaultContext>::new(b"typedef enum A { a } B");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Enum(Box::new(Enum {
+                        kind: Kind::None,
+                        attributes: None,
+                        name: Some(mk_id!("A")),
+                        base: None,
+                        entries: Some(vec![Entry {
+                            name: "a".to_string(),
+                            attributes: None,
+                            init: None
+                        },]),
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::TYPEDEF,
+                identifier: Identifier {
+                    identifier: Some(mk_id!("B")),
+                    attributes: None,
+                },
+                init: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_operator_unary() {
+        let mut l = Lexer::<DefaultContext>::new(b"A B::operator+()");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::UD(mk_id!("A")),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(Qualified {
+                        names: vec![
+                            Name::Identifier(names::Identifier {
+                                val: "B".to_string()
+                            }),
+                            Name::Operator(Box::new(operator::Operator::Op(
+                                expression::Operator::Plus
+                            ))),
+                        ]
+                    }),
+                    attributes: None
+                },
+                init: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_operator_conv() {
+        let mut l = Lexer::<DefaultContext>::new(b"operator A()");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: None,
+                        params: vec![],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(Qualified {
+                        names: vec![Name::Operator(Box::new(operator::Operator::Conv(Type {
+                            base: BaseType::UD(mk_id!("A")),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        },))),]
+                    }),
+                    attributes: None
+                },
+                init: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_operator_conv_scoped() {
+        let mut l = Lexer::<DefaultContext>::new(b"A::operator B()");
+        let p = DeclarationParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Declaration::Type(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: None,
+                        params: vec![],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(Qualified {
+                        names: vec![
+                            Name::Identifier(names::Identifier {
+                                val: "A".to_string()
+                            }),
+                            Name::Operator(Box::new(operator::Operator::Conv(Type {
+                                base: BaseType::UD(mk_id!("B")),
+                                cv: CVQualifier::empty(),
+                                pointers: None,
+                            },))),
+                        ]
+                    }),
+                    attributes: None
+                },
+                init: None,
+            })
         );
     }
 }

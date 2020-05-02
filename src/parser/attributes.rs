@@ -20,12 +20,12 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<LocToken<'a>>, Option<String>) {
+    fn parse(self) -> (Option<LocToken>, Option<String>) {
         let tok = self.lexer.next_useful();
         if tok.tok == Token::Using {
             let tok = self.lexer.next_useful();
             if let Token::Identifier(ns) = tok.tok {
-                let ns = Some(ns.to_string());
+                let ns = Some(ns);
                 let tok = self.lexer.next_useful();
                 match tok.tok {
                     Token::Colon => {
@@ -43,254 +43,9 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct AttributeArg {
-    pub tokens: Vec<Token<'static>>,
-    buf: Vec<u8>,
-}
-
-struct AttributeArgTemp {
-    tokens: Vec<Token<'static>>,
-    buf: Vec<u8>,
-    lens: Vec<(usize, usize, usize)>,
-}
-
-impl AttributeArgTemp {
-    fn new() -> Self {
-        Self {
-            tokens: Vec::new(),
-            buf: Vec::with_capacity(256),
-            lens: Vec::new(),
-        }
-    }
-
-    fn add_tok<'b>(&mut self, tok: Token<'b>) {
-        use Token::*;
-
-        let tk = match tok {
-            Comment(s) => {
-                self.lens.push((self.tokens.len(), self.buf.len(), s.len()));
-                self.buf.extend_from_slice(s);
-                Comment(b"")
-            }
-            LiteralString(s) => LiteralString(s),
-            LiteralLString(s) => LiteralLString(s),
-            LiteralUString(s) => LiteralUString(s),
-            LiteralUUString(s) => LiteralUUString(s),
-            LiteralU8String(s) => LiteralU8String(s),
-            LiteralRString(s) => LiteralRString(s),
-            LiteralLRString(s) => LiteralLRString(s),
-            LiteralURString(s) => LiteralURString(s),
-            LiteralUURString(s) => LiteralUURString(s),
-            LiteralU8RString(s) => LiteralU8RString(s),
-            Identifier(s) => Identifier(s),
-            None => None,
-            Eof => Eof,
-            Eol => Eol,
-            Not => Not,
-            NotEqual => NotEqual,
-            Dollar => Dollar,
-            Modulo => Modulo,
-            ModuloEqual => ModuloEqual,
-            AndAnd => AndAnd,
-            And => And,
-            AndEqual => AndEqual,
-            LiteralChar(x) => LiteralChar(x),
-            LiteralLChar(x) => LiteralLChar(x),
-            LiteralUUChar(x) => LiteralUUChar(x),
-            LiteralUChar(x) => LiteralUChar(x),
-            LiteralU8Char(x) => LiteralU8Char(x),
-            LeftParen => LeftParen,
-            RightParen => RightParen,
-            Star => Star,
-            StarEqual => StarEqual,
-            PlusPlus => PlusPlus,
-            Plus => Plus,
-            PlusEqual => PlusEqual,
-            Divide => Divide,
-            DivideEqual => DivideEqual,
-            Comma => Comma,
-            MinusMinus => MinusMinus,
-            Minus => Minus,
-            MinusEqual => MinusEqual,
-            Arrow => Arrow,
-            ArrowStar => ArrowStar,
-            LiteralDouble(x) => LiteralDouble(x),
-            LiteralFloat(x) => LiteralFloat(x),
-            LiteralLongDouble(x) => LiteralLongDouble(x),
-            Dot => Dot,
-            DotStar => DotStar,
-            Ellipsis => Ellipsis,
-            LiteralInt(x) => LiteralInt(x),
-            LiteralUInt(x) => LiteralUInt(x),
-            LiteralLong(x) => LiteralLong(x),
-            LiteralLongLong(x) => LiteralLongLong(x),
-            LiteralULong(x) => LiteralULong(x),
-            LiteralULongLong(x) => LiteralULongLong(x),
-            ColonColon => ColonColon,
-            Colon => Colon,
-            SemiColon => SemiColon,
-            Lower => Lower,
-            LowerEqual => LowerEqual,
-            LowerEqualGreater => LowerEqualGreater,
-            LeftShift => LeftShift,
-            LeftShiftEqual => LeftShiftEqual,
-            EqualEqual => EqualEqual,
-            Equal => Equal,
-            Greater => Greater,
-            GreaterEqual => GreaterEqual,
-            RightShift => RightShift,
-            RightShiftEqual => RightShiftEqual,
-            Question => Question,
-            At => At,
-            LeftBrack => LeftBrack,
-            DoubleLeftBrack => DoubleLeftBrack,
-            Backslash => Backslash,
-            RightBrack => RightBrack,
-            DoubleRightBrack => DoubleRightBrack,
-            Xor => Xor,
-            XorEqual => XorEqual,
-            LeftBrace => LeftBrace,
-            OrOr => OrOr,
-            Or => Or,
-            OrEqual => OrEqual,
-            RightBrace => RightBrace,
-            Tilde => Tilde,
-            Alignas => Alignas,
-            Alignof => Alignof,
-            AndKw => AndKw,
-            AndEq => AndEq,
-            Asm => Asm,
-            Auto => Auto,
-            BitAnd => BitAnd,
-            BitOr => BitOr,
-            Bool => Bool,
-            Break => Break,
-            Case => Case,
-            Catch => Catch,
-            Char => Char,
-            Char8T => Char8T,
-            Char16T => Char16T,
-            Char32T => Char32T,
-            Class => Class,
-            Compl => Compl,
-            Complex => Complex,
-            Const => Const,
-            Consteval => Consteval,
-            Constexpr => Constexpr,
-            Constinit => Constinit,
-            ConstCast => ConstCast,
-            Continue => Continue,
-            Decltype => Decltype,
-            Default => Default,
-            Delete => Delete,
-            Do => Do,
-            Double => Double,
-            DynamicCast => DynamicCast,
-            Else => Else,
-            Endif => Endif,
-            Enum => Enum,
-            Explicit => Explicit,
-            Export => Export,
-            Extern => Extern,
-            False => False,
-            Final => Final,
-            Float => Float,
-            For => For,
-            Friend => Friend,
-            Goto => Goto,
-            If => If,
-            Imaginary => Imaginary,
-            Inline => Inline,
-            Int => Int,
-            Long => Long,
-            Mutable => Mutable,
-            Namespace => Namespace,
-            New => New,
-            Noexcept => Noexcept,
-            NotKw => NotKw,
-            NotEq => NotEq,
-            Nullptr => Nullptr,
-            Operator => Operator,
-            OrKw => OrKw,
-            OrEq => OrEq,
-            Override => Override,
-            Private => Private,
-            Protected => Protected,
-            Public => Public,
-            Register => Register,
-            ReinterpretCast => ReinterpretCast,
-            Restrict => Restrict,
-            Return => Return,
-            Short => Short,
-            Signed => Signed,
-            Sizeof => Sizeof,
-            Static => Static,
-            StaticAssert => StaticAssert,
-            StaticCast => StaticCast,
-            Struct => Struct,
-            Switch => Switch,
-            Template => Template,
-            This => This,
-            ThreadLocal => ThreadLocal,
-            Throw => Throw,
-            True => True,
-            Try => Try,
-            Typedef => Typedef,
-            Typeid => Typeid,
-            TypeName => TypeName,
-            Union => Union,
-            Unsigned => Unsigned,
-            Using => Using,
-            Virtual => Virtual,
-            Void => Void,
-            Volatile => Volatile,
-            WcharT => WcharT,
-            While => While,
-            XorKw => XorKw,
-            XorEq => XorEq,
-            PreprocIf => PreprocIf,
-            PreprocDefine => PreprocDefine,
-            PreprocElif => PreprocElif,
-            PreprocElse => PreprocElse,
-            PreprocEndif => PreprocEndif,
-            PreprocError => PreprocError,
-            PreprocIfdef => PreprocIfdef,
-            PreprocIfndef => PreprocIfndef,
-            PreprocInclude => PreprocInclude,
-            PreprocIncludeNext => PreprocIncludeNext,
-            PreprocLine => PreprocLine,
-            PreprocPragma => PreprocPragma,
-            PreprocUndef => PreprocUndef,
-        };
-        self.tokens.push(tk);
-    }
-
-    fn finalize(self) -> AttributeArg {
-        use Token::*;
-
-        let mut args = AttributeArg {
-            tokens: self.tokens,
-            buf: self.buf,
-        };
-
-        for (pos, start, end) in self.lens {
-            // TODO: I'm not super happy with that...
-            // I tryed to play around std::pin::Pin without any success
-            let s = unsafe {
-                &*std::mem::transmute::<&[u8], *const [u8]>(&args.buf.get_unchecked(start..end))
-            };
-
-            match args.tokens[pos] {
-                Comment(_) => {
-                    args.tokens[pos] = Comment(s);
-                }
-                _ => {}
-            }
-        }
-
-        args
-    }
+    pub tokens: Vec<Token>,
 }
 
 struct ArgumentParser<'a, 'b, PC: PreprocContext> {
@@ -302,13 +57,13 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken<'a>>) -> (Option<LocToken<'a>>, Option<AttributeArg>) {
+    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<AttributeArg>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::LeftParen {
             return (Some(tok), None);
         }
 
-        let mut arg = AttributeArgTemp::new();
+        let mut arg = AttributeArg::default();
         let mut paren_count = 1;
         let mut brack_count = 0;
         let mut brace_count = 0;
@@ -324,7 +79,6 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
                         if brack_count != 0 || brace_count != 0 {
                             unreachable!("Unbalanced attribute");
                         } else {
-                            let arg = arg.finalize();
                             return (None, Some(arg));
                         }
                     } else {
@@ -355,7 +109,7 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
                     unreachable!("Wrong attribute");
                 }
                 t => {
-                    arg.add_tok(t);
+                    arg.tokens.push(t);
                 }
             }
         }
@@ -371,7 +125,7 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: LocToken<'a>) -> (Option<LocToken<'a>>, (Option<String>, String)) {
+    fn parse(self, tok: LocToken) -> (Option<LocToken>, (Option<String>, String)) {
         match tok.tok {
             Token::Identifier(id) => {
                 let tk = self.lexer.next_useful();
@@ -403,11 +157,7 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(
-        self,
-        attributes: &mut Attributes,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, bool) {
+    fn parse(self, attributes: &mut Attributes, tok: Option<LocToken>) -> (Option<LocToken>, bool) {
         // [[ attribute-list ]]
         // [[ using attribute-namespace : attribute-list ]]
         //
@@ -467,10 +217,7 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Attributes>) {
+    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Attributes>) {
         let mut attributes = Vec::new();
         let mut tok = tok;
         let mut has_attributes = false;
@@ -499,7 +246,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_attr_single() {
@@ -548,7 +295,6 @@ mod tests {
                 name: "deprecated".to_string(),
                 arg: Some(AttributeArg {
                     tokens: vec![Token::LiteralString("because".to_string()),],
-                    buf: vec![],
                 }),
                 has_using: false
             },]
@@ -569,7 +315,6 @@ mod tests {
                     name: "opt".to_string(),
                     arg: Some(AttributeArg {
                         tokens: vec![Token::LiteralInt(1),],
-                        buf: vec![],
                     }),
                     has_using: true,
                 },

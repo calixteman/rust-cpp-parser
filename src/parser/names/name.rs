@@ -2,21 +2,29 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::expression::{Parameters, ParametersParser};
 
+use super::dtor::{Destructor, DtorParser};
+use super::operator::{Operator, OperatorParser};
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
-    pub(crate) val: String,
+    pub val: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Template {
-    val: String,
+    id: Identifier,
     params: Parameters,
+    //keyword: bool, TODO: set to true when we've A::template B<...>::...
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Name {
     Identifier(Identifier),
+    Destructor(Destructor),
     Template(Template),
+    Operator(Box<Operator>),
+    Empty,
+    //Decltype(ExprNode), TODO: add that
 }
 
 #[macro_export]
@@ -25,7 +33,7 @@ macro_rules! mk_id {
         Qualified {
             names: vec![
                 $(
-                    Name::Identifier(crate::parser::name::Identifier { val: $name.to_string()}),
+                    crate::parser::names::Name::Identifier(crate::parser::names::Identifier { val: $name.to_string()}),
                 )*
             ],
         }
@@ -34,7 +42,17 @@ macro_rules! mk_id {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Qualified {
-    pub(crate) names: Vec<Name>,
+    pub names: Vec<Name>,
+}
+
+impl Qualified {
+    pub fn is_conv_op(&self) -> bool {
+        if let Name::Operator(op) = self.names.last().unwrap() {
+            op.is_conv()
+        } else {
+            false
+        }
+    }
 }
 
 pub struct QualifiedParser<'a, 'b, PC: PreprocContext> {
@@ -42,56 +60,82 @@ pub struct QualifiedParser<'a, 'b, PC: PreprocContext> {
 }
 
 impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    pub(super) fn parse(
+    pub(crate) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
+        tok: Option<LocToken>,
         first: Option<String>,
-    ) -> (Option<LocToken<'a>>, Option<Qualified>) {
+    ) -> (Option<LocToken>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut names = Vec::new();
-
-        let mut is_last_name = if let Some(first) = first {
-            names.push(Name::Identifier(Identifier { val: first }));
-            true
-        } else {
+        let mut wait_id = if let Some(val) = first {
+            names.push(Name::Identifier(Identifier { val }));
             false
+        } else {
+            true
         };
 
         loop {
             match tok.tok {
                 Token::ColonColon => {
-                    is_last_name = false;
+                    if names.is_empty() {
+                        // ::foo::bar
+                        names.push(Name::Empty);
+                    }
+                    wait_id = true;
                 }
                 Token::Lower => {
-                    let name = if let Some(Name::Identifier(id)) = names.pop() {
-                        id.val
+                    let id = if let Some(Name::Identifier(id)) = names.pop() {
+                        id
                     } else {
                         unreachable!("Cannot have two templates args");
                     };
 
                     let pp = ParametersParser::new(self.lexer, Token::Greater);
-                    let (_, params) = pp.parse(None);
+                    let (_, params) = pp.parse(None, None);
 
                     names.push(Name::Template(Template {
-                        val: name,
+                        id,
                         params: params.unwrap(),
                     }));
 
-                    is_last_name = true;
+                    wait_id = false;
                 }
-                Token::Identifier(_) if is_last_name => {
+                Token::Identifier(val) if wait_id => {
+                    names.push(Name::Identifier(Identifier { val }));
+                    wait_id = false;
+                }
+                Token::Identifier(_) if !wait_id => {
                     return (Some(tok), Some(Qualified { names }));
                 }
-                Token::Identifier(id) if !is_last_name => {
-                    names.push(Name::Identifier(Identifier { val: id }));
-                    is_last_name = true;
+                Token::Operator => {
+                    let op = OperatorParser::new(self.lexer);
+                    let (tok, operator) = op.parse(Some(tok));
+
+                    names.push(Name::Operator(Box::new(operator.unwrap())));
+
+                    return (tok, Some(Qualified { names }));
+                }
+                Token::Tilde => {
+                    if wait_id {
+                        let dp = DtorParser::new(self.lexer);
+                        let (tok, dtor) = dp.parse(Some(tok));
+
+                        names.push(Name::Destructor(dtor.unwrap()));
+                        return (tok, Some(Qualified { names }));
+                    } else {
+                        return (Some(tok), Some(Qualified { names }));
+                    }
                 }
                 _ => {
-                    return (Some(tok), Some(Qualified { names }));
+                    if names.is_empty() {
+                        return (Some(tok), None);
+                    } else {
+                        return (Some(tok), Some(Qualified { names }));
+                    }
                 }
             }
             tok = self.lexer.next_useful();
@@ -105,7 +149,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::expression::*;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_name_one() {
@@ -144,7 +188,9 @@ mod tests {
             q.unwrap(),
             Qualified {
                 names: vec![Name::Template(Template {
-                    val: "A".to_string(),
+                    id: Identifier {
+                        val: "A".to_string()
+                    },
                     params: vec![],
                 }),],
             }
@@ -161,7 +207,9 @@ mod tests {
             q.unwrap(),
             Qualified {
                 names: vec![Name::Template(Template {
-                    val: "A".to_string(),
+                    id: Identifier {
+                        val: "A".to_string()
+                    },
                     params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("B")))),],
                 }),],
             }
@@ -182,7 +230,9 @@ mod tests {
                         val: "A".to_string(),
                     }),
                     Name::Template(Template {
-                        val: "B".to_string(),
+                        id: Identifier {
+                            val: "B".to_string()
+                        },
                         params: vec![
                             Some(ExprNode::Qualified(Box::new(mk_id!("C", "D")))),
                             Some(ExprNode::Qualified(Box::new(mk_id!("E", "F")))),
@@ -190,7 +240,9 @@ mod tests {
                         ]
                     }),
                     Name::Template(Template {
-                        val: "H".to_string(),
+                        id: Identifier {
+                            val: "H".to_string()
+                        },
                         params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("I")))),]
                     })
                 ]

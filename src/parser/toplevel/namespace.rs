@@ -1,7 +1,7 @@
 use super::toplevel::{DeclarationList, DeclarationListParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::declarations::{DeclHint, DeclarationParser};
+use crate::parser::declarations::{DeclHint, DeclarationParser, Specifier};
 use crate::parser::statement::Statement;
 use crate::{check_semicolon, check_semicolon_or_not};
 
@@ -30,7 +30,7 @@ impl<'a, 'b, PC: PreprocContext> NsNamesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<LocToken<'a>>, Option<NsNames>) {
+    fn parse(self) -> (Option<LocToken>, Option<NsNames>) {
         let mut tok = self.lexer.next_useful();
         let mut names = Vec::new();
         let mut inline = false;
@@ -69,14 +69,14 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken<'a>>) -> (Option<LocToken<'a>>, Option<NPRes>) {
+    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<NPRes>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let inline = if tok.tok == Token::Inline {
             let tok = self.lexer.next_useful();
             if tok.tok != Token::Namespace {
                 let dp = DeclarationParser::new(self.lexer);
-                let hint = DeclHint::with_inline();
+                let hint = DeclHint::Specifier(Specifier::INLINE);
                 let (tok, decl) = dp.parse(Some(tok), Some(hint));
                 let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
 
@@ -135,8 +135,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::expression::*;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_namespace_one() {

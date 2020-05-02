@@ -2,7 +2,7 @@ use crate::lexer::Token;
 use bitflags::bitflags;
 
 bitflags! {
-    pub struct Specifier: u16 {
+    pub struct Specifier: u32 {
         const TYPEDEF = 0b1;
         const INLINE = 0b10;
         const VIRTUAL = 0b100;
@@ -16,6 +16,12 @@ bitflags! {
         const THREAD_LOCAL = 0b100_0000_0000;
         const EXTERN = 0b1000_0000_0000;
         const MUTABLE = 0b1_0000_0000_0000;
+        const CDECL = 0b10_0000_0000_0000;
+        const CLRCALL = 0b100_0000_0000_0000;
+        const FASTCALL = 0b1000_0000_0000_0000;
+        const STDCALL = 0b1_0000_0000_0000_0000;
+        const THISCALL = 0b10_0000_0000_0000_0000;
+        const VECTORCALL = 0b100_0000_0000_0000_0000;
     }
 }
 
@@ -74,6 +80,30 @@ impl Specifier {
                 *self |= Specifier::MUTABLE;
                 true
             }
+            Token::Cdecl => {
+                *self |= Specifier::CDECL;
+                true
+            }
+            Token::Clrcall => {
+                *self |= Specifier::CLRCALL;
+                true
+            }
+            Token::Fastcall => {
+                *self |= Specifier::FASTCALL;
+                true
+            }
+            Token::Stdcall => {
+                *self |= Specifier::STDCALL;
+                true
+            }
+            Token::Thiscall => {
+                *self |= Specifier::THISCALL;
+                true
+            }
+            Token::Vectorcall => {
+                *self |= Specifier::VECTORCALL;
+                true
+            }
             _ => false,
         }
     }
@@ -92,7 +122,13 @@ impl Specifier {
             | Token::Static
             | Token::ThreadLocal
             | Token::Extern
-            | Token::Mutable => true,
+            | Token::Mutable
+            | Token::Cdecl
+            | Token::Clrcall
+            | Token::Fastcall
+            | Token::Stdcall
+            | Token::Thiscall
+            | Token::Vectorcall => true,
             _ => false,
         }
     }

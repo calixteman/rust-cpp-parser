@@ -14,7 +14,7 @@ impl<'a, 'b, PC: PreprocContext> TypeOrExprParser<'a, 'b, PC> {
         }
     }
 
-    fn is_type_token(tok: &Token<'a>) -> bool {
+    fn is_type_token(tok: &Token) -> bool {
         match tok {
             Token::Const
             | Token::Volatile
@@ -43,8 +43,8 @@ impl<'a, 'b, PC: PreprocContext> TypeOrExprParser<'a, 'b, PC> {
     
     pub(super) fn parse(
         self,
-        tok: Option<LocToken<'a>>,
-    ) -> (Option<LocToken<'a>>, Option<Qualified>) {
+        tok: Option<LocToken>,
+    ) -> (Option<LocToken>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if Self::is_type_token(&tok) {

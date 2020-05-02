@@ -1,7 +1,8 @@
 use super::lexer::{Lexer, Token};
 use super::preprocessor::context::PreprocContext;
+use super::string::StringType;
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub(crate) enum Kind {
     NON, // nothing
@@ -82,7 +83,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let c = self.buf.next_char();
                 if b'0' <= c && c <= b'7' {
                     self.buf.inc();
-                    num = 8 * num + u32::from(c - b'0');
+                    num = num << 3 | u32::from(c - b'0');
                 } else {
                     break;
                 }
@@ -100,9 +101,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             if self.buf.has_char() {
                 let c = self.buf.next_char();
                 let n = Self::get_hex_digit(c);
-                if n < 16 {
+                if n != 16 {
                     self.buf.inc();
-                    num = 16 * num + n;
+                    num = num << 4 | n;
                 } else {
                     break;
                 }
@@ -123,10 +124,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             let c4 = self.buf.next_char_n(3);
             self.buf.inc_n(4);
             // TODO: maybe check if we've hex digits...
-            (0x1000 * Self::get_hex_digit(c1)
-                + 0x100 * Self::get_hex_digit(c2)
-                + 0x10 * Self::get_hex_digit(c3)
-                + Self::get_hex_digit(c4)) as u32
+            (Self::get_hex_digit(c1) << 12
+                | Self::get_hex_digit(c2) << 8
+                | Self::get_hex_digit(c3) << 4
+                | Self::get_hex_digit(c4)) as u32
         } else {
             0
         }
@@ -146,14 +147,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             let c8 = self.buf.next_char_n(7);
             self.buf.inc_n(8);
             // TODO: maybe check if we've hex digits...
-            (0x1000_0000 * Self::get_hex_digit(c1)
-                + 0x100_0000 * Self::get_hex_digit(c2)
-                + 0x10_0000 * Self::get_hex_digit(c3)
-                + 0x1_0000 * Self::get_hex_digit(c4)
-                + 0x1000 * Self::get_hex_digit(c5)
-                + 0x100 * Self::get_hex_digit(c6)
-                + 0x10 * Self::get_hex_digit(c7)
-                + Self::get_hex_digit(c8)) as u32
+            (Self::get_hex_digit(c1) << 28
+                | Self::get_hex_digit(c2) << 24
+                | Self::get_hex_digit(c3) << 20
+                | Self::get_hex_digit(c4) << 16
+                | Self::get_hex_digit(c5) << 12
+                | Self::get_hex_digit(c6) << 8
+                | Self::get_hex_digit(c7) << 4
+                | Self::get_hex_digit(c8)) as u32
         } else {
             0
         }
@@ -185,7 +186,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     self.buf.add_new_line();
                     None
                 }
-                _ => unreachable!(),
+                Kind::NON => unreachable!(),
             }
         } else {
             None
@@ -195,8 +196,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     fn get_shift(c: u32) -> u32 {
         match c {
-            0..=0xFF => 0x100,
-            0x100..=0xFFFF => 0x10000,
+            0..=0xFF => 8,
+            0x100..=0xFFFF => 16,
             _ => 0,
         }
     }
@@ -211,14 +212,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 if c == b'\\' {
                     self.buf.inc();
                     if let Some(e) = self.get_escape() {
-                        val = val * Self::get_shift(e) + e;
+                        val = (val << Self::get_shift(e)) | e;
                     }
                 } else if c == b'\'' {
                     self.buf.inc();
                     break;
                 } else {
                     self.buf.inc();
-                    val = val * 0x100 + u32::from(c);
+                    val = (val << 8) | u32::from(c);
                 }
             } else {
                 break;
@@ -228,8 +229,28 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_char(&mut self) -> Token<'a> {
-        Token::LiteralChar(self.get_c_char_u32())
+    pub(super) fn get_char(&mut self, typ: StringType) -> Token {
+        let c = self.get_c_char_u32();
+        if let Some(suf) = self.get_suffix() {
+            let c = Box::new((c, suf));
+            match typ {
+                StringType::None => Token::LiteralCharUD(c),
+                StringType::L => Token::LiteralLCharUD(c),
+                StringType::UU => Token::LiteralUUCharUD(c),
+                StringType::U => Token::LiteralUCharUD(c),
+                StringType::U8 => Token::LiteralU8CharUD(c),
+                _ => unreachable!(),
+            }
+        } else {
+            match typ {
+                StringType::None => Token::LiteralChar(c),
+                StringType::L => Token::LiteralLChar(c),
+                StringType::UU => Token::LiteralUUChar(c),
+                StringType::U => Token::LiteralUChar(c),
+                StringType::U8 => Token::LiteralU8Char(c),
+                _ => unreachable!(),
+            }
+        }
     }
 }
 
@@ -238,7 +259,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use pretty_assertions::{assert_eq, assert_ne};
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_char() {
@@ -266,5 +287,30 @@ mod tests {
         assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('b')));
         assert_eq!(p.next().tok, Token::LiteralU8Char(u32::from('c')));
         assert_eq!(p.next().tok, Token::LiteralLChar(u32::from('\t')));
+    }
+
+    #[test]
+    fn test_char_suffix() {
+        let mut p = Lexer::<DefaultContext>::new(b"'a'_f u'b'_g U'c'_h u8'd'_i L'e'_j");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralCharUD(Box::new((u32::from('a'), "_f".to_string())))
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralUCharUD(Box::new((u32::from('b'), "_g".to_string())))
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralUUCharUD(Box::new((u32::from('c'), "_h".to_string())))
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralU8CharUD(Box::new((u32::from('d'), "_i".to_string())))
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralLCharUD(Box::new((u32::from('e'), "_j".to_string())))
+        );
     }
 }

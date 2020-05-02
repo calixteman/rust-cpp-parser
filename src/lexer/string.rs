@@ -1,8 +1,9 @@
 use super::lexer::{Lexer, Token};
 use super::preprocessor::context::PreprocContext;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(PartialEq)]
 pub(crate) enum StringType {
+    None,
     L,
     UU,
     R,
@@ -14,7 +15,6 @@ pub(crate) enum StringType {
     U8R,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum StringCharType {
     S(StringType),
     C(StringType),
@@ -81,27 +81,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_special_string_char(&mut self, typ: StringType) -> Option<Token<'a>> {
+    pub(crate) fn get_special_string_char(&mut self, typ: StringType) -> Option<Token> {
         if let Some(typ) = self.get_string_char_prefix(typ) {
             Some(match typ {
-                StringCharType::S(typ) => match typ {
-                    StringType::L => Token::LiteralLString(self.get_string_content()),
-                    StringType::UU => Token::LiteralUUString(self.get_string_content()),
-                    StringType::R => Token::LiteralRString(self.get_r_string_content()),
-                    StringType::U => Token::LiteralUString(self.get_string_content()),
-                    StringType::U8 => Token::LiteralU8String(self.get_string_content()),
-                    StringType::LR => Token::LiteralLRString(self.get_r_string_content()),
-                    StringType::UUR => Token::LiteralUURString(self.get_r_string_content()),
-                    StringType::UR => Token::LiteralURString(self.get_r_string_content()),
-                    StringType::U8R => Token::LiteralU8RString(self.get_r_string_content()),
-                },
-                StringCharType::C(typ) => match typ {
-                    StringType::L => Token::LiteralLChar(self.get_c_char_u32()),
-                    StringType::UU => Token::LiteralUUChar(self.get_c_char_u32()),
-                    StringType::U => Token::LiteralUChar(self.get_c_char_u32()),
-                    StringType::U8 => Token::LiteralU8Char(self.get_c_char_u32()),
-                    _ => unreachable!(),
-                },
+                StringCharType::S(typ) => self.get_string(typ),
+                StringCharType::C(typ) => self.get_char(typ),
             })
         } else {
             None
@@ -109,8 +93,99 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_string(&mut self) -> Token<'a> {
-        Token::LiteralString(self.get_string_content())
+    pub(super) fn get_string(&mut self, typ: StringType) -> Token {
+        match typ {
+            StringType::L => {
+                let s = self.get_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralLStringUD(s)
+                } else {
+                    Token::LiteralLString(s)
+                }
+            }
+            StringType::UU => {
+                let s = self.get_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralUUStringUD(s)
+                } else {
+                    Token::LiteralUUString(s)
+                }
+            }
+            StringType::R => {
+                let s = self.get_r_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralRStringUD(s)
+                } else {
+                    Token::LiteralRString(s)
+                }
+            }
+            StringType::U => {
+                let s = self.get_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralUStringUD(s)
+                } else {
+                    Token::LiteralUString(s)
+                }
+            }
+            StringType::U8 => {
+                let s = self.get_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralU8StringUD(s)
+                } else {
+                    Token::LiteralU8String(s)
+                }
+            }
+            StringType::LR => {
+                let s = self.get_r_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralLRStringUD(s)
+                } else {
+                    Token::LiteralLRString(s)
+                }
+            }
+            StringType::UUR => {
+                let s = self.get_r_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralUURStringUD(s)
+                } else {
+                    Token::LiteralUURString(s)
+                }
+            }
+            StringType::UR => {
+                let s = self.get_r_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralURStringUD(s)
+                } else {
+                    Token::LiteralURString(s)
+                }
+            }
+            StringType::U8R => {
+                let s = self.get_r_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralU8RStringUD(s)
+                } else {
+                    Token::LiteralU8RString(s)
+                }
+            }
+            StringType::None => {
+                let s = self.get_string_content();
+                if let Some(suf) = self.get_suffix() {
+                    let s = Box::new((s, suf));
+                    Token::LiteralStringUD(s)
+                } else {
+                    Token::LiteralString(s)
+                }
+            }
+        }
     }
 
     #[inline(always)]
@@ -244,5 +319,87 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::lexer::preprocessor::context::DefaultContext;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_string() {
+        let mut p = Lexer::<DefaultContext>::new(b"\"foo\" \"foo\\\"bar\"");
+        assert_eq!(p.next().tok, Token::LiteralString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralString("foo\"bar".to_string()));
+
+        let mut p = Lexer::<DefaultContext>::new(b"u\"foo\" u\"foo\\\"bar\"");
+        assert_eq!(p.next().tok, Token::LiteralUString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralUString("foo\"bar".to_string()));
+
+        let mut p = Lexer::<DefaultContext>::new(b"U\"foo\" U\"foo\\\"bar\"");
+        assert_eq!(p.next().tok, Token::LiteralUUString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralUUString("foo\"bar".to_string()));
+
+        let mut p = Lexer::<DefaultContext>::new(b"u8\"foo\" u8\"foo\\\"bar\"");
+        assert_eq!(p.next().tok, Token::LiteralU8String("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralU8String("foo\"bar".to_string()));
+
+        let mut p = Lexer::<DefaultContext>::new(b"L\"foo\" L\"foo\\\"bar\"");
+        assert_eq!(p.next().tok, Token::LiteralLString("foo".to_string()));
+        assert_eq!(p.next().tok, Token::LiteralLString("foo\"bar".to_string()));
+
+        let mut p = Lexer::<DefaultContext>::new(
+            b"R\"hello(foo)hello\" R\"world(foo\n\\\"bar)world\" R\"world(foo)world  )world\"",
+        );
+        assert_eq!(p.next().tok, Token::LiteralRString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("foo\n\\\"bar".to_string())
+        );
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("foo)world  ".to_string())
+        );
+
+        let mut p =
+            Lexer::<DefaultContext>::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
+        assert_eq!(p.next().tok, Token::LiteralLRString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralUURString("foo\n\\\"bar".to_string())
+        );
+
+        let mut p =
+            Lexer::<DefaultContext>::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
+        assert_eq!(p.next().tok, Token::LiteralURString("foo".to_string()));
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralU8RString("foo\n\\\"bar".to_string())
+        );
+
+        let mut p = Lexer::<DefaultContext>::new(b"R\"(abc)\ndef)\n)\"");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralRString("abc)\ndef)\n".to_string())
+        );
+
+        let mut p =
+            Lexer::<DefaultContext>::new(b"\"test\\0\\\\\\\"\\t\\a\\b\\234\\u1234\\U0010ffff\"");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralString("test\u{0}\\\"\t\u{7}\u{8}\u{9c}\u{1234}\u{10ffff}".to_string())
+        );
+    }
+
+    #[test]
+    fn test_string_suffix() {
+        let mut p = Lexer::<DefaultContext>::new(b"\"foo\"_abcde");
+        assert_eq!(
+            p.next().tok,
+            Token::LiteralStringUD(Box::new(("foo".to_string(), "_abcde".to_string())))
+        );
     }
 }

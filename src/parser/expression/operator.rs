@@ -16,6 +16,7 @@ pub enum Operator {
     Minus,
     Indirection,
     AddressOf,
+    AddressOfLabel,
     Sizeof,
     New,
     NewArray,
@@ -61,22 +62,23 @@ pub enum Operator {
     XorAssign,
     OrAssign,
     Comma,
+    Cast,
 }
 
 impl Operator {
-    pub fn operate(&self, stack: &mut Vec<ExprNode>) {
+    pub fn operate(self, stack: &mut Vec<ExprNode>) {
         use Operator::*;
 
-        match *self {
+        match self {
             Plus | Minus | Not | BitNeg | Sizeof | PreInc | PreDec | Indirection | AddressOf => {
                 let arg = stack.pop().unwrap();
-                stack.push(ExprNode::UnaryOp(Box::new(UnaryOp { op: *self, arg })));
+                stack.push(ExprNode::UnaryOp(Box::new(UnaryOp { op: self, arg })));
             }
             _ => {
                 let arg2 = stack.pop().unwrap();
                 let arg1 = stack.pop().unwrap();
                 stack.push(ExprNode::BinaryOp(Box::new(BinaryOp {
-                    op: *self,
+                    op: self,
                     arg1,
                     arg2,
                 })));

@@ -6,9 +6,9 @@ use crate::parser::expression::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Do {
-    pub(crate) attributes: Option<Attributes>,
-    pub(crate) body: Box<Statement>,
-    pub(crate) condition: ExprNode,
+    pub attributes: Option<Attributes>,
+    pub body: Statement,
+    pub condition: ExprNode,
 }
 
 pub struct DoStmtParser<'a, 'b, PC: PreprocContext> {
@@ -20,10 +20,7 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken<'a>>, Option<Do>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Do>) {
         let sp = StatementParser::new(self.lexer);
         let (tok, body) = sp.parse(None);
 
@@ -50,7 +47,7 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
                 None,
                 Some(Do {
                     attributes,
-                    body: Box::new(body.unwrap()),
+                    body: body.unwrap(),
                     condition: condition.unwrap(),
                 }),
             ),

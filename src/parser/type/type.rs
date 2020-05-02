@@ -1,17 +1,34 @@
 use super::cv::CVQualifier;
 use super::primitive::Primitive;
-use crate::parser::name::Qualified;
+use crate::parser::declarations::{Array, Enum, Function, Pointers};
+use crate::parser::names::Qualified;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BaseType {
+    None,
+    Auto,
     Primitive(Primitive),
     UD(Qualified),
+    Enum(Box<Enum>),
+    Function(Box<Function>),
+    Array(Box<Array>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Type {
-    pub(crate) base: BaseType,
-    pub(crate) cv: CVQualifier,
+    pub base: BaseType,
+    pub cv: CVQualifier,
+    pub pointers: Option<Pointers>,
+}
+
+impl Default for Type {
+    fn default() -> Self {
+        Self {
+            base: BaseType::None,
+            cv: CVQualifier::empty(),
+            pointers: None,
+        }
+    }
 }
 
 impl Type {
