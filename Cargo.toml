@@ -3,6 +3,8 @@ name = "cpp-parser"
 version = "0.0.1"
 authors = ["calixteman <calixte.denizet@gmail.com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/calixteman/rust-cpp-parser"
 
 [dependencies]
 phf = { version = "0.8", features = ["macros"] }
