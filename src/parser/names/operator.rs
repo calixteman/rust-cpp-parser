@@ -5,7 +5,7 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::declarations::{decl::DeclSpecifierParser, pointer::PointerDeclaratorParser};
+use crate::parser::declarations::{pointer::PointerDeclaratorParser, types::DeclSpecifierParser};
 use crate::parser::expressions;
 use crate::parser::types::r#type::Type;
 

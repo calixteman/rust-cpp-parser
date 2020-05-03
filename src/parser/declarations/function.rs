@@ -15,8 +15,8 @@ use crate::parser::statements::{Compound, CompoundStmtParser};
 use bitflags::bitflags;
 
 use super::super::types::{BaseType, CVQualifier, Type};
-use super::decl::{Identifier, TypeDeclarator, TypeDeclaratorParser};
 use super::specifier::Specifier;
+use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {

@@ -58,6 +58,14 @@ impl Qualified {
             false
         }
     }
+
+    pub fn get_first_name(mut self) -> String {
+        if let Name::Identifier(id) = self.names.pop().unwrap() {
+            id.val
+        } else {
+            unreachable!("Not a valid identifier");
+        }
+    }
 }
 
 pub struct QualifiedParser<'a, 'b, PC: PreprocContext> {

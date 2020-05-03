@@ -43,6 +43,17 @@ pub enum Primitive {
     UnsignedInt,
     UnsignedLong,
     UnsignedLongLong,
+    CharComplex,
+    SignedCharComplex,
+    ShortComplex,
+    IntComplex,
+    LongComplex,
+    LongLongComplex,
+    UnsignedCharComplex,
+    UnsignedShortComplex,
+    UnsignedIntComplex,
+    UnsignedLongComplex,
+    UnsignedLongLongComplex,
     Float,
     Double,
     LongDouble,
@@ -61,6 +72,7 @@ pub enum Primitive {
 
 impl Modifier {
     pub(crate) fn to_primitive(self) -> Primitive {
+        // TODO: check if it could be interesting to replace that stuff with a hashmap
         match self.bits() {
             0b100 => Primitive::Char,
             0b101 => Primitive::SignedChar,
@@ -73,6 +85,22 @@ impl Modifier {
             0b10_0010 | 0b11_0010 => Primitive::UnsignedLong,
             0b100_0000 | 0b101_0000 | 0b100_0001 | 0b101_0001 => Primitive::LongLong,
             0b100_0010 | 0b101_0010 => Primitive::UnsignedLongLong,
+            0b100_0000_0000_0100 => Primitive::CharComplex,
+            0b100_0000_0000_0101 => Primitive::SignedCharComplex,
+            0b100_0000_0000_0110 => Primitive::UnsignedCharComplex,
+            0b100_0000_0000_1001 | 0b100_0000_0001_1001 | 0b100_0000_0001_1000
+            | 0b100_0000_0000_1000 => Primitive::ShortComplex,
+            0b100_0000_0000_1010 | 0b100_0000_0001_1010 => Primitive::UnsignedShortComplex,
+            0b100_0000_0001_0000 | 0b100_0000_0001_0001 | 0b100_0000_0000_0001 => {
+                Primitive::IntComplex
+            }
+            0b100_0000_0001_0010 | 0b100_0000_0000_0010 => Primitive::UnsignedIntComplex,
+            0b100_0000_0010_0000 | 0b100_0000_0011_0000 | 0b100_0000_0010_0001
+            | 0b100_0000_0011_0001 => Primitive::LongComplex,
+            0b100_0000_0010_0010 | 0b100_0000_0011_0010 => Primitive::UnsignedLongComplex,
+            0b100_0000_0100_0000 | 0b100_0000_0101_0000 | 0b100_0000_0100_0001
+            | 0b100_0000_0101_0001 => Primitive::LongLongComplex,
+            0b100_0000_0100_0010 | 0b100_0000_0101_0010 => Primitive::UnsignedLongLongComplex,
             0b1000_0000 => Primitive::Float,
             0b1_0000_0000 => Primitive::Double,
             0b1_0010_0000 => Primitive::LongDouble,

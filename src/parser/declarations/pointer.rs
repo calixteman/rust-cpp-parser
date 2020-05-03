@@ -9,8 +9,8 @@ use crate::parser::attributes::{Attributes, AttributesParser};
 use bitflags::bitflags;
 
 use super::super::types::CVQualifier;
-use super::decl::{NoPtrDeclaratorParser, TypeDeclarator};
 use super::specifier::Specifier;
+use super::types::{NoPtrDeclaratorParser, TypeDeclarator};
 use crate::parser::types::{BaseType, Type};
 
 bitflags! {

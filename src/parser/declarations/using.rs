@@ -3,13 +3,15 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use super::decl::Declaration;
+use super::types::{TypeDeclarator, TypeDeclaratorParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::attributes::Attributes;
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Using {
+pub struct UsingDecl {
     pub names: Names,
     pub ellipsis: bool,
 }
@@ -28,28 +30,28 @@ pub struct UsingEnum {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct UsingNamespace {
+pub struct UsingNS {
     pub name: Qualified,
     pub attributes: Option<Attributes>,
 }
 
-#[derive(Debug, PartialEq)]
-pub(super) enum UsingRes {
-    Basic(Using),
-    Enum(UsingEnum),
-    Ns(UsingNamespace),
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsingAlias {
+    pub name: String,
+    pub typ: TypeDeclarator,
+    pub attributes: Option<Attributes>,
 }
 
-struct UsingParser<'a, 'b, PC: PreprocContext> {
+pub(super) struct UsingParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
 impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<UsingRes>) {
+    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::Using {
             return (Some(tok), None);
@@ -61,7 +63,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
             let (tok, name) = qp.parse(None, None);
 
             if let Some(name) = name {
-                return (tok, Some(UsingRes::Enum(UsingEnum { name })));
+                return (tok, Some(Declaration::UsingEnum(UsingEnum { name })));
             } else {
                 unreachable!("Invalid token in using enum declaration: {:?}", tok)
             };
@@ -74,7 +76,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
             if let Some(name) = name {
                 return (
                     tok,
-                    Some(UsingRes::Ns(UsingNamespace {
+                    Some(Declaration::UsingNS(UsingNS {
                         name,
                         attributes: None,
                     })),
@@ -103,26 +105,63 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                 unreachable!("Invalid token in using declaration: {:?}", tk)
             };
 
-            names.push(Name { name, typename });
-
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             match tk.tok {
                 Token::Comma => {
+                    names.push(Name { name, typename });
                     tok = self.lexer.next_useful();
                 }
                 Token::Ellipsis => {
+                    names.push(Name { name, typename });
                     return (
                         None,
-                        Some(UsingRes::Basic(Using {
+                        Some(Declaration::UsingDecl(UsingDecl {
                             names,
                             ellipsis: true,
                         })),
                     );
                 }
+                Token::DoubleLeftBrack => {
+                    let ap = AttributesParser::new(self.lexer);
+                    let (tok, attrs) = ap.parse(Some(tk));
+                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+
+                    if tok.tok != Token::Equal {
+                        unreachable!("Invalid token in alias declaration: {:?}", tok)
+                    }
+
+                    let tdp = TypeDeclaratorParser::new(self.lexer);
+                    let (tok, typ) = tdp.parse(None, None);
+                    let name = name.get_first_name();
+
+                    return (
+                        tok,
+                        Some(Declaration::UsingAlias(UsingAlias {
+                            name,
+                            typ: typ.unwrap(),
+                            attributes: attrs,
+                        })),
+                    );
+                }
+                Token::Equal => {
+                    let tdp = TypeDeclaratorParser::new(self.lexer);
+                    let (tok, typ) = tdp.parse(None, None);
+                    let name = name.get_first_name();
+
+                    return (
+                        tok,
+                        Some(Declaration::UsingAlias(UsingAlias {
+                            name,
+                            typ: typ.unwrap(),
+                            attributes: None,
+                        })),
+                    );
+                }
                 _ => {
+                    names.push(Name { name, typename });
                     return (
                         Some(tk),
-                        Some(UsingRes::Basic(Using {
+                        Some(Declaration::UsingDecl(UsingDecl {
                             names,
                             ellipsis: false,
                         })),
@@ -149,7 +188,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Basic(Using {
+            Declaration::UsingDecl(UsingDecl {
                 names: vec![Name {
                     name: mk_id!("A", "B"),
                     typename: false,
@@ -167,7 +206,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Basic(Using {
+            Declaration::UsingDecl(UsingDecl {
                 names: vec![Name {
                     name: mk_id!("A", "B"),
                     typename: true,
@@ -185,7 +224,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Basic(Using {
+            Declaration::UsingDecl(UsingDecl {
                 names: vec![
                     Name {
                         name: mk_id!("A", "B"),
@@ -213,7 +252,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Basic(Using {
+            Declaration::UsingDecl(UsingDecl {
                 names: vec![Name {
                     name: mk_id!("A", "B"),
                     typename: false,
@@ -231,7 +270,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Enum(UsingEnum {
+            Declaration::UsingEnum(UsingEnum {
                 name: mk_id!("A", "B"),
             })
         );
@@ -245,7 +284,7 @@ mod tests {
 
         assert_eq!(
             u.unwrap(),
-            UsingRes::Ns(UsingNamespace {
+            Declaration::UsingNS(UsingNS {
                 name: mk_id!("A", "B"),
                 attributes: None,
             })

@@ -11,7 +11,8 @@ use super::{
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::decl::{DeclHint, Declaration, DeclarationParser, TypeDeclaratorParser};
+use crate::parser::declarations::decl::{Declaration, DeclarationParser};
+use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::QualifiedParser;
 
@@ -285,7 +286,7 @@ mod tests {
                             pointers: None,
                         },
                         specifier: Specifier::empty(),
-                        identifier: decl::Identifier {
+                        identifier: types::Identifier {
                             identifier: Some(mk_id!("a")),
                             attributes: None,
                         },
@@ -307,7 +308,7 @@ mod tests {
                             }]),
                         },
                         specifier: Specifier::empty(),
-                        identifier: decl::Identifier {
+                        identifier: types::Identifier {
                             identifier: Some(mk_id!("b")),
                             attributes: None
                         },

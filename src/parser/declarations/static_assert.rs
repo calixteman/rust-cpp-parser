@@ -15,16 +15,16 @@ pub struct StaticAssert {
     pub cpp: bool,
 }
 
-struct StaticAssertParser<'a, 'b, PC: PreprocContext> {
+pub(crate) struct StaticAssertParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
 impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<StaticAssert>) {
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<StaticAssert>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::StaticAssert && tok.tok != Token::CStaticAssert {
             return (Some(tok), None);

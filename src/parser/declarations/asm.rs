@@ -14,16 +14,21 @@ pub struct Asm {
     pub code: String,
 }
 
-struct AsmParser<'a, 'b, PC: PreprocContext> {
+pub(crate) struct AsmParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
 impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Asm>) {
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Asm>) {
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        if tok.tok != Token::Asm {
+            return (Some(tok), None);
+        }
+
         let tok = self.lexer.next_useful();
         if tok.tok != Token::LeftParen {
             unreachable!("Invalid token in asm declaration: {:?}", tok);
@@ -40,7 +45,13 @@ impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
                 unreachable!("Invalid token in asm declaration: {:?}", tok);
             }
 
-            (None, Some(Asm { attributes, code }))
+            (
+                None,
+                Some(Asm {
+                    attributes: None,
+                    code,
+                }),
+            )
         } else {
             unreachable!("Invalid token in asm declaration");
         }
@@ -58,7 +69,7 @@ mod tests {
     fn test_asm() {
         let mut l = Lexer::<DefaultContext>::new(
             r#"
-(R"(
+asm(R"(
 .globl func
     .type func, @function
     func:

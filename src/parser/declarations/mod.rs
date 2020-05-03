@@ -6,6 +6,9 @@
 pub mod decl;
 pub use self::decl::*;
 
+pub mod types;
+pub use self::types::*;
+
 pub mod specifier;
 pub use self::specifier::*;
 
@@ -38,9 +41,6 @@ pub use self::asm::*;
 
 pub mod namespace;
 pub use self::namespace::*;
-
-pub mod decl_list;
-pub use self::decl_list::*;
 
 pub mod r#extern;
 pub use self::r#extern::*;
