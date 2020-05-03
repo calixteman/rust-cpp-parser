@@ -817,7 +817,7 @@ mod tests {
 
     #[test]
     fn test_condition_not_not() {
-        let mut lexer = Lexer::<DefaultContext>::new(b"!!1");
+        let mut lexer = Lexer::<DefaultContext>::new(b"!!1234");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 

@@ -127,17 +127,22 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             Token::Greater => (None, Some(Operator::Op(expressions::Operator::Gt))),
             Token::LowerEqual => (None, Some(Operator::Op(expressions::Operator::Leq))),
             Token::GreaterEqual => (None, Some(Operator::Op(expressions::Operator::Geq))),
-            Token::LowerEqualGreater => {
-                (None, Some(Operator::Op(expressions::Operator::ThreeWayComp)))
-            }
+            Token::LowerEqualGreater => (
+                None,
+                Some(Operator::Op(expressions::Operator::ThreeWayComp)),
+            ),
             Token::AndAnd => (None, Some(Operator::Op(expressions::Operator::And))),
             Token::OrOr => (None, Some(Operator::Op(expressions::Operator::Or))),
             Token::LeftShift => (None, Some(Operator::Op(expressions::Operator::LShift))),
             Token::RightShift => (None, Some(Operator::Op(expressions::Operator::RShift))),
-            Token::LeftShiftEqual => (None, Some(Operator::Op(expressions::Operator::LShiftAssign))),
-            Token::RightShiftEqual => {
-                (None, Some(Operator::Op(expressions::Operator::RShiftAssign)))
-            }
+            Token::LeftShiftEqual => (
+                None,
+                Some(Operator::Op(expressions::Operator::LShiftAssign)),
+            ),
+            Token::RightShiftEqual => (
+                None,
+                Some(Operator::Op(expressions::Operator::RShiftAssign)),
+            ),
             Token::PlusPlus => (None, Some(Operator::Op(expressions::Operator::PreInc))),
             Token::MinusMinus => (None, Some(Operator::Op(expressions::Operator::PreDec))),
             Token::Comma => (None, Some(Operator::Op(expressions::Operator::Comma))),

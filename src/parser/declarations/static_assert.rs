@@ -6,6 +6,7 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
+use crate::parser::literals::StringLiteralParser;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaticAssert {
@@ -63,11 +64,17 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
 
         let tok = self.lexer.next_useful();
         let string = tok.tok.get_string();
-        if string.is_none() {
-            unreachable!("Invalid second argument in static_assert")
-        }
 
-        let tok = self.lexer.next_useful();
+        let string = if let Some(string) = string {
+            string
+        } else {
+            unreachable!("Invalid second argument in static_assert")
+        };
+
+        let slp = StringLiteralParser::new(self.lexer);
+        let (tok, string) = slp.parse(&string);
+
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::RightParen {
             unreachable!("Invalid token in static_assert: {:?}", tok)
         }
@@ -76,7 +83,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
             None,
             Some(StaticAssert {
                 condition,
-                string,
+                string: Some(string),
                 cpp,
             }),
         )

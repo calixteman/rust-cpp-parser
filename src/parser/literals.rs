@@ -3,6 +3,9 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, LocToken, Token};
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum IntLiteral {
     Int(u64),
@@ -82,4 +85,66 @@ pub struct Str {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bool {
     pub value: bool,
+}
+
+pub(crate) struct StringLiteralParser<'a, 'b, PC: PreprocContext> {
+    lexer: &'b mut Lexer<'a, PC>,
+}
+
+impl<'a, 'b, PC: PreprocContext> StringLiteralParser<'a, 'b, PC> {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+        Self { lexer }
+    }
+
+    #[inline(always)]
+    fn concat(first: &str, lens: usize, strings: Vec<String>) -> String {
+        let mut res = String::with_capacity(lens + first.len() + 1);
+        res.push_str(first);
+        for s in strings {
+            res.push_str(&s);
+        }
+        res
+    }
+
+    pub(crate) fn parse(self, first: &str) -> (Option<LocToken>, String) {
+        let mut strings = Vec::with_capacity(32); // TODO: put a good value here if it's useful
+        let mut lens = 0;
+
+        let tok = loop {
+            let tok = self.lexer.next_useful();
+            match tok.tok {
+                Token::LiteralString(s)
+                | Token::LiteralLString(s)
+                | Token::LiteralUString(s)
+                | Token::LiteralUUString(s)
+                | Token::LiteralU8String(s)
+                | Token::LiteralRString(s)
+                | Token::LiteralLRString(s)
+                | Token::LiteralURString(s)
+                | Token::LiteralUURString(s)
+                | Token::LiteralU8RString(s) => {
+                    lens += s.len();
+                    strings.push(s);
+                }
+                Token::LiteralStringUD(s_suf)
+                | Token::LiteralLStringUD(s_suf)
+                | Token::LiteralUStringUD(s_suf)
+                | Token::LiteralUUStringUD(s_suf)
+                | Token::LiteralU8StringUD(s_suf)
+                | Token::LiteralRStringUD(s_suf)
+                | Token::LiteralLRStringUD(s_suf)
+                | Token::LiteralURStringUD(s_suf)
+                | Token::LiteralUURStringUD(s_suf)
+                | Token::LiteralU8RStringUD(s_suf) => {
+                    lens += s_suf.0.len();
+                    strings.push(s_suf.0);
+                }
+                _ => {
+                    break tok;
+                }
+            }
+        };
+
+        (Some(tok), Self::concat(first, lens, strings))
+    }
 }

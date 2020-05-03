@@ -11,6 +11,7 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::literals::{
     Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
+    StringLiteralParser,
 };
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
@@ -207,6 +208,31 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
     }
 
     pub(crate) fn parse(&mut self, tok: Option<LocToken>) -> (Option<LocToken>, Option<ExprNode>) {
+        macro_rules! str_literal {
+            ($s: expr, $name: ident) => {{
+                let slp = StringLiteralParser::new(self.lexer);
+                let (tk, x) = slp.parse(&$s);
+                self.operands.push(ExprNode::Str(Box::new(Str {
+                    value: StrLiteral::$name(x),
+                })));
+                self.last = LastKind::Operand;
+                tk.unwrap_or_else(|| self.lexer.next_useful())
+            }};
+        }
+
+        macro_rules! str_literal_ud {
+            ($x: expr, $name: ident) => {{
+                let slp = StringLiteralParser::new(self.lexer);
+                let (tk, mut s) = slp.parse(&$x.0);
+                std::mem::swap(&mut $x.0, &mut s);
+                self.operands.push(ExprNode::Str(Box::new(Str {
+                    value: StrLiteral::$name($x),
+                })));
+                self.last = LastKind::Operand;
+                tk.unwrap_or_else(|| self.lexer.next_useful())
+            }};
+        }
+
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
@@ -707,124 +733,84 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.last = LastKind::Operand;
                 }
                 Token::LiteralString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::Str(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, Str);
+                    continue;
                 }
                 Token::LiteralLString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::LStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, LStr);
+                    continue;
                 }
                 Token::LiteralUString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, UStr);
+                    continue;
                 }
                 Token::LiteralUUString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UUStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, UUStr);
+                    continue;
                 }
                 Token::LiteralU8String(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::U8Str(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, U8Str);
+                    continue;
                 }
                 Token::LiteralRString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::RStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, RStr);
+                    continue;
                 }
                 Token::LiteralLRString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::LRStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, LRStr);
+                    continue;
                 }
                 Token::LiteralURString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::URStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, URStr);
+                    continue;
                 }
                 Token::LiteralUURString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UURStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, UURStr);
+                    continue;
                 }
                 Token::LiteralU8RString(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::U8RStr(x),
-                    })));
-                    self.last = LastKind::Operand;
+                    tok = str_literal!(x, U8RStr);
+                    continue;
                 }
-                Token::LiteralStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::StrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralStringUD(mut x) => {
+                    tok = str_literal_ud!(x, StrUD);
+                    continue;
                 }
-                Token::LiteralLStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::LStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralLStringUD(mut x) => {
+                    tok = str_literal_ud!(x, LStrUD);
+                    continue;
                 }
-                Token::LiteralUStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralUStringUD(mut x) => {
+                    tok = str_literal_ud!(x, UStrUD);
+                    continue;
                 }
-                Token::LiteralUUStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UUStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralUUStringUD(mut x) => {
+                    tok = str_literal_ud!(x, UUStrUD);
+                    continue;
                 }
-                Token::LiteralU8StringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::U8StrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralU8StringUD(mut x) => {
+                    tok = str_literal_ud!(x, U8StrUD);
+                    continue;
                 }
-                Token::LiteralRStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::RStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralRStringUD(mut x) => {
+                    tok = str_literal_ud!(x, RStrUD);
+                    continue;
                 }
-                Token::LiteralLRStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::LRStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralLRStringUD(mut x) => {
+                    tok = str_literal_ud!(x, LRStrUD);
+                    continue;
                 }
-                Token::LiteralURStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::URStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralURStringUD(mut x) => {
+                    tok = str_literal_ud!(x, URStrUD);
+                    continue;
                 }
-                Token::LiteralUURStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::UURStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralUURStringUD(mut x) => {
+                    tok = str_literal_ud!(x, UURStrUD);
+                    continue;
                 }
-                Token::LiteralU8RStringUD(x) => {
-                    self.operands.push(ExprNode::Str(Box::new(Str {
-                        value: StrLiteral::U8RStrUD(x),
-                    })));
-                    self.last = LastKind::Operand;
+                Token::LiteralU8RStringUD(mut x) => {
+                    tok = str_literal_ud!(x, U8RStrUD);
+                    continue;
                 }
                 Token::Nullptr => {
                     self.operands.push(ExprNode::Nullptr(Box::new(Nullptr {})));
@@ -1088,6 +1074,38 @@ mod tests {
                 arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
             }),
             right: ExprNode::Qualified(Box::new(mk_id!("d"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_concat_string() {
+        let mut lexer =
+            Lexer::<DefaultContext>::new(b"\"abcde\"   \"fghijkl\" L\"mn\" R\"(opqrs)\"");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let node = parser.parse(None).1.unwrap();
+
+        let expected = node!(Str {
+            value: StrLiteral::Str("abcdefghijklmnopqrs".to_string())
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_concat_string_ud() {
+        let mut lexer = Lexer::<DefaultContext>::new(
+            b"\"abcde\"_foo   \"fghijkl\"_foo L\"mn\"_foo R\"(opqrs)\"_foo",
+        );
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let node = parser.parse(None).1.unwrap();
+
+        let expected = node!(Str {
+            value: StrLiteral::StrUD(Box::new((
+                "abcdefghijklmnopqrs".to_string(),
+                "_foo".to_string()
+            ))),
         });
 
         assert_eq!(node, expected);

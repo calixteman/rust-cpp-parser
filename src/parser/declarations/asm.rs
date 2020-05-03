@@ -6,6 +6,7 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::Attributes;
+use crate::parser::literals::StringLiteralParser;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Asm {
@@ -29,8 +30,12 @@ impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
         }
 
         let tok = self.lexer.next_useful();
+
         if let Some(code) = tok.tok.get_string() {
-            let tok = self.lexer.next_useful();
+            let slp = StringLiteralParser::new(self.lexer);
+            let (tok, code) = slp.parse(&code);
+
+            let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok.tok != Token::RightParen {
                 unreachable!("Invalid token in asm declaration: {:?}", tok);
             }
