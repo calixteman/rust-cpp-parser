@@ -5,7 +5,7 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{Parameters, ParametersParser};
+use crate::parser::expressions::{Parameters, ParametersParser};
 
 use super::dtor::{Destructor, DtorParser};
 use super::operator::{Operator, OperatorParser};
@@ -153,7 +153,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use pretty_assertions::assert_eq;
 
     #[test]

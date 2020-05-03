@@ -133,11 +133,11 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::declarations::{Identifier, Specifier};
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use crate::parser::initializer::Initializer;
     use crate::parser::literals::*;
     use crate::parser::names::*;
-    use crate::parser::r#type::*;
+    use crate::parser::types::*;
     use pretty_assertions::assert_eq;
 
     #[test]

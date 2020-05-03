@@ -7,7 +7,7 @@ use super::{Statement, StatementParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Do {
@@ -34,8 +34,9 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
             unreachable!("While expected after body in do statement");
         }
 
+        let tok = self.lexer.next_useful();
         if tok.tok != Token::LeftParen {
-            unreachable!("Invalid token in do statement: {:?}", tok);
+            unreachable!("Invalid token in do statements: {:?}", tok);
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
@@ -43,7 +44,7 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::RightParen {
-            unreachable!("Invalid token in do statement: {:?}", tok);
+            unreachable!("Invalid token in do statements: {:?}", tok);
         }
 
         let tok = self.lexer.next_useful();
@@ -57,7 +58,7 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
                 }),
             ),
             _ => {
-                unreachable!("Invalid token in return statement: {:?}", tok);
+                unreachable!("Invalid token in return statements: {:?}", tok);
             }
         }
     }

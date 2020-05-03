@@ -3,7 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use super::super::r#type::{self, BaseType, CVQualifier, Type};
+use super::super::types::{self, BaseType, CVQualifier, Type};
 use super::array::ArrayParser;
 use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
 use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
@@ -12,7 +12,7 @@ use super::specifier::Specifier;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 
@@ -67,7 +67,7 @@ impl Declaration {
 pub(crate) enum DeclHint {
     Name(Option<Qualified>),
     Specifier(Specifier),
-    Modifier(r#type::Modifier),
+    Modifier(types::Modifier),
     Type(Type),
 }
 
@@ -93,16 +93,16 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
                 DeclHint::Name(id) => (
                     id.map(BaseType::UD),
                     Specifier::empty(),
-                    r#type::Modifier::empty(),
+                    types::Modifier::empty(),
                 ),
-                DeclHint::Specifier(spec) => (None, spec, r#type::Modifier::empty()),
+                DeclHint::Specifier(spec) => (None, spec, types::Modifier::empty()),
                 DeclHint::Modifier(modif) => (None, Specifier::empty(), modif),
                 DeclHint::Type(typ) => {
                     return (tok, (Specifier::empty(), Some(typ), None));
                 }
             }
         } else {
-            (None, Specifier::empty(), r#type::Modifier::empty())
+            (None, Specifier::empty(), types::Modifier::empty())
         };
 
         let mut cv = CVQualifier::empty();
@@ -473,10 +473,10 @@ mod tests {
     use crate::parser::attributes::Attribute;
     use crate::parser::declarations::pointer::*;
     use crate::parser::declarations::r#enum::*;
-    use crate::parser::expression::{self, *};
+    use crate::parser::expressions::{self, *};
     use crate::parser::literals::{self, *};
     use crate::parser::names::{self, operator, Name};
-    use crate::parser::r#type::Primitive;
+    use crate::parser::types::Primitive;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1577,7 +1577,7 @@ mod tests {
                                 val: "B".to_string()
                             }),
                             Name::Operator(Box::new(operator::Operator::Op(
-                                expression::Operator::Plus
+                                expressions::Operator::Plus
                             ))),
                         ]
                     }),

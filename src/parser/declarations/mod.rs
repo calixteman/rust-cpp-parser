@@ -32,3 +32,15 @@ pub use self::using::*;
 
 mod static_assert;
 pub use self::static_assert::*;
+
+mod asm;
+pub use self::asm::*;
+
+pub mod namespace;
+pub use self::namespace::*;
+
+pub mod decl_list;
+pub use self::decl_list::*;
+
+pub mod r#extern;
+pub use self::r#extern::*;

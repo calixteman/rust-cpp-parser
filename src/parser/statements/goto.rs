@@ -6,7 +6,7 @@
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Label {
@@ -53,7 +53,7 @@ impl<'a, 'b, PC: PreprocContext> GotoStmtParser<'a, 'b, PC> {
                 )
             }
             _ => {
-                unreachable!("Invalid token in goto statement: {:?}", tok);
+                unreachable!("Invalid token in goto statements: {:?}", tok);
             }
         }
     }

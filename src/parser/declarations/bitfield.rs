@@ -6,8 +6,8 @@
 use super::TypeDeclarator;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::Operator;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::Operator;
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
 
 #[derive(Clone, Debug, PartialEq)]

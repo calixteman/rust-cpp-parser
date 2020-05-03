@@ -6,15 +6,15 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::expression::{
+use crate::parser::expressions::{
     ExprNode, ExpressionParser, Operator, Parameters, ParametersParser,
 };
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
-use crate::parser::statement::{Compound, CompoundStmtParser};
+use crate::parser::statements::{Compound, CompoundStmtParser};
 use bitflags::bitflags;
 
-use super::super::r#type::{BaseType, CVQualifier, Type};
+use super::super::types::{BaseType, CVQualifier, Type};
 use super::decl::{Identifier, TypeDeclarator, TypeDeclaratorParser};
 use super::specifier::Specifier;
 

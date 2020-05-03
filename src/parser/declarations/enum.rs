@@ -7,9 +7,9 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::declarations::DeclSpecifierParser;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::r#type::Type;
+use crate::parser::types::Type;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
@@ -196,10 +196,10 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::attributes::*;
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use crate::parser::literals::*;
     use crate::parser::names::*;
-    use crate::parser::r#type::*;
+    use crate::parser::types::*;
     use pretty_assertions::assert_eq;
 
     #[test]

@@ -7,7 +7,7 @@ use super::{DeclarationList, DeclarationListParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::{DeclHint, DeclarationParser, Specifier};
-use crate::parser::statement::Statement;
+use crate::parser::statements::Statement;
 use crate::{check_semicolon, check_semicolon_or_not};
 
 #[derive(Clone, Debug, PartialEq)]

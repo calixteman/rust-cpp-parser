@@ -13,7 +13,7 @@ use crate::parser::declarations::{
     Specifier, TypeDeclaratorParser,
 };
 use crate::parser::name::{Qualified, QualifiedParser};
-use crate::parser::r#type::{BaseType, CVQualifier, Modifier, Primitive, Type};
+use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type};
 
 enum CastType {
     Qual(Qualified),
@@ -350,9 +350,9 @@ mod tests {
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::lexer::Lexer;
     use crate::parser::declarations::*;
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use crate::parser::names::Qualified;
-    use crate::parser::r#type::Primitive;
+    use crate::parser::types::Primitive;
     use pretty_assertions::assert_eq;
 
     #[test]

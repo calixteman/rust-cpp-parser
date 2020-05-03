@@ -7,7 +7,7 @@ use super::{Statement, StatementParser};
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Switch {
@@ -31,7 +31,7 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
     ) -> (Option<LocToken>, Option<Switch>) {
         let tok = self.lexer.next_useful();
         if tok.tok != Token::LeftParen {
-            unreachable!("Invalid token in switch statement: {:?}", tok);
+            unreachable!("Invalid token in switch statements: {:?}", tok);
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
@@ -39,7 +39,7 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
 
         if let Some(tok) = tok {
             if tok.tok != Token::RightParen {
-                unreachable!("Invalid token in switch statement: {:?}", tok);
+                unreachable!("Invalid token in switch statements: {:?}", tok);
             }
         }
 
@@ -78,7 +78,7 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok.tok != Token::Colon {
-            unreachable!("Invalid token in case statement: {:?}", tok);
+            unreachable!("Invalid token in case statements: {:?}", tok);
         }
 
         (
@@ -111,7 +111,7 @@ impl<'a, 'b, PC: PreprocContext> DefaultStmtParser<'a, 'b, PC> {
     ) -> (Option<LocToken>, Option<Default>) {
         let tok = self.lexer.next_useful();
         if tok.tok != Token::Colon {
-            unreachable!("Invalid token in case statement: {:?}", tok);
+            unreachable!("Invalid token in case statements: {:?}", tok);
         }
 
         (None, Some(Default { attributes }))

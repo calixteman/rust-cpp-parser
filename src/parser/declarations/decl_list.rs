@@ -7,7 +7,7 @@ use super::namespace::{NPRes, Namespace, NamespaceParser};
 use super::r#extern::{EPRes, Extern, ExternParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken};
-use crate::parser::statement::{Statement, StatementParser};
+use crate::parser::statements::{Statement, StatementParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TopLevel {

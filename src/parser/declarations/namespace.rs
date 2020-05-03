@@ -3,27 +3,27 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use super::toplevel::{DeclarationList, DeclarationListParser};
+use super::decl_list::{DeclarationList, DeclarationListParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::declarations::{DeclHint, DeclarationParser, Specifier};
-use crate::parser::statement::Statement;
+use crate::parser::statements::Statement;
 use crate::{check_semicolon, check_semicolon_or_not};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NsName {
-    pub(crate) inline: bool,
-    pub(crate) name: String,
+    pub inline: bool,
+    pub name: String,
 }
 
 pub type NsNames = Vec<NsName>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namespace {
-    pub(crate) inline: bool,
-    pub(crate) name: Option<NsNames>,
-    pub(crate) alias: Option<NsNames>,
-    pub(crate) body: Option<Box<DeclarationList>>,
+    pub inline: bool,
+    pub name: Option<NsNames>,
+    pub alias: Option<NsNames>,
+    pub body: Option<Box<DeclarationList>>,
 }
 
 struct NsNamesParser<'a, 'b, PC: PreprocContext> {

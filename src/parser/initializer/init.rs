@@ -5,7 +5,7 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{
+use crate::parser::expressions::{
     ExprNode, ExpressionParser, ListInitialization, ListInitializationParser, Parameters,
     ParametersParser,
 };
@@ -31,7 +31,7 @@ impl<'a, 'b, PC: PreprocContext> InitializerParser<'a, 'b, PC> {
 
         match tok.tok {
             Token::Equal => {
-                let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
+                let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
                 let (tok, expr) = ep.parse(None);
                 (tok, Some(Initializer::Equal(expr.unwrap())))
             }

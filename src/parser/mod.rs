@@ -13,26 +13,23 @@
 pub mod names;
 pub use self::names::*;
 
-pub mod r#type;
-pub use self::r#type::*;
+pub mod types;
+pub use self::types::*;
 
 pub mod declarations;
 pub use self::declarations::*;
 
-pub mod expression;
-pub use self::expression::*;
+pub mod expressions;
+pub use self::expressions::*;
 
 pub mod attributes;
 pub use self::attributes::*;
 
-pub mod statement;
-pub use self::statement::*;
+pub mod statements;
+pub use self::statements::*;
 
 pub mod initializer;
 pub use self::initializer::*;
-
-pub mod toplevel;
-pub use self::toplevel::*;
 
 pub mod literals;
 pub use self::literals::*;

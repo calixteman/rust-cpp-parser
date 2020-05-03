@@ -5,7 +5,7 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaticAssert {
@@ -88,7 +88,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use crate::parser::names::Qualified;
     use pretty_assertions::assert_eq;
 

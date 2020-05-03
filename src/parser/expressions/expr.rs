@@ -13,7 +13,7 @@ use crate::parser::literals::{
     Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
 };
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::r#type::Type;
+use crate::parser::types::Type;
 //use crate::dump::Dump;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -870,7 +870,7 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::names::Qualified;
-    use crate::parser::r#type::{BaseType, CVQualifier, Primitive, Type};
+    use crate::parser::types::{BaseType, CVQualifier, Primitive, Type};
     use pretty_assertions::assert_eq;
 
     #[test]

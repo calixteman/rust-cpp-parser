@@ -8,10 +8,10 @@ use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use bitflags::bitflags;
 
-use super::super::r#type::CVQualifier;
+use super::super::types::CVQualifier;
 use super::decl::{NoPtrDeclaratorParser, TypeDeclarator};
 use super::specifier::Specifier;
-use crate::parser::r#type::{BaseType, Type};
+use crate::parser::types::{BaseType, Type};
 
 bitflags! {
     pub struct MSModifier: u8 {

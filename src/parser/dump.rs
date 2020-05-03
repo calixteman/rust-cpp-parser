@@ -6,7 +6,7 @@
 use std::io::Write;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLock, WriteColor};
 
-use crate::parser::expression::*;
+use crate::parser::expressions::*;
 
 #[macro_export]
 macro_rules! color {

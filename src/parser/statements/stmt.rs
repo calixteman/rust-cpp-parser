@@ -12,7 +12,7 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::decl::{DeclHint, Declaration, DeclarationParser, TypeDeclaratorParser};
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::QualifiedParser;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,7 +51,7 @@ macro_rules! check_semicolon {
     ( $self:expr, $tok:expr ) => {
         let tok = $tok.unwrap_or_else(|| $self.lexer.next_useful());
         if tok.tok != Token::SemiColon {
-            unreachable!("Invalid token in statement: {:?}", tok);
+            unreachable!("Invalid token in statements: {:?}", tok);
         }
     };
 }
@@ -68,7 +68,7 @@ macro_rules! check_semicolon_or_not {
             };
             (
                 tok,
-                Some(crate::parser::statement::Statement::Declaration(Box::new(
+                Some(crate::parser::statements::Statement::Declaration(Box::new(
                     decl,
                 ))),
             )
@@ -217,11 +217,11 @@ mod tests {
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::declarations::*;
-    use crate::parser::expression::*;
+    use crate::parser::expressions::*;
     use crate::parser::initializer::*;
     use crate::parser::literals::{self, *};
     use crate::parser::names::Qualified;
-    use crate::parser::r#type::*;
+    use crate::parser::types::*;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -317,6 +317,33 @@ mod tests {
                 ]
             }))
         );
+    }
+
+    #[test]
+    fn test_statement_compound_empty() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"{{ ; {  ;;}} ;;}");
+        let parser = StatementParser::new(&mut lexer);
+        let stmt = parser.parse(None).1.unwrap();
+
+        let expected = Statement::Compound(Box::new(Compound {
+            attributes: None,
+            stmts: vec![
+                Statement::Compound(Box::new(Compound {
+                    attributes: None,
+                    stmts: vec![
+                        Statement::Empty,
+                        Statement::Compound(Box::new(Compound {
+                            attributes: None,
+                            stmts: vec![Statement::Empty, Statement::Empty],
+                        })),
+                    ],
+                })),
+                Statement::Empty,
+                Statement::Empty,
+            ],
+        }));
+
+        assert_eq!(stmt, expected);
     }
 
     #[test]
@@ -717,6 +744,35 @@ mod tests {
                     Statement::Default(Box::new(Default { attributes: None })),
                     Statement::Break(Box::new(Break { attributes: None })),
                 ],
+            })),
+        }));
+
+        assert_eq!(stmt, expected);
+    }
+
+    #[test]
+    fn test_statement_while() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"while (0) while(0) do ; while(0);");
+        let parser = StatementParser::new(&mut lexer);
+        let stmt = parser.parse(None).1.unwrap();
+
+        let expected = Statement::While(Box::new(While {
+            attributes: None,
+            condition: ExprNode::Integer(Box::new(literals::Integer {
+                value: IntLiteral::Int(0),
+            })),
+            body: Statement::While(Box::new(While {
+                attributes: None,
+                condition: ExprNode::Integer(Box::new(literals::Integer {
+                    value: IntLiteral::Int(0),
+                })),
+                body: Statement::Do(Box::new(Do {
+                    attributes: None,
+                    body: Statement::Empty,
+                    condition: ExprNode::Integer(Box::new(literals::Integer {
+                        value: IntLiteral::Int(0),
+                    })),
+                })),
             })),
         }));
 

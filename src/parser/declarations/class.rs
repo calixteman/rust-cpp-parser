@@ -8,9 +8,9 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::declarations::Declarations;
-use crate::parser::expression::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::r#type::Type;
+use crate::parser::types::Type;
 
 bitflags! {
     pub struct Specifier: u8 {
