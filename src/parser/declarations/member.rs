@@ -4,25 +4,36 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::bitfield::{BitFieldDeclarator, BitFieldDeclaratorParser};
+use super::{
+    Enum, EnumParser, StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum,
+    UsingParser,
+};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
-use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
+use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum MemberDeclarator {
+pub enum Member {
     BitField(BitFieldDeclarator),
     Type(TypeDeclarator),
+    StaticAssert(StaticAssert),
+    UsingDecl(UsingDecl),
+    UsingEnum(UsingEnum),
+    UsingAlias(UsingAlias),
+    Enum(Enum),
+    Empty,
 }
 
-impl MemberDeclarator {
+impl Member {
     pub(crate) fn has_semicolon(&self) -> bool {
-        if let MemberDeclarator::Type(decl) = &self {
-            decl.has_semicolon()
-        } else {
-            true
+        match self {
+            Self::Type(d) => d.has_semicolon(),
+            _ => true,
         }
     }
 }
+
+pub type Members = Vec<Member>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Visibility {
@@ -34,24 +45,60 @@ pub(super) enum Visibility {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum MemberRes {
     Vis(Visibility),
-    Decl(MemberDeclarator),
+    Decl(Member),
 }
 
-pub struct MemberDeclaratorParser<'a, 'b, PC: PreprocContext> {
+pub struct MemberParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
-impl<'a, 'b, PC: PreprocContext> MemberDeclaratorParser<'a, 'b, PC> {
+impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
     pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
     pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<MemberRes>) {
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        if tok.tok == Token::SemiColon {
+            return (None, Some(MemberRes::Decl(Member::Empty)));
+        }
+        let tok = Some(tok);
+
         let pppp = PPPParser::new(self.lexer);
         let (tok, vis) = pppp.parse(tok);
 
         if let Some(vis) = vis {
             return (tok, Some(MemberRes::Vis(vis)));
+        }
+
+        let sap = StaticAssertParser::new(self.lexer);
+        let (tok, sa) = sap.parse(tok);
+
+        if let Some(sa) = sa {
+            return (tok, Some(MemberRes::Decl(Member::StaticAssert(sa))));
+        }
+
+        let ep = EnumParser::new(self.lexer);
+        let (tok, en) = ep.parse(tok);
+
+        if let Some(en) = en {
+            return (tok, Some(MemberRes::Decl(Member::Enum(en))));
+        }
+
+        let up = UsingParser::new(self.lexer);
+        let (tok, using) = up.parse(tok);
+
+        if let Some(using) = using {
+            let using = match using {
+                Declaration::UsingDecl(d) => Member::UsingDecl(d),
+                Declaration::UsingEnum(d) => Member::UsingEnum(d),
+                Declaration::UsingAlias(d) => Member::UsingAlias(d),
+                _ => {
+                    unreachable!("Invalid using in class declaration: {:?}", tok);
+                }
+            };
+
+            return (tok, Some(MemberRes::Decl(using)));
         }
 
         let tdp = TypeDeclaratorParser::new(self.lexer);
@@ -68,9 +115,9 @@ impl<'a, 'b, PC: PreprocContext> MemberDeclaratorParser<'a, 'b, PC> {
             // we've a bitfield
             let bfdp = BitFieldDeclaratorParser::new(self.lexer);
             let (tok, bitfield) = bfdp.parse(None, typ);
-            (tok, MemberDeclarator::BitField(bitfield.unwrap()))
+            (tok, Member::BitField(bitfield.unwrap()))
         } else {
-            (Some(tok), MemberDeclarator::Type(typ))
+            (Some(tok), Member::Type(typ))
         };
 
         (tok, Some(MemberRes::Decl(member)))
@@ -106,27 +153,6 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
     }
 }
 
-/*pub struct Members {
-    pub(crate) public: Vec<>,
-    pub(crate) protected: Vec<>,
-    pub(crate) private: Vec<>,
-}
-
-pub(super) struct MembersParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
-}
-
-impl<'a, 'b, PC: PreprocContext> MembersParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
-        Self { lexer }
-    }
-
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Derived>) {
-        (None, None)
-    }
-}
-*/
-
 #[cfg(test)]
 mod tests {
 
@@ -143,7 +169,7 @@ mod tests {
     #[test]
     fn test_member_public() {
         let mut l = Lexer::<DefaultContext>::new(b"public:");
-        let p = MemberDeclaratorParser::new(&mut l);
+        let p = MemberParser::new(&mut l);
         let (_, m) = p.parse(None);
         let v = if let MemberRes::Vis(v) = m.unwrap() {
             v
@@ -158,7 +184,7 @@ mod tests {
     #[test]
     fn test_member_bitfield() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4");
-        let p = MemberDeclaratorParser::new(&mut l);
+        let p = MemberParser::new(&mut l);
         let (_, m) = p.parse(None);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
@@ -169,7 +195,7 @@ mod tests {
 
         assert_eq!(
             d,
-            MemberDeclarator::BitField(BitFieldDeclarator {
+            Member::BitField(BitFieldDeclarator {
                 typ: TypeDeclarator {
                     typ: Type {
                         base: BaseType::Primitive(Primitive::Int),
@@ -193,7 +219,7 @@ mod tests {
     #[test]
     fn test_member_bitfield_equal() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 = 1");
-        let p = MemberDeclaratorParser::new(&mut l);
+        let p = MemberParser::new(&mut l);
         let (_, m) = p.parse(None);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
@@ -204,7 +230,7 @@ mod tests {
 
         assert_eq!(
             d,
-            MemberDeclarator::BitField(BitFieldDeclarator {
+            Member::BitField(BitFieldDeclarator {
                 typ: TypeDeclarator {
                     typ: Type {
                         base: BaseType::Primitive(Primitive::Int),
@@ -230,7 +256,7 @@ mod tests {
     #[test]
     fn test_member_bitfield_brace() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 {1}");
-        let p = MemberDeclaratorParser::new(&mut l);
+        let p = MemberParser::new(&mut l);
         let (_, m) = p.parse(None);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
@@ -241,7 +267,7 @@ mod tests {
 
         assert_eq!(
             d,
-            MemberDeclarator::BitField(BitFieldDeclarator {
+            Member::BitField(BitFieldDeclarator {
                 typ: TypeDeclarator {
                     typ: Type {
                         base: BaseType::Primitive(Primitive::Int),

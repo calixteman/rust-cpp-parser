@@ -44,3 +44,6 @@ pub use self::namespace::*;
 
 pub mod r#extern;
 pub use self::r#extern::*;
+
+mod class;
+pub use self::class::*;
