@@ -30,12 +30,13 @@ fn main() {
     {
         let source_lock = source.lock().unwrap();
         for error in lexer.get_errors().iter() {
-            let file_path = if let Some(file) = error.span.0 {
+            let error = error.stringly();
+            let file_path = if let Some(file) = error.sp.0 {
                 source_lock.get_path(file).to_str().unwrap().to_owned()
             } else {
                 "<unknown>".to_owned()
             };
-            eprintln!("ERROR: {}:{}:{}: {}", file_path, error.span.1.line, error.span.1.column, error.message);
+            eprintln!("ERROR: {}:{}:{}: {}", file_path, error.sp.1.line, error.sp.1.column, error.message);
         }
     }
 }

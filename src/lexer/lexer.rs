@@ -14,7 +14,7 @@ use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
-use crate::errors::Error;
+use super::errors::LexerError;
 use crate::args;
 
 #[derive(PartialEq)]
@@ -508,7 +508,7 @@ pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) context: PC,
     pub(crate) comment: Option<&'a [u8]>,
     pub(crate) start: Location,
-    pub(crate) errors: Vec<Error>,
+    pub(crate) errors: Vec<LexerError>,
 }
 
 macro_rules! get_operator {
@@ -652,7 +652,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         &self.context
     }
 
-    pub fn get_errors(&self) -> &[Error] {
+    pub fn get_errors(&self) -> &[LexerError] {
         &self.errors
     }
 

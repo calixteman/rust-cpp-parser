@@ -11,7 +11,7 @@ use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
 use crate::lexer::buffer::FileInfo;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::string::StringType;
-use crate::errors::Error;
+use crate::lexer::errors::LexerError;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -105,7 +105,7 @@ pub enum MacroToken<'a> {
 
 impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
-    pub fn preproc_parse(&mut self, instr: Token) -> Result<Token, Error> {
+    pub fn preproc_parse(&mut self, instr: Token) -> Result<Token, LexerError> {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
         Ok(match instr {
@@ -167,21 +167,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 Token::PreprocPragma
             }
             Token::PreprocError => {
-                let mut buf = Vec::new();
-                loop {
-                    if self.buf.has_char() {
-                        let c = self.buf.next_char();
-                        if c == b'\n' {
-                            break;
-                        }
-                        buf.push(c);
-                        self.buf.inc();
-                    } else {
-                        break;
-                    }
-                };
-                let msg = String::from_utf8_lossy(&buf);
-                error!(self.span(), "reached #error directive: {}", msg);
+                let spos = self.buf.pos();
+                skip_until!(self, b'\n');
+                let sl = self.buf.slice(spos);
+                let msg = String::from_utf8_lossy(&sl).to_string();
+                return Err(LexerError::ErrorDirective { sp: self.span(), msg });
             }
             _ => instr,
         })
@@ -617,7 +607,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn skip_until_else_endif(&mut self) -> Result<(), Error> {
+    pub(crate) fn skip_until_else_endif(&mut self) -> Result<(), LexerError> {
         // skip until #else, #endif
         // need to lex to avoid to catch #else or #endif in a string, comment
         // or something like #define foo(else) #else (who want to do that ???)
@@ -670,7 +660,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    fn stop_skipping(&mut self) -> Result<bool, Error> {
+    fn stop_skipping(&mut self) -> Result<bool, LexerError> {
         // we must be after a newline and skipped whites
         // the goal is to avoid to catch #define foo(else) #else
         Ok(if self.buf.has_char() {
@@ -765,7 +755,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_endif(&mut self) -> Result<bool, Error> {
+    pub(crate) fn get_endif(&mut self) -> Result<bool, LexerError> {
         if self.context.if_state().is_some() {
             self.context.rm_if();
             Ok(if let Some(state) = self.context.if_state() {
@@ -774,7 +764,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 true
             })
         } else {
-            error!(self.span(), "reached #endif without preceeding #if");
+            return Err(LexerError::EndifWithoutPreceedingIf { sp: self.span() });
         }
     }
 

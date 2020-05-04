@@ -5,30 +5,25 @@
 
 use crate::lexer::lexer::Location;
 use crate::lexer::source::FileId;
+use crate::lexer::errors::LexerError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompilerPhase {
-    Lexer,
-    Parser,
-}
+pub type Span = (Option<FileId>, Location, Location);
 
 #[derive(Debug, Clone)]
-pub struct Error {
-    pub phase: CompilerPhase,
-    pub message: String,
-    pub span: (Option<FileId>, Location, Location),
+pub enum Error {
+    LexerError(LexerError),
 }
 
 impl Error {
-    pub fn new(
-        phase: CompilerPhase,
-        span: (Option<FileId>, Location, Location),
-        message: String,
-    ) -> Self {
-        Self {
-            phase,
-            span,
-            message,
-        }
+    pub fn stringly(&self) -> StringlyError {
+        let stringly = match self {
+            Error::LexerError(le) => le.stringly(),
+        };
+        stringly
     }
+}
+
+pub struct StringlyError {
+    pub message: String,
+    pub sp: Span,
 }
