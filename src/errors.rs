@@ -6,15 +6,27 @@
 use crate::lexer::lexer::Location;
 use crate::lexer::source::FileId;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerPhase {
+    Lexer,
+    Parser,
+}
+
 #[derive(Debug, Clone)]
 pub struct Error {
+    pub phase: CompilerPhase,
     pub message: String,
     pub span: (Option<FileId>, Location, Location),
 }
 
 impl Error {
-    pub fn new(span: (Option<FileId>, Location, Location), message: String) -> Self {
+    pub fn new(
+        phase: CompilerPhase,
+        span: (Option<FileId>, Location, Location),
+        message: String,
+    ) -> Self {
         Self {
+            phase,
             span,
             message,
         }

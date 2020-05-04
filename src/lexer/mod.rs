@@ -3,6 +3,17 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#[macro_export]
+macro_rules! error {
+    ($span:expr, $($arg:tt)*) => {
+        return Err($crate::errors::Error::new(
+            $crate::errors::CompilerPhase::Lexer,
+            $span,
+            format!($($arg)*),
+        ));
+    };
+}
+
 pub mod lexer;
 pub use self::lexer::*;
 

@@ -185,13 +185,3 @@ macro_rules! bitflags_to_str {
             v.join(" | ")
     }};
 }
-
-#[macro_export]
-macro_rules! error {
-    ($span:expr, $($arg:tt)*) => {
-        return Err($crate::errors::Error::new(
-            $span,
-            format!($($arg)*),
-        ));
-    };
-}
