@@ -1237,7 +1237,10 @@ mod tests {
         assert_eq!(p.next_token().tok, Token::Identifier("🌹".to_string()));
         assert_eq!(p.next_token().tok, Token::Identifier("🌵".to_string()));
         assert_eq!(p.next_token().tok, Token::Identifier("🌻".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string()));
+        assert_eq!(
+            p.next_token().tok,
+            Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string())
+        );
     }
 
     #[test]

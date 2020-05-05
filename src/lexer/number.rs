@@ -811,7 +811,10 @@ mod tests {
     #[test]
     fn test_number_bin() {
         let mut p = Lexer::<DefaultContext>::new(b"0b110'001'110'010'010'110'011'101 0b1001ul");
-        assert_eq!(p.next_token().tok, Token::LiteralInt(0b110001110010010110011101));
+        assert_eq!(
+            p.next_token().tok,
+            Token::LiteralInt(0b110001110010010110011101)
+        );
         assert_eq!(p.next_token().tok, Token::LiteralULong(0b1001));
     }
 
@@ -844,7 +847,10 @@ mod tests {
             p.next_token().tok,
             Token::LiteralLongDouble(1.79769313486231570814527423731704357e+308)
         );
-        assert_eq!(p.next_token().tok, Token::LiteralFloat(2.2250738585072014e-308));
+        assert_eq!(
+            p.next_token().tok,
+            Token::LiteralFloat(2.2250738585072014e-308)
+        );
 
         let mut p = Lexer::<DefaultContext>::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
         assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123));

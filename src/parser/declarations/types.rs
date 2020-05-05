@@ -48,6 +48,10 @@ impl TypeDeclarator {
             true
         }
     }
+
+    pub(crate) fn is_type_part(tok: &Token) -> bool {
+        *tok == Token::Class || *tok == Token::Enum || *tok == Token::Struct
+    }
 }
 
 #[derive(Debug)]

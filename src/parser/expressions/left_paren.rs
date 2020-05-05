@@ -10,7 +10,7 @@ use crate::lexer::lexer::{LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::{
     DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
-    Specifier, TypeDeclaratorParser,
+    Specifier, TypeDeclarator, TypeDeclaratorParser,
 };
 use crate::parser::name::{Qualified, QualifiedParser};
 use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type};
@@ -118,7 +118,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 
     pub(super) fn parse_left_paren(&mut self) -> Option<LocToken> {
         let tok = self.lexer.next_useful();
-        if CVQualifier::is_cv(&tok.tok) {
+        if CVQualifier::is_cv(&tok.tok) || TypeDeclarator::is_type_part(&tok.tok) {
             // (const ...
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(Some(tok), None);
