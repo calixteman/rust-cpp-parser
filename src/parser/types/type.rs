@@ -5,7 +5,7 @@
 
 use super::cv::CVQualifier;
 use super::primitive::Primitive;
-use crate::parser::declarations::{Array, Enum, Function, Pointers};
+use crate::parser::declarations::{Array, Class, Enum, Function, Pointers};
 use crate::parser::names::Qualified;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +15,7 @@ pub enum BaseType {
     Primitive(Primitive),
     UD(Qualified),
     Enum(Box<Enum>),
+    Class(Box<Class>),
     Function(Box<Function>),
     Array(Box<Array>),
 }

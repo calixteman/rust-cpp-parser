@@ -4,6 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::array::ArrayParser;
+use super::class::ClassParser;
 use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
 use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
 use super::r#enum::EnumParser;
@@ -120,6 +121,16 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
 
                 if let Some(en) = en {
                     typ = Some(BaseType::Enum(Box::new(en)));
+                    tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                    continue;
+                }
+
+                // class
+                let cp = ClassParser::new(self.lexer);
+                let (tk, cl) = cp.parse(tk);
+
+                if let Some(cl) = cl {
+                    typ = Some(BaseType::Class(Box::new(cl)));
                     tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                     continue;
                 }
@@ -436,8 +447,10 @@ mod tests {
     use crate::lexer::preprocessor::context::DefaultContext;
     use crate::parser::array::*;
     use crate::parser::attributes::Attribute;
+    use crate::parser::declarations::class::{self, *};
+    use crate::parser::declarations::member::*;
     use crate::parser::declarations::pointer::*;
-    use crate::parser::declarations::r#enum::*;
+    use crate::parser::declarations::r#enum::{self, *};
     use crate::parser::expressions::{self, *};
     use crate::parser::literals::{self, *};
     use crate::parser::names::{self, operator, Name};
@@ -1479,7 +1492,7 @@ mod tests {
             TypeDeclarator {
                 typ: Type {
                     base: BaseType::Enum(Box::new(Enum {
-                        kind: Kind::None,
+                        kind: r#enum::Kind::None,
                         attributes: None,
                         name: Some(mk_id!("A")),
                         base: None,
@@ -1495,6 +1508,54 @@ mod tests {
                 specifier: Specifier::TYPEDEF,
                 identifier: Identifier {
                     identifier: Some(mk_id!("B")),
+                    attributes: None,
+                },
+                init: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_struct() {
+        let mut l = Lexer::<DefaultContext>::new(b"typedef struct { int a; } A");
+        let p = TypeDeclaratorParser::new(&mut l);
+        let (_, decl) = p.parse(None, None);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Class(Box::new(Class {
+                        kind: class::Kind::Struct,
+                        attributes: None,
+                        name: None,
+                        r#final: false,
+                        bases: None,
+                        body: Some(ClassBody {
+                            public: vec![Member::Type(TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: Some(mk_id!("a")),
+                                    attributes: None,
+                                },
+                                init: None,
+                            }),],
+                            protected: vec![],
+                            private: vec![],
+                        }),
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::TYPEDEF,
+                identifier: Identifier {
+                    identifier: Some(mk_id!("A")),
                     attributes: None,
                 },
                 init: None,

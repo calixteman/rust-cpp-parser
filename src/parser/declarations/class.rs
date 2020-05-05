@@ -170,16 +170,16 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
     }
 }
 
-struct ClassParser<'a, 'b, PC: PreprocContext> {
+pub(crate) struct ClassParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
 
 impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Class>) {
+    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Class>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let kind = if let Some(kind) = Kind::from_tok(&tok.tok) {
             kind
