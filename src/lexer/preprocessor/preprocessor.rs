@@ -1202,4 +1202,47 @@ mod tests {
         assert_eq!(p.next_token(), Token::Eol);
         assert_eq!(p.next_token(), Token::LiteralInt(3));
     }
+
+    #[test]
+    fn test_error_directive() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#error foo\n",
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next_token(), Token::Eof);
+        assert_eq!(p.errors.len(), 1);
+        if let LexerError::ErrorDirective { sp, msg } = &p.errors[0] {
+            assert_eq!(msg, "foo");
+            assert_eq!(sp.start.pos, 0);
+            assert_eq!(sp.end.pos, 10);
+        } else {
+            panic!("mismatch. Was: {:?}", p.errors[0]);
+        }
+    }
+
+    #[test]
+    fn test_endif_without_preceeding_if() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#if 0\n",
+                "#endif\n",
+                "#endif\n",
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next_token(), Token::PreprocIf);
+        assert_eq!(p.next_token(), Token::Eol);
+        assert_eq!(p.next_token(), Token::Eof);
+        assert_eq!(p.errors.len(), 1);
+        if let LexerError::EndifWithoutPreceedingIf { sp } = &p.errors[0] {
+            assert_eq!(sp.start.pos, 13);
+            assert_eq!(sp.end.pos, 19);
+        } else {
+            panic!("mismatch. Was: {:?}", p.errors[0]);
+        }
+    }
 }
