@@ -644,12 +644,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub fn consume_tokens(&mut self, n: usize) {
         for _ in 0..n {
-            self.next();
+            self.next_token();
         }
     }
 
     pub fn consume_all(&mut self) {
-        while self.next().tok != Token::Eof {}
+        while self.next_token().tok != Token::Eof {}
     }
 
     pub fn get_line(&self) -> u32 {
@@ -993,7 +993,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub(crate) fn next_useful(&mut self) -> LocToken {
         loop {
-            let tok = self.next();
+            let tok = self.next_token();
             match tok.tok {
                 Token::Comment | Token::Eol => {}
                 _ => {
@@ -1011,7 +1011,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub fn next(&mut self) -> LocToken {
+    pub fn next_token(&mut self) -> LocToken {
         loop {
             let start = self.location();
             if self.buf.check_char() {
@@ -1203,13 +1203,13 @@ mod tests {
     #[test]
     fn test_keywords() {
         let mut p = Lexer::<DefaultContext>::new(b"while foa whila for While For static_cast");
-        assert_eq!(p.next().tok, Token::While);
-        assert_eq!(p.next().tok, Token::Identifier("foa".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("whila".to_string()));
-        assert_eq!(p.next().tok, Token::For);
-        assert_eq!(p.next().tok, Token::Identifier("While".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("For".to_string()));
-        assert_eq!(p.next().tok, Token::StaticCast);
+        assert_eq!(p.next_token().tok, Token::While);
+        assert_eq!(p.next_token().tok, Token::Identifier("foa".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("whila".to_string()));
+        assert_eq!(p.next_token().tok, Token::For);
+        assert_eq!(p.next_token().tok, Token::Identifier("While".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("For".to_string()));
+        assert_eq!(p.next_token().tok, Token::StaticCast);
     }
 
     #[test]
@@ -1217,16 +1217,16 @@ mod tests {
         let mut p = Lexer::<DefaultContext>::new(
             b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123",
         );
-        assert_eq!(p.next().tok, Token::Identifier("hello".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("world".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("whilee".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("Roo".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("Lar".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("uoo".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("Uar".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("u851".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("hello".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("world".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("whilee".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("Roo".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("Lar".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("uoo".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("Uar".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("u851".to_string()));
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::Identifier("hello_world_WORLD_HELLO123".to_string())
         );
     }
@@ -1234,60 +1234,60 @@ mod tests {
     #[test]
     fn test_identifiers_utf8() {
         let mut p = Lexer::<DefaultContext>::new("🌹 🌵 🌻 🌷🌷🌷🌷🌷🌷".as_bytes());
-        assert_eq!(p.next().tok, Token::Identifier("🌹".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("🌵".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("🌻".to_string()));
-        assert_eq!(p.next().tok, Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("🌹".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("🌵".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("🌻".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string()));
     }
 
     #[test]
     fn test_divide() {
         let mut p = Lexer::<DefaultContext>::new(b"a / b");
-        assert_eq!(p.next().tok, Token::Identifier("a".to_string()));
-        assert_eq!(p.next().tok, Token::Divide);
-        assert_eq!(p.next().tok, Token::Identifier("b".to_string()));
+        assert_eq!(p.next_token().tok, Token::Identifier("a".to_string()));
+        assert_eq!(p.next_token().tok, Token::Divide);
+        assert_eq!(p.next_token().tok, Token::Identifier("b".to_string()));
     }
 
     #[test]
     fn test_operators() {
         let mut p = Lexer::<DefaultContext>::new(b"+ += ++ - -= -- -> / /= % %= | |= || & &= && ^ ^= * *= < <= > >= << <<= >> >>= = != == ! ~ ->* .* ... <=>");
-        assert_eq!(p.next().tok, Token::Plus);
-        assert_eq!(p.next().tok, Token::PlusEqual);
-        assert_eq!(p.next().tok, Token::PlusPlus);
-        assert_eq!(p.next().tok, Token::Minus);
-        assert_eq!(p.next().tok, Token::MinusEqual);
-        assert_eq!(p.next().tok, Token::MinusMinus);
-        assert_eq!(p.next().tok, Token::Arrow);
-        assert_eq!(p.next().tok, Token::Divide);
-        assert_eq!(p.next().tok, Token::DivideEqual);
-        assert_eq!(p.next().tok, Token::Modulo);
-        assert_eq!(p.next().tok, Token::ModuloEqual);
-        assert_eq!(p.next().tok, Token::Or);
-        assert_eq!(p.next().tok, Token::OrEqual);
-        assert_eq!(p.next().tok, Token::OrOr);
-        assert_eq!(p.next().tok, Token::And);
-        assert_eq!(p.next().tok, Token::AndEqual);
-        assert_eq!(p.next().tok, Token::AndAnd);
-        assert_eq!(p.next().tok, Token::Xor);
-        assert_eq!(p.next().tok, Token::XorEqual);
-        assert_eq!(p.next().tok, Token::Star);
-        assert_eq!(p.next().tok, Token::StarEqual);
-        assert_eq!(p.next().tok, Token::Lower);
-        assert_eq!(p.next().tok, Token::LowerEqual);
-        assert_eq!(p.next().tok, Token::Greater);
-        assert_eq!(p.next().tok, Token::GreaterEqual);
-        assert_eq!(p.next().tok, Token::LeftShift);
-        assert_eq!(p.next().tok, Token::LeftShiftEqual);
-        assert_eq!(p.next().tok, Token::RightShift);
-        assert_eq!(p.next().tok, Token::RightShiftEqual);
-        assert_eq!(p.next().tok, Token::Equal);
-        assert_eq!(p.next().tok, Token::NotEqual);
-        assert_eq!(p.next().tok, Token::EqualEqual);
-        assert_eq!(p.next().tok, Token::Not);
-        assert_eq!(p.next().tok, Token::Tilde);
-        assert_eq!(p.next().tok, Token::ArrowStar);
-        assert_eq!(p.next().tok, Token::DotStar);
-        assert_eq!(p.next().tok, Token::Ellipsis);
-        assert_eq!(p.next().tok, Token::LowerEqualGreater);
+        assert_eq!(p.next_token().tok, Token::Plus);
+        assert_eq!(p.next_token().tok, Token::PlusEqual);
+        assert_eq!(p.next_token().tok, Token::PlusPlus);
+        assert_eq!(p.next_token().tok, Token::Minus);
+        assert_eq!(p.next_token().tok, Token::MinusEqual);
+        assert_eq!(p.next_token().tok, Token::MinusMinus);
+        assert_eq!(p.next_token().tok, Token::Arrow);
+        assert_eq!(p.next_token().tok, Token::Divide);
+        assert_eq!(p.next_token().tok, Token::DivideEqual);
+        assert_eq!(p.next_token().tok, Token::Modulo);
+        assert_eq!(p.next_token().tok, Token::ModuloEqual);
+        assert_eq!(p.next_token().tok, Token::Or);
+        assert_eq!(p.next_token().tok, Token::OrEqual);
+        assert_eq!(p.next_token().tok, Token::OrOr);
+        assert_eq!(p.next_token().tok, Token::And);
+        assert_eq!(p.next_token().tok, Token::AndEqual);
+        assert_eq!(p.next_token().tok, Token::AndAnd);
+        assert_eq!(p.next_token().tok, Token::Xor);
+        assert_eq!(p.next_token().tok, Token::XorEqual);
+        assert_eq!(p.next_token().tok, Token::Star);
+        assert_eq!(p.next_token().tok, Token::StarEqual);
+        assert_eq!(p.next_token().tok, Token::Lower);
+        assert_eq!(p.next_token().tok, Token::LowerEqual);
+        assert_eq!(p.next_token().tok, Token::Greater);
+        assert_eq!(p.next_token().tok, Token::GreaterEqual);
+        assert_eq!(p.next_token().tok, Token::LeftShift);
+        assert_eq!(p.next_token().tok, Token::LeftShiftEqual);
+        assert_eq!(p.next_token().tok, Token::RightShift);
+        assert_eq!(p.next_token().tok, Token::RightShiftEqual);
+        assert_eq!(p.next_token().tok, Token::Equal);
+        assert_eq!(p.next_token().tok, Token::NotEqual);
+        assert_eq!(p.next_token().tok, Token::EqualEqual);
+        assert_eq!(p.next_token().tok, Token::Not);
+        assert_eq!(p.next_token().tok, Token::Tilde);
+        assert_eq!(p.next_token().tok, Token::ArrowStar);
+        assert_eq!(p.next_token().tok, Token::DotStar);
+        assert_eq!(p.next_token().tok, Token::Ellipsis);
+        assert_eq!(p.next_token().tok, Token::LowerEqualGreater);
     }
 }

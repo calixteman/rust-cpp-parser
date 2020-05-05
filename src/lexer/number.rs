@@ -794,108 +794,108 @@ mod tests {
     #[test]
     fn test_number_hex() {
         let mut p = Lexer::<DefaultContext>::new(b"0x12345 0xabcdef 0XA'1b2'C3D'4e5 0xaB1ul");
-        assert_eq!(p.next().tok, Token::LiteralInt(0x12345));
-        assert_eq!(p.next().tok, Token::LiteralInt(0xabcdef));
-        assert_eq!(p.next().tok, Token::LiteralInt(0xa1b2c3d4e5));
-        assert_eq!(p.next().tok, Token::LiteralULong(0xab1));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0x12345));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0xabcdef));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0xa1b2c3d4e5));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(0xab1));
     }
 
     #[test]
     fn test_number_oct() {
         let mut p = Lexer::<DefaultContext>::new(b"012345 01357 012'34ul");
-        assert_eq!(p.next().tok, Token::LiteralInt(0o12345));
-        assert_eq!(p.next().tok, Token::LiteralInt(0o1357));
-        assert_eq!(p.next().tok, Token::LiteralULong(0o1234));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0o12345));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0o1357));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(0o1234));
     }
 
     #[test]
     fn test_number_bin() {
         let mut p = Lexer::<DefaultContext>::new(b"0b110'001'110'010'010'110'011'101 0b1001ul");
-        assert_eq!(p.next().tok, Token::LiteralInt(0b110001110010010110011101));
-        assert_eq!(p.next().tok, Token::LiteralULong(0b1001));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0b110001110010010110011101));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(0b1001));
     }
 
     #[test]
     fn test_number_dec() {
         let mut p = Lexer::<DefaultContext>::new(b"123 123e45 123e+45 123e-45");
-        assert_eq!(p.next().tok, Token::LiteralInt(123));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(123));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123. 123.e45 123.e+45 123.e-45");
-        assert_eq!(p.next().tok, Token::LiteralDouble(123.));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123e-45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123.f 123.e45F 123.e+45L 123.e-45l");
-        assert_eq!(p.next().tok, Token::LiteralFloat(123.));
-        assert_eq!(p.next().tok, Token::LiteralFloat(123e45));
-        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e45));
-        assert_eq!(p.next().tok, Token::LiteralLongDouble(123e-45));
+        assert_eq!(p.next_token().tok, Token::LiteralFloat(123.));
+        assert_eq!(p.next_token().tok, Token::LiteralFloat(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralLongDouble(123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralLongDouble(123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"123.456 123.456e78 123.456e+78 123.456e-78 1.79769313486231570814527423731704357e+308L 2.2250738585072014e-308F");
-        assert_eq!(p.next().tok, Token::LiteralDouble(123.456));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e78));
-        assert_eq!(p.next().tok, Token::LiteralDouble(123.456e-78));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.456));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.456e78));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.456e-78));
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralLongDouble(1.79769313486231570814527423731704357e+308)
         );
-        assert_eq!(p.next().tok, Token::LiteralFloat(2.2250738585072014e-308));
+        assert_eq!(p.next_token().tok, Token::LiteralFloat(2.2250738585072014e-308));
 
         let mut p = Lexer::<DefaultContext>::new(b"0.123 0.123e45 0.123e+45 0.123e-45");
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b".123 .123e45 .123e+45 .123e-45");
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e45));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.123e-45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e45));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123e-45));
 
         let mut p = Lexer::<DefaultContext>::new(b"0 0. .0 0.0");
-        assert_eq!(p.next().tok, Token::LiteralInt(0));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
-        assert_eq!(p.next().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(0));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.));
 
         let mut p = Lexer::<DefaultContext>::new(b"123 123u 123U 123llu 123LLu 123llU 123LLU 123ull 123Ull 123ULL 123lu 123ul 123uL 123L");
-        assert_eq!(p.next().tok, Token::LiteralInt(123));
-        assert_eq!(p.next().tok, Token::LiteralUInt(123));
-        assert_eq!(p.next().tok, Token::LiteralUInt(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULongLong(123));
-        assert_eq!(p.next().tok, Token::LiteralULong(123));
-        assert_eq!(p.next().tok, Token::LiteralULong(123));
-        assert_eq!(p.next().tok, Token::LiteralULong(123));
-        assert_eq!(p.next().tok, Token::LiteralLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralInt(123));
+        assert_eq!(p.next_token().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next_token().tok, Token::LiteralUInt(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULongLong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralULong(123));
+        assert_eq!(p.next_token().tok, Token::LiteralLong(123));
 
         let mut p = Lexer::<DefaultContext>::new(b"0x1.2p3 0x1.2p3F 0xA.Bp-1 0XAB1P-3");
-        assert_eq!(p.next().tok, Token::LiteralDouble(9.0));
-        assert_eq!(p.next().tok, Token::LiteralFloat(9.0));
-        assert_eq!(p.next().tok, Token::LiteralDouble(5.34375));
-        assert_eq!(p.next().tok, Token::LiteralDouble(342.125));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(9.0));
+        assert_eq!(p.next_token().tok, Token::LiteralFloat(9.0));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(5.34375));
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(342.125));
     }
 
     #[test]
     fn test_number_ud() {
         let mut p = Lexer::<DefaultContext>::new(b"12_km 12.34_km");
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralIntUD(Box::new((12, "_km".to_string())))
         );
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralFloatUD(Box::new((12.34, "_km".to_string())))
         );
     }

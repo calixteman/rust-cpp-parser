@@ -61,7 +61,7 @@ const ECHARS: [Kind; 256] = [
     // 78  x   79  y      7A  z      7B  {      7C  |      7D  }      7E  ~      7F DEL
     Kind::HEX, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
-    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, // 
+    Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
     Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::NON, //
@@ -203,7 +203,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         match c {
             0..=0xFF => 8,
             0x100..=0xFFFF => 16,
-            0x10000..=0xFFFFFF => 24,
+            0x10000..=0xFF_FFFF => 24,
             _ => 0,
         }
     }
@@ -233,7 +233,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
 
         // TODO: try to improve that stuff and check that's valid
-        let val = if val <= 0xFF {
+        if val <= 0xFF {
             val
         } else {
             let bytes = val.to_be_bytes();
@@ -255,9 +255,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             } else {
                 val
             }
-        };
-
-        val
+        }
     }
 
     #[inline(always)]
@@ -296,20 +294,20 @@ mod tests {
     #[test]
     fn test_char() {
         let mut p = Lexer::<DefaultContext>::new(b"'a' 'b' 'c' '\\t' '\\n' '\\\'' '\\\"' '\\12' '\\1' '\\x12' '\\x1f\\x85' 'abcd' '\\u1a2b' '\\U1a2B3c4D'");
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('a')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('b')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('c')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\t')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\n')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\'')));
-        assert_eq!(p.next().tok, Token::LiteralChar(u32::from('\"')));
-        assert_eq!(p.next().tok, Token::LiteralChar(0o12));
-        assert_eq!(p.next().tok, Token::LiteralChar(0o1));
-        assert_eq!(p.next().tok, Token::LiteralChar(0x12));
-        assert_eq!(p.next().tok, Token::LiteralChar(0x1f85));
-        assert_eq!(p.next().tok, Token::LiteralChar(0x61626364));
-        assert_eq!(p.next().tok, Token::LiteralChar(0x1a2b));
-        assert_eq!(p.next().tok, Token::LiteralChar(0x1a2b3c4d));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('a')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('b')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('c')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('\t')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('\n')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('\'')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(u32::from('\"')));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0o12));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0o1));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0x12));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0x1f85));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0x61626364));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0x1a2b));
+        assert_eq!(p.next_token().tok, Token::LiteralChar(0x1a2b3c4d));
     }
 
     #[test]
@@ -317,38 +315,38 @@ mod tests {
         let mut p = Lexer::<DefaultContext>::new(
             "u'a' U'b' u8'c' L'\\t' U'\u{1f47f}' U'ᾍ' U'Η' U'Ð' U'ڢ'".as_bytes(),
         );
-        assert_eq!(p.next().tok, Token::LiteralUChar(u32::from('a')));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('b')));
-        assert_eq!(p.next().tok, Token::LiteralU8Char(u32::from('c')));
-        assert_eq!(p.next().tok, Token::LiteralLChar(u32::from('\t')));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(0x1f47f));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('ᾍ')));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('Η')));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('Ð')));
-        assert_eq!(p.next().tok, Token::LiteralUUChar(u32::from('ڢ')));
+        assert_eq!(p.next_token().tok, Token::LiteralUChar(u32::from('a')));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(u32::from('b')));
+        assert_eq!(p.next_token().tok, Token::LiteralU8Char(u32::from('c')));
+        assert_eq!(p.next_token().tok, Token::LiteralLChar(u32::from('\t')));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(0x1f47f));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(u32::from('ᾍ')));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(u32::from('Η')));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(u32::from('Ð')));
+        assert_eq!(p.next_token().tok, Token::LiteralUUChar(u32::from('ڢ')));
     }
 
     #[test]
     fn test_char_suffix() {
         let mut p = Lexer::<DefaultContext>::new(b"'a'_f u'b'_g U'c'_h u8'd'_i L'e'_j");
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralCharUD(Box::new((u32::from('a'), "_f".to_string())))
         );
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralUCharUD(Box::new((u32::from('b'), "_g".to_string())))
         );
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralUUCharUD(Box::new((u32::from('c'), "_h".to_string())))
         );
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralU8CharUD(Box::new((u32::from('d'), "_i".to_string())))
         );
         assert_eq!(
-            p.next().tok,
+            p.next_token().tok,
             Token::LiteralLCharUD(Box::new((u32::from('e'), "_j".to_string())))
         );
     }

@@ -161,7 +161,6 @@ mod tests {
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
-    use crate::parser::expressions::*;
     use pretty_assertions::assert_eq;
 
     #[test]
