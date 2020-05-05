@@ -15,6 +15,7 @@ use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
 use super::errors::LexerError;
+use crate::errors::Span;
 use crate::args;
 
 #[derive(PartialEq)]
@@ -1028,8 +1029,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub(super) fn span(&self) -> (Option<FileId>, Location, Location) {
-        (self.buf.get_source_id(), self.start, self.location())
+    pub(super) fn span(&self) -> Span {
+        Span {
+            file: self.buf.get_source_id(),
+            start: self.start,
+            end: self.location(),
+        }
     }
 
     pub fn next_token(&mut self) -> Token {

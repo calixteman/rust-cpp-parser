@@ -7,7 +7,12 @@ use crate::lexer::lexer::Location;
 use crate::lexer::source::FileId;
 use crate::lexer::errors::LexerError;
 
-pub type Span = (Option<FileId>, Location, Location);
+#[derive(Debug, Clone, Copy)]
+pub struct Span {
+    pub file: Option<FileId>,
+    pub start: Location,
+    pub end: Location,
+}
 
 #[derive(Debug, Clone)]
 pub enum Error {
