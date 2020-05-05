@@ -43,6 +43,7 @@ pub(super) enum Visibility {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub(super) enum MemberRes {
     Vis(Visibility),
     Decl(Member),

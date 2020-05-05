@@ -548,7 +548,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
 
     fn eval(&mut self) -> Int {
         loop {
-            let tok = self.lexer.next();
+            let tok = self.lexer.next_token();
             match tok.tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {

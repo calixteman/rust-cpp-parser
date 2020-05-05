@@ -127,21 +127,21 @@ mod tests {
     #[test]
     fn test_comment_1() {
         let mut p = Lexer::<DefaultContext>::new(b"/* test */");
-        assert_eq!(p.next().tok, Token::Comment);
+        assert_eq!(p.next_token().tok, Token::Comment);
         assert_eq!(p.get_comment().unwrap(), b" test ");
     }
 
     #[test]
     fn test_comment_2() {
         let mut p = Lexer::<DefaultContext>::new(b"// one line comment \n");
-        assert_eq!(p.next().tok, Token::Comment);
+        assert_eq!(p.next_token().tok, Token::Comment);
         assert_eq!(p.get_comment().unwrap(), b" one line comment ");
     }
 
     #[test]
     fn test_comment_3() {
         let mut p = Lexer::<DefaultContext>::new(b"/*/ */");
-        assert_eq!(p.next().tok, Token::Comment);
+        assert_eq!(p.next_token().tok, Token::Comment);
         assert_eq!(p.get_comment().unwrap(), b"/ ");
     }
 }

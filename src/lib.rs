@@ -3,6 +3,13 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+#![allow(
+    // Currently WIP and some code might not end up used
+    dead_code,
+    clippy::cognitive_complexity,
+    clippy::module_inception,
+)]
+
 #[macro_use]
 pub mod macros;
 pub use self::macros::*;

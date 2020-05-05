@@ -412,21 +412,20 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
 
         let mut args = self.get_macro_tokens(n_args);
-        if va_args.is_none() {
-            if args.len() != n_args && (n_args != 1 || !args.is_empty()) {
-                // TODO: reset line and col too in case they changed
+        if let Some(va_pos) = va_args {
+            if args.len() < n_args - 1 {
                 self.buf.set_pos(spos);
                 None
             } else {
+                let va = args.split_off(*va_pos);
+                args.push(vec![MacroNode::VaArgs(va)]);
                 Some(args)
             }
-        } else if args.len() < n_args - 1 {
+        } else if args.len() != n_args && (n_args != 1 || !args.is_empty()) {
+            // TODO: reset line and col too in case they changed
             self.buf.set_pos(spos);
             None
         } else {
-            let va_pos = va_args.unwrap();
-            let va = args.split_off(*va_pos);
-            args.push(vec![MacroNode::VaArgs(va)]);
             Some(args)
         }
     }
