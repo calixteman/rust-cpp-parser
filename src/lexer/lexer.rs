@@ -467,11 +467,21 @@ pub enum Token {
     MSUnaligned,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct Location {
     pub pos: usize,
     pub line: u32,
     pub column: u32,
+}
+
+impl Location {
+    fn dummy() -> Self {
+        Self {
+            pos: usize::max_value(),
+            line: u32::max_value(),
+            column: u32::max_value(),
+        }
+    }
 }
 
 impl Token {
@@ -496,6 +506,7 @@ pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) buf: Buffer<'a>,
     pub(crate) context: PC,
     pub(crate) comment: Option<&'a [u8]>,
+    pub(crate) start: Location,
 }
 
 macro_rules! get_operator {
@@ -553,6 +564,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             buf: Buffer::new(buf.to_vec(), FileId(0), PathIndex(0)),
             context: PC::default(),
             comment: None,
+            start: Location::dummy(),
         }
     }
 
@@ -561,6 +573,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             buf: Buffer::new(buf.to_vec(), source_id, PathIndex(0)),
             context,
             comment: None,
+            start: Location::dummy(),
         }
     }
 
@@ -622,6 +635,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             buf: buffer,
             context,
             comment: None,
+            start: Location::dummy(),
         }
     }
 
@@ -1004,6 +1018,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub fn next_token(&mut self) -> Token {
         loop {
+            self.start = self.location();
             if self.buf.check_char() {
                 let c = self.buf.next_char();
                 self.buf.inc();
