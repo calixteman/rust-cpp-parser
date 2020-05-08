@@ -283,16 +283,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     if num > (std::u64::MAX >> 7) {
                         let shift = (self.buf.pos() - spos) as i64;
                         let exp = self.skip_and_get_exponent();
-                        return (num, exp - shift);
+                        return (num, exp + 1 - shift);
                     }
                     num = 10 * num + u64::from(c - b'0');
                 } else if c == b'e' || c == b'E' {
-                    self.buf.inc();
                     let shift = (self.buf.pos() - spos) as i64;
+                    self.buf.inc();
                     let exp = self.get_exponent();
+                    eprintln!("COUCOU {} {}", exp, shift);
                     return (num, exp - shift);
                 } else {
-                    let shift = (self.buf.pos() + 1 - spos) as i64;
+                    let shift = (self.buf.pos() - spos) as i64;
                     return (num, -shift);
                 }
             } else {
@@ -329,7 +330,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             if b'0' <= c && c <= b'9' {
                 self.buf.inc();
                 let (dec, exp) = self.get_number_after_dot(u64::from(c - b'0'));
-                return self.get_typed_float(get_decimal(dec, exp));
+                return self.get_typed_float(get_decimal(dec, exp - 1));
             } else if c == b'.' {
                 self.buf.inc();
                 if self.buf.has_char() {
@@ -600,22 +601,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     return self.get_typed_float(0.);
                 } else if c == b'.' {
                     self.buf.inc();
-                    if self.buf.has_char() {
-                        let c = self.buf.next_char();
-                        if b'0' <= c && c <= b'9' {
-                            self.buf.inc();
-                            let (dec, exp) = self.get_number_after_dot(u64::from(c - b'0'));
-                            return self.get_typed_float(get_decimal(dec, exp));
-                        } else if c == b'e' || c == b'E' {
-                            self.buf.inc();
-                            let _ = self.get_exponent();
-                            return self.get_typed_float(0.);
-                        } else {
-                            return self.get_typed_float_suf(c, 0.);
-                        }
-                    } else {
-                        return self.get_typed_float(0.);
-                    }
+                    let (dec, exp) = self.get_number_after_dot(0);
+                    return self.get_typed_float(get_decimal(dec, exp));
                 }
             } else {
                 let num = self.get_int(num);
@@ -623,24 +610,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     let c = self.buf.next_char();
                     if c == b'.' {
                         self.buf.inc();
-                        let c = self.buf.next_char();
-                        if b'0' <= c && c <= b'9' {
-                            self.buf.inc();
-                            if num > (std::u64::MAX >> 7) {
-                                let exp = self.skip_and_get_exponent();
-                                return self.get_typed_float(get_decimal(num, exp));
-                            }
-                            let num = 10 * num + u64::from(c - b'0');
-                            let (dec, exp) = self.get_number_after_dot(num);
-
-                            return self.get_typed_float(get_decimal(dec, exp));
-                        } else if c == b'e' || c == b'E' {
-                            self.buf.inc();
-                            let exp = self.get_exponent();
-                            return self.get_typed_float(get_decimal(num, exp));
-                        } else {
-                            return self.get_typed_float_suf(c, num as f64);
-                        }
+                        let (dec, exp) = self.get_number_after_dot(num);
+                        return self.get_typed_float(get_decimal(dec, exp));
                     } else if c == b'e' || c == b'E' {
                         self.buf.inc();
                         let exp = self.get_exponent();
@@ -891,6 +862,9 @@ mod tests {
         assert_eq!(p.next_token().tok, Token::LiteralFloat(9.0));
         assert_eq!(p.next_token().tok, Token::LiteralDouble(5.34375));
         assert_eq!(p.next_token().tok, Token::LiteralDouble(342.125));
+
+        let mut p = Lexer::<DefaultContext>::new(b"3.14");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(3.14));
     }
 
     #[test]
@@ -904,5 +878,29 @@ mod tests {
             p.next_token().tok,
             Token::LiteralFloatUD(Box::new((12.34, "_km".to_string())))
         );
+    }
+
+    #[test]
+    fn test_number_just_one() {
+        let mut p = Lexer::<DefaultContext>::new(b"123.");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123.));
+
+        let mut p = Lexer::<DefaultContext>::new(b"3.14");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(3.14));
+
+        let mut p = Lexer::<DefaultContext>::new(b"123.e1");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(123e1));
+
+        let mut p = Lexer::<DefaultContext>::new(b"1.2e+34");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(1.2e34));
+
+        let mut p = Lexer::<DefaultContext>::new(b"1.79769313486231570814527423731704357e+308");
+        assert_eq!(
+            p.next_token().tok,
+            Token::LiteralDouble(1.79769313486231570814527423731704357e+308)
+        );
+
+        let mut p = Lexer::<DefaultContext>::new(b"0.123");
+        assert_eq!(p.next_token().tok, Token::LiteralDouble(0.123));
     }
 }
