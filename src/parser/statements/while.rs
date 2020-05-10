@@ -9,11 +9,21 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct While {
     pub attributes: Option<Attributes>,
     pub condition: ExprNode,
     pub body: Statement,
+}
+
+impl Dump for While {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "while", prefix, last, stdout, attributes, condition, body);
+    }
 }
 
 pub struct WhileStmtParser<'a, 'b, PC: PreprocContext> {

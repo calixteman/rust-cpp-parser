@@ -10,10 +10,20 @@ use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 
+use crate::parser::dump::Dump;
+use crate::{dump_obj, dump_vec};
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsingDecl {
     pub names: Names,
     pub ellipsis: bool,
+}
+
+impl Dump for UsingDecl {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "using", prefix, last, stdout, names, ellipsis);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -22,11 +32,29 @@ pub struct Name {
     pub typename: bool,
 }
 
+impl Dump for Name {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, name, typename);
+    }
+}
+
 pub type Names = Vec<Name>;
+
+impl Dump for Names {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "nam", prefix, last, stdout);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsingEnum {
     pub name: Qualified,
+}
+
+impl Dump for UsingEnum {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "using-enum", prefix, last, stdout, name);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -35,11 +63,42 @@ pub struct UsingNS {
     pub attributes: Option<Attributes>,
 }
 
+impl Dump for UsingNS {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "using-namespace",
+            prefix,
+            last,
+            stdout,
+            name,
+            attributes
+        );
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsingAlias {
     pub name: String,
     pub typ: TypeDeclarator,
     pub attributes: Option<Attributes>,
+}
+
+impl Dump for UsingAlias {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "using-alias",
+            prefix,
+            last,
+            stdout,
+            name,
+            typ,
+            attributes
+        );
+    }
 }
 
 pub(super) struct UsingParser<'a, 'b, PC: PreprocContext> {
@@ -131,7 +190,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                     }
 
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None);
+                    let (tok, typ) = tdp.parse(None, None, false);
                     let name = name.get_first_name();
 
                     return (
@@ -145,7 +204,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                 }
                 Token::Equal => {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None);
+                    let (tok, typ) = tdp.parse(None, None, false);
                     let name = name.get_first_name();
 
                     return (

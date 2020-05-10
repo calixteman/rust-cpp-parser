@@ -12,6 +12,10 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
 
+use crate::parser::dump::Dump;
+use crate::{dump_str, dump_vec};
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Member {
     BitField(BitFieldDeclarator),
@@ -33,7 +37,34 @@ impl Member {
     }
 }
 
+impl Dump for Member {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident ) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::BitField(x) => dump!(x),
+            Self::Type(x) => dump!(x),
+            Self::StaticAssert(x) => dump!(x),
+            Self::UsingDecl(x) => dump!(x),
+            Self::UsingEnum(x) => dump!(x),
+            Self::UsingAlias(x) => dump!(x),
+            Self::Enum(x) => dump!(x),
+            Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
+        }
+    }
+}
+
 pub type Members = Vec<Member>;
+
+impl Dump for Members {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "mem", prefix, last, stdout);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Visibility {
@@ -103,7 +134,7 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         }
 
         let tdp = TypeDeclaratorParser::new(self.lexer);
-        let (tok, typ) = tdp.parse(tok, None);
+        let (tok, typ) = tdp.parse(tok, None, true);
 
         let typ = if let Some(typ) = typ {
             typ
@@ -280,11 +311,11 @@ mod tests {
                         identifier: Some(mk_id!("x")),
                         attributes: None
                     },
-                    init: Some(Initializer::Brace(vec![Some(ExprNode::Integer(Box::new(
+                    init: Some(Initializer::Brace(vec![ExprNode::Integer(Box::new(
                         Integer {
                             value: IntLiteral::Int(1)
                         }
-                    ))),]))
+                    )),]))
                 },
                 size: ExprNode::Integer(Box::new(Integer {
                     value: IntLiteral::Int(4)

@@ -82,7 +82,7 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
             if tok.tok != Token::Namespace {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let hint = DeclHint::Specifier(Specifier::INLINE);
-                let (tok, typ) = tdp.parse(Some(tok), Some(hint));
+                let (tok, typ) = tdp.parse(Some(tok), Some(hint), true);
 
                 return (tok, Some(Declaration::Type(typ.unwrap())));
             }

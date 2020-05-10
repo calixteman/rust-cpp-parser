@@ -11,11 +11,25 @@ use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
 
+use crate::parser::dump::Dump;
+use crate::{dump_obj, dump_vec};
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Struct,
     Class,
     None,
+}
+
+impl Kind {
+    fn to_str(&self) -> &'static str {
+        match self {
+            Self::Struct => "struct",
+            Self::Class => "class",
+            Self::None => "enum",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,7 +39,19 @@ pub struct Entry {
     pub(crate) init: Option<ExprNode>,
 }
 
+impl Dump for Entry {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, name, attributes, init);
+    }
+}
+
 pub type Entries = Vec<Entry>;
+
+impl Dump for Entries {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "key", prefix, last, stdout);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Enum {
@@ -34,6 +60,13 @@ pub struct Enum {
     pub(crate) name: Option<Qualified>,
     pub(crate) base: Option<Type>,
     pub(crate) entries: Option<Entries>,
+}
+
+impl Dump for Enum {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let cname = self.kind.to_str();
+        dump_obj!(self, name, cname, prefix, last, stdout, attributes, name, base, entries);
+    }
 }
 
 struct BaseTypeParser<'a, 'b, PC: PreprocContext> {

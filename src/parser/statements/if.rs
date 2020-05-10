@@ -9,6 +9,10 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct If {
     pub attributes: Option<Attributes>,
@@ -16,6 +20,14 @@ pub struct If {
     pub condition: ExprNode,
     pub then: Statement,
     pub r#else: Option<Statement>,
+}
+
+impl Dump for If {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self, name, "if", prefix, last, stdout, attributes, constexpr, condition, then, r#else
+        );
+    }
 }
 
 pub struct IfStmtParser<'a, 'b, PC: PreprocContext> {

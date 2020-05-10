@@ -8,16 +8,35 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Label {
     Id(String),
     Expr(ExprNode),
 }
 
+impl Dump for Label {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        match self {
+            Self::Id(l) => l.dump(name, prefix, last, stdout),
+            Self::Expr(l) => l.dump(name, prefix, last, stdout),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Goto {
     pub(crate) attributes: Option<Attributes>,
     pub(crate) label: Label,
+}
+
+impl Dump for Goto {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "goto", prefix, last, stdout, attributes, label);
+    }
 }
 
 pub struct GotoStmtParser<'a, 'b, PC: PreprocContext> {
@@ -42,7 +61,7 @@ impl<'a, 'b, PC: PreprocContext> GotoStmtParser<'a, 'b, PC> {
             ),
             Token::Star => {
                 let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                let (tok, expr) = ep.parse(None);
+                let (tok, expr) = ep.parse(Some(tok));
 
                 (
                     tok,

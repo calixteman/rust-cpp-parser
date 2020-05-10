@@ -8,6 +8,10 @@ use super::primitive::Primitive;
 use crate::parser::declarations::{Array, Class, Enum, Function, Pointers};
 use crate::parser::names::Qualified;
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum BaseType {
     None,
@@ -20,11 +24,39 @@ pub enum BaseType {
     Array(Box<Array>),
 }
 
+impl Dump for BaseType {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident ) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::None => dump_str!(name, "None", Cyan, prefix, last, stdout),
+            Self::Auto => dump_str!(name, "auto", Cyan, prefix, last, stdout),
+            Self::Primitive(x) => dump!(x),
+            Self::UD(x) => dump!(x),
+            Self::Enum(x) => dump!(x),
+            Self::Class(x) => dump!(x),
+            Self::Function(x) => dump!(x),
+            //Self::Array(x) => dump!(x),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Type {
     pub base: BaseType,
     pub cv: CVQualifier,
     pub pointers: Option<Pointers>,
+}
+
+impl Dump for Type {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "type", prefix, last, stdout, base, cv, pointers);
+    }
 }
 
 impl Default for Type {

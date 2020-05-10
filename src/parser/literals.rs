@@ -6,6 +6,10 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 
+use crate::dump_str;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum IntLiteral {
     Int(u64),
@@ -21,6 +25,27 @@ pub struct Integer {
     pub value: IntLiteral,
 }
 
+impl Into<u64> for &IntLiteral {
+    fn into(self) -> u64 {
+        use IntLiteral::*;
+        match *self {
+            Int(n) | UInt(n) | Long(n) | ULong(n) | LongLong(n) | ULongLong(n) => n,
+        }
+    }
+}
+
+impl ToString for Integer {
+    fn to_string(&self) -> String {
+        format!("{}", Into::<u64>::into(&self.value))
+    }
+}
+
+impl Dump for Integer {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum FloatLiteral {
     Float(f64),
@@ -32,6 +57,31 @@ pub enum FloatLiteral {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Float {
     pub value: FloatLiteral,
+}
+
+impl Into<f64> for &FloatLiteral {
+    fn into(self) -> f64 {
+        use FloatLiteral::*;
+        match &*self {
+            Float(x) | Double(x) | LongDouble(x) => *x,
+            FloatUD(ref x) => x.0,
+        }
+    }
+}
+
+impl ToString for Float {
+    fn to_string(&self) -> String {
+        match &self.value {
+            FloatLiteral::FloatUD(x) => format!("{}{}", x.0, x.1),
+            x => format!("{}", Into::<f64>::into(x)),
+        }
+    }
+}
+
+impl Dump for Float {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +101,47 @@ pub enum CharLiteral {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Char {
     pub value: CharLiteral,
+}
+
+impl Into<u32> for &CharLiteral {
+    fn into(self) -> u32 {
+        use CharLiteral::*;
+        match &*self {
+            Char(x) | LChar(x) | UChar(x) | UUChar(x) | U8Char(x) => *x,
+            CharUD(ref x) | LCharUD(ref x) | UCharUD(ref x) | UUCharUD(ref x) | U8CharUD(ref x) => {
+                x.0
+            }
+        }
+    }
+}
+
+impl ToString for Char {
+    fn to_string(&self) -> String {
+        use CharLiteral::*;
+        match &self.value {
+            CharUD(x) | LCharUD(x) | UCharUD(x) | UUCharUD(x) | U8CharUD(x) => {
+                if let Some(c) = std::char::from_u32(x.0) {
+                    format!("'{}'{}", c, x.1)
+                } else {
+                    format!("'\\x{:x}'{}", x.0, x.1)
+                }
+            }
+            x => {
+                let x = Into::<u32>::into(x);
+                if let Some(c) = std::char::from_u32(x) {
+                    format!("'{}'", c)
+                } else {
+                    format!("'\\x{:x}'", x)
+                }
+            }
+        }
+    }
+}
+
+impl Dump for Char {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,9 +173,44 @@ pub struct Str {
     pub value: StrLiteral,
 }
 
+impl ToString for Str {
+    fn to_string(&self) -> String {
+        use StrLiteral::*;
+        match &self.value {
+            Str(s) | LStr(s) | UStr(s) | UUStr(s) | U8Str(s) | RStr(s) | LRStr(s) | URStr(s)
+            | UURStr(s) | U8RStr(s) => format!("\"{}\"", s),
+
+            StrUD(x) | LStrUD(x) | UStrUD(x) | UUStrUD(x) | U8StrUD(x) | RStrUD(x) | LRStrUD(x)
+            | URStrUD(x) | UURStrUD(x) | U8RStrUD(x) => format!("\"{}\"{}", x.0, x.1),
+        }
+    }
+}
+
+impl Dump for Str {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bool {
     pub value: bool,
+}
+
+impl ToString for Bool {
+    fn to_string(&self) -> String {
+        if self.value {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        }
+    }
+}
+
+impl Dump for Bool {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
 }
 
 pub(crate) struct StringLiteralParser<'a, 'b, PC: PreprocContext> {

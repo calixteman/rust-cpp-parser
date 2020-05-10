@@ -8,10 +8,20 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Return {
     pub(crate) attributes: Option<Attributes>,
     pub(crate) val: Option<ExprNode>,
+}
+
+impl Dump for Return {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "return", prefix, last, stdout, attributes, val);
+    }
 }
 
 pub struct ReturnStmtParser<'a, 'b, PC: PreprocContext> {

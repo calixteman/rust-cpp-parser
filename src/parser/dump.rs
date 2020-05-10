@@ -3,52 +3,25 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::io::Write;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, StandardStreamLock, WriteColor};
-
-use crate::parser::expressions::*;
-
-#[macro_export]
-macro_rules! color {
-    ( $stdout: ident, $color: ident) => {
-        $stdout
-            .set_color(ColorSpec::new().set_fg(Some(Color::$color)))
-            .unwrap();
-    };
-    ( $stdout: ident, $color: ident, $intense: ident) => {
-        $stdout
-            .set_color(
-                ColorSpec::new()
-                    .set_fg(Some(Color::$color))
-                    .set_intense($intense),
-            )
-            .unwrap();
-    };
-}
-
-macro_rules! start {
-    ( $name: expr, $prefix: ident, $last: ident, $out: ident) => {
-        color!($out, Blue);
-        write!($out, "{}{}", $prefix, Self::get_pref($last)).unwrap();
-        
-        color!($out, Yellow, true);
-        write!($out, concat!($name, ": ")).unwrap();        
-    };
-}
+use crate::dump_str;
+use termcolor::{ColorChoice, StandardStream, StandardStreamLock};
 
 pub trait Dump {
     fn dump_me(&self) {
         let stdout = StandardStream::stdout(ColorChoice::Always);
         let mut stdout = stdout.lock();
-        self.dump("", true, &mut stdout);
+        self.dump("", "", true, &mut stdout);
         color!(stdout, White);
     }
 
     fn get_pref(last: bool) -> &'static str {
+        // https://en.wikipedia.org/wiki/Box-drawing_character
         if last {
-            "`- "
+            // "`- "
+            "\u{2570}\u{2500} "
         } else {
-            "|- "
+            // "|- "
+            "\u{251C}\u{2500} "
         }
     }
 
@@ -56,100 +29,33 @@ pub trait Dump {
         if last {
             "   "
         } else {
-            "|  "
+            // "|   "
+            "\u{2502}  "
         }
     }
 
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock);
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock);
 }
 
-impl Dump for ExprNode {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        match self {
-            ExprNode::UnaryOp(x) => x.dump(prefix, last, stdout),
-            ExprNode::BinaryOp(x) => x.dump(prefix, last, stdout),
-            ExprNode::CallExpr(x) => x.dump(prefix, last, stdout),
-            ExprNode::Qualified(x) => x.dump(prefix, last, stdout),
-            ExprNode::UInt(x) => x.dump(prefix, last, stdout),
-            _ => {}
+impl<T: Dump> Dump for Option<T> {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        if let Some(x) = self {
+            x.dump(name, prefix, last, stdout);
+        } else {
+            dump_str!(name, "\u{2717}", Red, prefix, last, stdout);
         }
     }
 }
 
-/*impl Dump for Qualified {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("Identifier", prefix, last, stdout);
-        
-        color!(stdout, White);
-        if let Some((last, names)) = self.names.split_last() {
-            for name in names.iter() {
-                let name = match name {
-                    Identifier(id) => id.val,
-                    Template(
-                }
-                write!("{}::", )
-            }
-            last.dump(&prefix, true, stdout);
-        }
-        
-        writeln!(stdout, "{}", self.name).unwrap();
-    }
-}*/
-
-impl Dump for UInt {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("UInt", prefix, last, stdout);
-
-        color!(stdout, White);
-        writeln!(stdout, "{}", self.value).unwrap();
+impl Dump for String {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self, prefix, last, stdout);
     }
 }
 
-impl Dump for BinaryOp {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("BinaryOp", prefix, last, stdout);
-        
-        color!(stdout, Green, true);
-        writeln!(stdout, "{:?}", self.op).unwrap();
-
-        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
-        self.arg1.dump(&prefix, false, stdout);
-        self.arg2.dump(&prefix, true, stdout);
-    }
-}
-
-impl Dump for UnaryOp {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("UnaryOp", prefix, last, stdout);
-        
-        color!(stdout, Green, true);
-        writeln!(stdout, "{:?}", self.op).unwrap();
-
-        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
-        self.arg.dump(&prefix, true, stdout);
-    }
-}
-
-impl Dump for CallExpr {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("CallExpr", prefix, last, stdout);
-        
-        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
-        self.callee.dump(&prefix, false, stdout);
-        self.args.dump(&prefix, true, stdout);
-    }
-}
-
-impl Dump for Parameters {
-    fn dump(&self, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        start!("Parameters", prefix, last, stdout);
-        
-        let prefix = format!("{}{}", prefix, Self::get_pref_child(last));
-        if let Some((last, args)) = self.args.split_last() {
-            for arg in args.iter() {
-                arg.dump(&prefix, false, stdout);
-            }
-            last.dump(&prefix, true, stdout);
-        }
+impl Dump for bool {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let v = if *self { "true" } else { "false" };
+        dump_str!(name, v, Cyan, prefix, last, stdout);
     }
 }

@@ -10,11 +10,30 @@ use crate::parser::expressions::{
     ParametersParser,
 };
 
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Initializer {
     Equal(ExprNode),
     Paren(Parameters),
     Brace(ListInitialization),
+}
+
+impl Dump for Initializer {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::Equal(x) => dump!(x),
+            Self::Paren(x) => dump!(x),
+            Self::Brace(x) => dump!(x),
+        }
+    }
 }
 
 pub struct InitializerParser<'a, 'b, PC: PreprocContext> {

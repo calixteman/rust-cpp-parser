@@ -6,6 +6,10 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 
+use crate::parser::dump::Dump;
+use crate::{dump_fields, dump_start};
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
     pub namespace: Option<String>,
@@ -14,7 +18,35 @@ pub struct Attribute {
     pub has_using: bool,
 }
 
+impl Dump for Attribute {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, "", prefix, last, stdout);
+        // TODO: handle attribute args
+        dump_fields!(self, prefix, stdout, namespace, name);
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AttributeArg {
+    pub tokens: Vec<Token>,
+}
+
 pub type Attributes = Vec<Attribute>;
+
+impl Dump for Attributes {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, "", prefix, last, stdout);
+
+        let mut count = 1;
+        if let Some((last, attrs)) = self.split_last() {
+            for attr in attrs.iter() {
+                attr.dump(&format!("attr{}", count), &prefix, false, stdout);
+                count += 1;
+            }
+            last.dump(&format!("attr{}", count), &prefix, true, stdout);
+        }
+    }
+}
 
 struct UsingParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
@@ -46,11 +78,6 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         }
         (Some(tok), None)
     }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct AttributeArg {
-    pub tokens: Vec<Token>,
 }
 
 struct ArgumentParser<'a, 'b, PC: PreprocContext> {

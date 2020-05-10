@@ -6,9 +6,7 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::expressions::{
-    ExprNode, ExpressionParser, Operator, Parameters, ParametersParser,
-};
+use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
 use crate::parser::statements::{Compound, CompoundStmtParser};
@@ -18,10 +16,26 @@ use super::super::types::{BaseType, CVQualifier, Type};
 use super::specifier::Specifier;
 use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
 
+use crate::parser::dump::Dump;
+use crate::{bitflags_to_str, dump_obj};
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
     pub(crate) attributes: Option<Attributes>,
     pub(crate) decl: TypeDeclarator,
+}
+
+impl Dump for Parameter {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, attributes, decl);
+    }
+}
+
+impl Dump for Vec<Parameter> {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "par", prefix, last, stdout);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,10 +45,41 @@ pub enum RefQualifier {
     RValue,
 }
 
+impl ToString for RefQualifier {
+    fn to_string(&self) -> String {
+        match self {
+            Self::None => "".to_string(),
+            Self::LValue => "&".to_string(),
+            Self::RValue => "&&".to_string(),
+        }
+    }
+}
+
+impl Dump for RefQualifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Exception {
     Noexcept(Option<ExprNode>),
     Throw(Option<Parameters>),
+}
+
+impl Dump for Exception {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        match self {
+            Self::Noexcept(x) => {
+                let prefix = dump_start!(name, "noexcept", prefix, last, stdout);
+                x.dump("expr", &prefix, true, stdout);
+            }
+            Self::Throw(x) => {
+                let prefix = dump_start!(name, "throw", prefix, last, stdout);
+                x.dump("parameters", &prefix, true, stdout);
+            }
+        }
+    }
 }
 
 bitflags! {
@@ -44,12 +89,41 @@ bitflags! {
     }
 }
 
+impl ToString for VirtSpecifier {
+    fn to_string(&self) -> String {
+        bitflags_to_str!(self, Self, FINAL, "final", OVERRIDE, "override")
+    }
+}
+
+impl Dump for VirtSpecifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum FunStatus {
     None,
     Pure,
     Default,
     Delete,
+}
+
+impl ToString for FunStatus {
+    fn to_string(&self) -> String {
+        match self {
+            Self::None => "".to_string(),
+            Self::Pure => "pure".to_string(),
+            Self::Default => "default".to_string(),
+            Self::Delete => "delete".to_string(),
+        }
+    }
+}
+
+impl Dump for FunStatus {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
 }
 
 impl VirtSpecifier {
@@ -74,7 +148,19 @@ pub struct CtorInit {
     pub init: Initializer,
 }
 
+impl Dump for CtorInit {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, name, init);
+    }
+}
+
 pub type CtorInitializers = Vec<CtorInit>;
+
+impl Dump for CtorInitializers {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "ini", prefix, last, stdout);
+    }
+}
 
 pub struct CtorInitializersParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
@@ -128,12 +214,6 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum FunctionId {
-    Qualified(Qualified),
-    Operator(Operator),
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub struct Function {
     pub return_type: Option<Type>,
     pub params: Vec<Parameter>,
@@ -141,12 +221,37 @@ pub struct Function {
     pub refq: RefQualifier,
     pub except: Option<Exception>,
     pub attributes: Option<Attributes>,
-    pub trailing: Option<ExprNode>, // TODO: type here not an expression
+    pub trailing: Option<Type>,
     pub virt_specifier: VirtSpecifier,
     pub status: FunStatus,
     pub requires: Option<ExprNode>,
     pub ctor_init: Option<CtorInitializers>,
     pub body: Option<Compound>,
+}
+
+impl Dump for Function {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "function",
+            prefix,
+            last,
+            stdout,
+            return_type,
+            params,
+            cv,
+            refq,
+            except,
+            attributes,
+            trailing,
+            virt_specifier,
+            status,
+            requires,
+            ctor_init,
+            body
+        );
+    }
 }
 
 pub struct ParameterListParser<'a, 'b, PC: PreprocContext> {
@@ -180,7 +285,7 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
             let (tk, attributes) = ap.parse(tok);
 
             let dp = TypeDeclaratorParser::new(self.lexer);
-            let (tk, decl) = dp.parse(tk, None);
+            let (tk, decl) = dp.parse(tk, None, true);
             let decl = if let Some(decl) = decl {
                 decl
             } else {
@@ -252,8 +357,9 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, trailing) = if tok.tok == Token::Arrow {
-            let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-            ep.parse(None)
+            let tdp = TypeDeclaratorParser::new(self.lexer);
+            let (tok, decl) = tdp.parse(None, None, false);
+            (tok, decl.map(|d| d.typ))
         } else {
             (Some(tok), None)
         };

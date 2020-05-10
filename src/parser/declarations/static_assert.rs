@@ -8,11 +8,31 @@ use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::literals::StringLiteralParser;
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaticAssert {
     pub condition: ExprNode,
     pub string: Option<String>,
     pub cpp: bool,
+}
+
+impl Dump for StaticAssert {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "static_assert",
+            prefix,
+            last,
+            stdout,
+            condition,
+            string,
+            cpp
+        );
+    }
 }
 
 pub(crate) struct StaticAssertParser<'a, 'b, PC: PreprocContext> {

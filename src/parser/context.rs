@@ -4,28 +4,28 @@
 // copied, modified, or distributed except according to those terms.
 
 use hashbrown::{hash_map, HashMap};
+use std::sync::Arc;
 
 pub enum Kind {
-    Namespace,
-    Struct,
-    Class,
-    Enum,
+    Namespace(Arc<Namespace>),
+    Class(Arc<Class>),
+    Enum(Arc<Enum>),
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Container {
+pub struct NamedScope {
     kind: Kind,
-    sub: HashMap<String, Rc<Container>>,
-    values: HashMap<String, &Node>,
+    name: String,
+    sub: HashMap<String, Rc<NamedScope>>,
+    types: HashMap<String, Rc<TypeDeclarator>>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Context {
-    root: Containter,
-    current: Rc<Container>,
+    named: Arc<NamedScope>,
 }
 
-impl Container {
+impl  {
     fn search(name: &Name) -> Option<&Node> {
         
     }

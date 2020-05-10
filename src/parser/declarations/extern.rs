@@ -49,7 +49,7 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         } else {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let hint = DeclHint::Specifier(Specifier::EXTERN);
-            let (tok, typ) = tdp.parse(Some(tok), Some(hint));
+            let (tok, typ) = tdp.parse(Some(tok), Some(hint), true);
 
             (tok, Some(Declaration::Type(typ.unwrap())))
         }

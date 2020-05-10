@@ -10,10 +10,20 @@ use crate::parser::expressions::Operator;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BitFieldDeclarator {
     pub typ: TypeDeclarator,
     pub size: ExprNode,
+}
+
+impl Dump for BitFieldDeclarator {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "bitfield", prefix, last, stdout, typ, size);
+    }
 }
 
 pub struct BitFieldDeclaratorParser<'a, 'b, PC: PreprocContext> {

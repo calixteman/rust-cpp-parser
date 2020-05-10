@@ -25,6 +25,16 @@ impl Operator {
     }
 }
 
+impl ToString for Operator {
+    fn to_string(&self) -> String {
+        match self {
+            Operator::Op(op) => format!("operator {}", op.to_str()),
+            Operator::UD(s) => format!("operator \"\" {}", s),
+            Operator::Conv(_) => "conv operator".to_string(),
+        }
+    }
+}
+
 pub(crate) struct OperatorParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }

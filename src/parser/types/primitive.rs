@@ -3,8 +3,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::dump_str;
 use crate::lexer::Token;
+use crate::parser::dump::Dump;
 use bitflags::bitflags;
+use termcolor::StandardStreamLock;
 
 bitflags! {
     pub(crate) struct Modifier: u64 {
@@ -68,6 +71,58 @@ pub enum Primitive {
     Char8T,
     Char16T,
     Char32T,
+}
+
+impl Primitive {
+    pub fn to_str(&self) -> &'static str {
+        use Primitive::*;
+        match self {
+            None => "",
+            Void => "void",
+            Char => "char",
+            SignedChar => "signed char",
+            Short => "short",
+            Int => "int",
+            Long => "long",
+            LongLong => "long long",
+            UnsignedChar => "unsigned char",
+            UnsignedShort => "unsigned short",
+            UnsignedInt => "unsigned int",
+            UnsignedLong => "unsigned long",
+            UnsignedLongLong => "unsigned long long",
+            CharComplex => "_Complex char",
+            SignedCharComplex => "_Complex signed char",
+            ShortComplex => "_Cmplex short",
+            IntComplex => "_Complex int",
+            LongComplex => "_Complex long",
+            LongLongComplex => "_Complex long long",
+            UnsignedCharComplex => "_Complex unsigned char",
+            UnsignedShortComplex => "_Complex unsigned short",
+            UnsignedIntComplex => "_Complex unsigned int",
+            UnsignedLongComplex => "_Complex unsigned long",
+            UnsignedLongLongComplex => "_Complex unsigned long long",
+            Float => "float",
+            Double => "double",
+            LongDouble => "long double",
+            FloatComplex => "_Complex float",
+            DoubleComplex => "_Complex double",
+            LongDoubleComplex => "_Complex long double",
+            FloatImaginary => "float _Imaginary",
+            DoubleImaginary => "double _Imaginary",
+            LongDoubleImaginary => "long double _Imaginary",
+            Bool => "bool",
+            WcharT => "wchar_t",
+            Char8T => "char8_t",
+            Char16T => "char16_t",
+            Char32T => "char32_t",
+        }
+    }
+}
+
+impl Dump for Primitive {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_str(), Magenta, prefix, last, stdout)
+    }
 }
 
 impl Modifier {

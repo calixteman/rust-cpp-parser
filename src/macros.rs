@@ -67,3 +67,121 @@ macro_rules! skip_until {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! color {
+    ( $stdout: ident, $color: ident) => {{
+        use termcolor::WriteColor;
+
+        $stdout
+            .set_color(termcolor::ColorSpec::new().set_fg(Some(termcolor::Color::$color)))
+            .unwrap();
+    }};
+    ( $stdout: ident, $color: ident, $intense: ident) => {{
+        use termcolor::WriteColor;
+
+        $stdout
+            .set_color(
+                termcolor::ColorSpec::new()
+                    .set_fg(Some(termcolor::Color::$color))
+                    .set_intense($intense),
+            )
+            .unwrap();
+    }};
+}
+
+#[macro_export]
+macro_rules! dump_start {
+    ( $name: expr, $val: expr, $prefix: ident, $is_last: expr, $out: ident) => {{
+        use std::io::Write;
+
+        let prefix = format!("{}{}", $prefix, Self::get_pref($is_last));
+
+        $crate::color!($out, Blue);
+        write!($out, "{}", prefix).unwrap();
+
+        if !$name.is_empty() {
+            $crate::color!($out, Yellow);
+            write!($out, "{}: ", $name).unwrap();
+        }
+
+        $crate::color!($out, Green);
+        writeln!($out, "{}", $val).unwrap();
+
+        format!("{}{}", $prefix, Self::get_pref_child($is_last))
+    }};
+}
+
+#[macro_export]
+macro_rules! dump_fields {
+    ( $self: ident, $prefix: ident, $out: ident, $last: ident) => {{
+        $self.$last.dump(stringify!($last), &$prefix, true, $out);
+    }};
+
+    ( $self: ident, $prefix: ident, $out: ident, $field: ident, $( $fields: ident ), *) => {{
+        $self.$field.dump(stringify!($field), &$prefix, false, $out);
+        dump_fields!($self, $prefix, $out, $( $fields ),*);
+    }};
+}
+
+#[macro_export]
+macro_rules! dump_obj {
+    ( $self: ident, $name: expr, $obj_name: expr, $prefix: ident, $is_last: expr, $out: ident, $( $fields: ident ), *) => {{
+        let prefix = $crate::dump_start!($name, $obj_name, $prefix, $is_last, $out);
+        $crate::dump_fields!($self, prefix, $out, $( $fields ),*);
+    }};
+}
+
+#[macro_export]
+macro_rules! dump_vec {
+    ( $name: expr, $vec: expr, $elem_name: expr, $prefix: ident, $is_last: expr, $out: ident ) => {{
+        let prefix = $crate::dump_start!($name, "", $prefix, $is_last, $out);
+        let mut count = 1;
+
+        if let Some((last, elems)) = $vec.split_last() {
+            for e in elems.iter() {
+                e.dump(&format!("{}{}", $elem_name, count), &prefix, false, $out);
+                count += 1;
+            }
+            last.dump(&format!("{}{}", $elem_name, count), &prefix, true, $out);
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! dump_str {
+    ( $name: expr, $val: expr, $prefix: ident, $last: ident, $out: ident) => {{
+        dump_str!($name, $val, White, $prefix, $last, $out);
+    }};
+
+    ( $name: expr, $val: expr, $color: ident, $prefix: ident, $last: ident, $out: ident) => {{
+        use std::io::Write;
+        let prefix = format!("{}{}", $prefix, Self::get_pref($last));
+
+        $crate::color!($out, Blue);
+        write!($out, "{}", prefix).unwrap();
+
+        $crate::color!($out, Yellow);
+
+        if !$val.is_empty() {
+            write!($out, "{}: ", $name).unwrap();
+            $crate::color!($out, $color);
+            writeln!($out, "{}", $val).unwrap();
+        } else {
+            writeln!($out, "{}", $name).unwrap();
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! bitflags_to_str {
+    ( $self: ident, $name: ident, $( $field: ident, $value: expr ), *) => {{
+        let mut v = Vec::new();
+        $(
+            if $self.contains($name::$field) {
+                v.push($value);
+            }
+        )*
+            v.join(" | ")
+    }};
+}

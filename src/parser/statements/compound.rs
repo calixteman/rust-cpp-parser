@@ -8,10 +8,31 @@ use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 
+use crate::dump_start;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Compound {
     pub(crate) attributes: Option<Attributes>,
     pub(crate) stmts: Vec<Statement>,
+}
+
+impl Dump for Compound {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, "compound", prefix, last, stdout);
+        self.attributes
+            .dump("attributes", &prefix, self.stmts.is_empty(), stdout);
+
+        let mut count = 1;
+        if let Some((last, stmts)) = self.stmts.split_last() {
+            for stmt in stmts.iter() {
+                stmt.dump(&format!("stmt{}", count), &prefix, false, stdout);
+                count += 1;
+            }
+            last.dump(&format!("stmt{}", count), &prefix, true, stdout);
+        }
+    }
 }
 
 pub struct CompoundStmtParser<'a, 'b, PC: PreprocContext> {

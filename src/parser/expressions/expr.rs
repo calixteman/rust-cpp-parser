@@ -6,22 +6,48 @@
 use super::list::{ListInitialization, ListInitializationParser};
 use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
+use crate::dump_fields;
 use crate::lexer::lexer::{Lexer, LocToken, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::DeclSpecifierParser;
+use crate::parser::dump::Dump;
 use crate::parser::literals::{
     Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
     StringLiteralParser,
 };
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
-//use crate::dump::Dump;
+use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Nullptr {}
 
+impl ToString for Nullptr {
+    fn to_string(&self) -> String {
+        "nullptr".to_string()
+    }
+}
+
+impl Dump for Nullptr {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct This {}
+
+impl ToString for This {
+    fn to_string(&self) -> String {
+        "this".to_string()
+    }
+}
+
+impl Dump for This {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprNode {
@@ -43,10 +69,42 @@ pub enum ExprNode {
     None,
 }
 
+impl Dump for ExprNode {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::UnaryOp(x) => dump!(x),
+            Self::BinaryOp(x) => dump!(x),
+            Self::Conditional(x) => dump!(x),
+            Self::CallExpr(x) => dump!(x),
+            Self::Qualified(x) => dump!(x),
+            Self::Integer(x) => dump!(x),
+            Self::Float(x) => dump!(x),
+            Self::Char(x) => dump!(x),
+            Self::Str(x) => dump!(x),
+            Self::Bool(x) => dump!(x),
+            Self::Nullptr(x) => dump!(x),
+            Self::This(x) => dump!(x),
+            _ => {}
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct CallExpr {
     pub callee: ExprNode,
     pub params: Parameters,
+}
+
+impl Dump for CallExpr {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "call", prefix, last, stdout, callee, params);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -288,7 +346,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                         let (_, params) = pp.parse(None, None);
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
                             op: Operator::Sizeof,
-                            arg: params.unwrap().pop().unwrap().unwrap(),
+                            arg: params.unwrap().pop().unwrap(),
                         })));
                         self.last = LastKind::Operand;
                     } else {
@@ -404,6 +462,9 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 Token::NotEqual => {
                     self.push_operator(Operator::Neq);
                 }
+                Token::EqualEqual => {
+                    self.push_operator(Operator::Eq);
+                }
                 Token::NotEq => {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Neq);
@@ -485,8 +546,8 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     }
 
                     let left = expr.unwrap();
-                    self.operands.push(left);
                     self.push_operator(Operator::Conditional);
+                    self.operands.push(left);
                     self.last = LastKind::Operator;
                 }
                 Token::LeftParen => {
@@ -944,8 +1005,8 @@ mod tests {
         let expected = node!(CallExpr {
             callee: ExprNode::Qualified(Box::new(mk_id!("foo", "bar"))),
             params: vec![
-                Some(ExprNode::Qualified(Box::new(mk_id!("a")))),
-                Some(ExprNode::Qualified(Box::new(mk_id!("b")))),
+                ExprNode::Qualified(Box::new(mk_id!("a"))),
+                ExprNode::Qualified(Box::new(mk_id!("b"))),
             ],
         });
 
@@ -995,7 +1056,7 @@ mod tests {
                     arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
                     arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
                 }),
-                params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("c")))),],
+                params: vec![ExprNode::Qualified(Box::new(mk_id!("c"))),],
             }),
             arg2: ExprNode::Qualified(Box::new(mk_id!("d"))),
         });

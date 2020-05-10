@@ -17,10 +17,20 @@ use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::{self, BaseType, CVQualifier, Type};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
     pub identifier: Option<Qualified>,
     pub attributes: Option<Attributes>,
+}
+
+impl Dump for Identifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, identifier, attributes);
+    }
 }
 
 // TODO: handle structured bindings: https://en.cppreference.com/w/cpp/language/structured_binding
@@ -30,6 +40,23 @@ pub struct TypeDeclarator {
     pub specifier: Specifier,
     pub identifier: Identifier,
     pub init: Option<Initializer>,
+}
+
+impl Dump for TypeDeclarator {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "type-decl",
+            prefix,
+            last,
+            stdout,
+            typ,
+            specifier,
+            identifier,
+            init
+        );
+    }
 }
 
 impl TypeDeclarator {
@@ -210,6 +237,7 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
         typ: Type,
         specifier: Specifier,
         is_fun_arg: bool,
+        init: bool,
     ) -> (Option<LocToken>, Option<TypeDeclarator>) {
         let (tok, identifier) = if !is_fun_arg {
             // declarator-id
@@ -275,8 +303,12 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
         };
 
         // initializer
-        let ip = InitializerParser::new(self.lexer);
-        let (tok, init) = ip.parse(tok);
+        let (tok, init) = if init {
+            let ip = InitializerParser::new(self.lexer);
+            ip.parse(tok)
+        } else {
+            (tok, None)
+        };
 
         (
             tok,
@@ -303,6 +335,7 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
         self,
         tok: Option<LocToken>,
         hint: Option<DeclHint>,
+        init: bool,
     ) -> (Option<LocToken>, Option<TypeDeclarator>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
         let (tok, (spec, typ, op)) = dsp.parse(tok, hint);
@@ -338,7 +371,7 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
         // int (*f) (int) == A * f avec A = int () (int)
 
         let npp = NoPtrDeclaratorParser::new(self.lexer);
-        let (tok, decl) = npp.parse(tok, typ, spec, is_func_param);
+        let (tok, decl) = npp.parse(tok, typ, spec, is_func_param, init);
         let mut decl = decl.unwrap();
 
         if let Some(paren_decl) = paren_decl {
@@ -392,6 +425,21 @@ pub enum DeclOrExpr {
     Expr(ExprNode),
 }
 
+impl Dump for DeclOrExpr {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        match self {
+            Self::Decl(x) => {
+                let prefix = dump_start!(name, "", prefix, last, stdout);
+                x.dump("decl", &prefix, true, stdout);
+            }
+            Self::Expr(x) => {
+                let prefix = dump_start!(name, "", prefix, last, stdout);
+                x.dump("expr", &prefix, true, stdout);
+            }
+        }
+    }
+}
+
 pub(crate) struct DeclOrExprParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
@@ -412,7 +460,7 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
                 if TypeDeclaratorParser::<PC>::is_decl_part(&tok.tok) {
                     let tp = TypeDeclaratorParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
-                    let (tok, typ) = tp.parse(Some(tok), Some(hint));
+                    let (tok, typ) = tp.parse(Some(tok), Some(hint), true);
 
                     (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
                 } else {
@@ -424,7 +472,7 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
             }
             _ => {
                 let tp = TypeDeclaratorParser::new(self.lexer);
-                let (tok, typ) = tp.parse(Some(tok), None);
+                let (tok, typ) = tp.parse(Some(tok), None, true);
 
                 if let Some(typ) = typ {
                     return (tok, Some(DeclOrExpr::Decl(typ)));
@@ -561,7 +609,7 @@ mod tests {
     fn test_simple_pointer() {
         let mut l = Lexer::<DefaultContext>::new(b"int * x = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -591,7 +639,7 @@ mod tests {
     fn test_simple_pointer_ud() {
         let mut l = Lexer::<DefaultContext>::new(b"volatile A::B::C * x = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -621,7 +669,7 @@ mod tests {
     fn test_list_init() {
         let mut l = Lexer::<DefaultContext>::new(b"const int x{314}");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -637,11 +685,11 @@ mod tests {
                     identifier: Some(mk_id!("x")),
                     attributes: None
                 },
-                init: Some(Initializer::Brace(vec![Some(ExprNode::Integer(Box::new(
+                init: Some(Initializer::Brace(vec![ExprNode::Integer(Box::new(
                     literals::Integer {
                         value: IntLiteral::Int(314)
                     }
-                ))),])),
+                )),])),
             }
         );
     }
@@ -650,7 +698,7 @@ mod tests {
     fn test_simple_const_pointer() {
         let mut l = Lexer::<DefaultContext>::new(b"signed short volatile int * const x = NULL");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -682,7 +730,7 @@ mod tests {
     fn test_double_pointer() {
         let mut l = Lexer::<DefaultContext>::new(b"char ** x");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -720,7 +768,7 @@ mod tests {
     fn test_triple_pointer() {
         let mut l = Lexer::<DefaultContext>::new(b"char ** const * x");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -764,7 +812,7 @@ mod tests {
     fn test_triple_pointer_ud_type() {
         let mut l = Lexer::<DefaultContext>::new(b"A::B ** const * x");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -808,7 +856,7 @@ mod tests {
     fn test_simple_reference() {
         let mut l = Lexer::<DefaultContext>::new(b"int & x");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -838,7 +886,7 @@ mod tests {
     fn test_simple_rvalue_reference() {
         let mut l = Lexer::<DefaultContext>::new(b"int && x");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -868,7 +916,7 @@ mod tests {
     fn test_simple_rvalue_reference_abstract() {
         let mut l = Lexer::<DefaultContext>::new(b"int &&");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -898,7 +946,7 @@ mod tests {
     fn test_double_pointer_abstract() {
         let mut l = Lexer::<DefaultContext>::new(b"char **");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -936,7 +984,7 @@ mod tests {
     fn test_array_ptr() {
         let mut l = Lexer::<DefaultContext>::new(b"int (*foo[2]) [3]");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -990,7 +1038,7 @@ mod tests {
     fn test_fun_no_name() {
         let mut l = Lexer::<DefaultContext>::new(b"int *()");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1037,7 +1085,7 @@ mod tests {
     fn test_fun_1() {
         let mut l = Lexer::<DefaultContext>::new(b"int foo(int x)");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1094,7 +1142,7 @@ mod tests {
     fn test_ptr_fun_1() {
         let mut l = Lexer::<DefaultContext>::new(b"int (**) (int x)");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1164,7 +1212,7 @@ mod tests {
     fn test_fun_1_ptr() {
         let mut l = Lexer::<DefaultContext>::new(b"double ** foo(int x)");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1234,7 +1282,7 @@ mod tests {
     fn test_fun_2() {
         let mut l = Lexer::<DefaultContext>::new(b"int foo::bar(int x, const double * const y)");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1314,7 +1362,7 @@ mod tests {
     fn test_fun_1_init() {
         let mut l = Lexer::<DefaultContext>::new(b"int foo(int x = 123)");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1377,7 +1425,7 @@ mod tests {
             b"int foo([[attribute]] int x = 123) const && throw(A, B) [[noreturn]] -> C",
         );
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1418,8 +1466,8 @@ mod tests {
                         cv: CVQualifier::CONST,
                         refq: RefQualifier::RValue,
                         except: Some(Exception::Throw(Some(vec![
-                            Some(ExprNode::Qualified(Box::new(mk_id!("A")))),
-                            Some(ExprNode::Qualified(Box::new(mk_id!("B")))),
+                            ExprNode::Qualified(Box::new(mk_id!("A"))),
+                            ExprNode::Qualified(Box::new(mk_id!("B"))),
                         ],))),
                         attributes: Some(vec![Attribute {
                             namespace: None,
@@ -1427,7 +1475,11 @@ mod tests {
                             arg: None,
                             has_using: false,
                         }]),
-                        trailing: Some(ExprNode::Qualified(Box::new(mk_id!("C")))),
+                        trailing: Some(Type {
+                            base: BaseType::UD(mk_id!("C")),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
                         virt_specifier: VirtSpecifier::empty(),
                         status: FunStatus::None,
                         requires: None,
@@ -1451,7 +1503,7 @@ mod tests {
     fn test_array() {
         let mut l = Lexer::<DefaultContext>::new(b"int foo[123]");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1488,7 +1540,7 @@ mod tests {
     fn test_enum() {
         let mut l = Lexer::<DefaultContext>::new(b"typedef enum A { a } B");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1523,7 +1575,7 @@ mod tests {
     fn test_struct() {
         let mut l = Lexer::<DefaultContext>::new(b"typedef struct { int a; } A");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1571,7 +1623,7 @@ mod tests {
     fn test_operator_unary() {
         let mut l = Lexer::<DefaultContext>::new(b"A B::operator+()");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1622,7 +1674,7 @@ mod tests {
     fn test_operator_conv() {
         let mut l = Lexer::<DefaultContext>::new(b"operator A()");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1666,7 +1718,7 @@ mod tests {
     fn test_operator_conv_scoped() {
         let mut l = Lexer::<DefaultContext>::new(b"A::operator B()");
         let p = TypeDeclaratorParser::new(&mut l);
-        let (_, decl) = p.parse(None, None);
+        let (_, decl) = p.parse(None, None, true);
         let decl = decl.unwrap();
 
         assert_eq!(

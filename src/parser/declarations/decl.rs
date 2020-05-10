@@ -13,6 +13,9 @@ use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::dump::Dump;
+use crate::{dump_str, dump_vec};
+use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Declaration {
@@ -31,7 +34,40 @@ pub enum Declaration {
     Empty,
 }
 
+impl Dump for Declaration {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::Type(x) => dump!(x),
+            //Self::Extern(x) => dump!(x),
+            //Self::Namespace(x) => dump!(x),
+            //Self::NamespaceAlias(x) => dump!(x),
+            Self::StaticAssert(x) => dump!(x),
+            //Self::Asm(x) => dump!(x),
+            Self::Attributes(x) => dump!(x),
+            Self::UsingDecl(x) => dump!(x),
+            Self::UsingEnum(x) => dump!(x),
+            Self::UsingNS(x) => dump!(x),
+            Self::UsingAlias(x) => dump!(x),
+            Self::Enum(x) => dump!(x),
+            Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
+            _ => {}
+        }
+    }
+}
+
 pub type Declarations = Vec<Declaration>;
+
+impl Dump for Declarations {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "dec", prefix, last, stdout);
+    }
+}
 
 impl Declaration {
     pub(crate) fn has_semicolon(&self) -> bool {
@@ -119,8 +155,8 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
             return (tok, Some(using));
         }
 
-        let dp = TypeDeclaratorParser::new(self.lexer);
-        let (tok, decl) = dp.parse(tok, hint);
+        let tdp = TypeDeclaratorParser::new(self.lexer);
+        let (tok, decl) = tdp.parse(tok, hint, true);
 
         (tok, decl.map(Declaration::Type))
     }

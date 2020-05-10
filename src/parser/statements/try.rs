@@ -9,12 +9,23 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Try {
     pub attributes: Option<Attributes>,
     pub body: Box<Statement>,
     pub clause: Option<TypeDeclarator>,
     pub handler: Box<Statement>,
+}
+
+impl Dump for Try {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        // TODO: add clause
+        dump_obj!(self, name, "try", prefix, last, stdout, attributes, body, clause, handler);
+    }
 }
 
 pub struct TryStmtParser<'a, 'b, PC: PreprocContext> {
@@ -51,7 +62,7 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
             (None, None)
         } else {
             let tp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, typ) = tp.parse(Some(tok), None);
+            let (tok, typ) = tp.parse(Some(tok), None, false);
 
             if typ.is_some() {
                 (tok, typ)

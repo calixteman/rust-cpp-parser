@@ -3,11 +3,20 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::dump_vec;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, LocToken, Token};
+use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
+use termcolor::StandardStreamLock;
 
-pub type Parameters = Vec<Option<ExprNode>>;
+pub type Parameters = Vec<ExprNode>;
+
+impl Dump for Parameters {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "par", prefix, last, stdout);
+    }
+}
 
 pub(crate) struct ParametersParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
@@ -31,7 +40,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
             } else {
                 tok
             };
-            (tok, vec![Some(first)])
+            (tok, vec![first])
         } else {
             (tok, Vec::new())
         };
@@ -44,7 +53,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
             let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
             let (tk, expr) = ep.parse(Some(tok));
 
-            params.push(expr);
+            params.push(expr.unwrap());
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
 

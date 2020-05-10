@@ -6,6 +6,10 @@
 use crate::lexer::Token;
 use bitflags::bitflags;
 
+use crate::parser::dump::Dump;
+use crate::{bitflags_to_str, dump_str};
+use termcolor::StandardStreamLock;
+
 bitflags! {
     pub struct Specifier: u32 {
         const TYPEDEF = 0b1;
@@ -27,6 +31,59 @@ bitflags! {
         const STDCALL = 0b1_0000_0000_0000_0000;
         const THISCALL = 0b10_0000_0000_0000_0000;
         const VECTORCALL = 0b100_0000_0000_0000_0000;
+    }
+}
+
+impl ToString for Specifier {
+    fn to_string(&self) -> String {
+        bitflags_to_str!(
+            self,
+            Self,
+            TYPEDEF,
+            "typedef",
+            INLINE,
+            "inline",
+            VIRTUAL,
+            "virtual",
+            EXPLICIT,
+            "explicit",
+            FRIEND,
+            "friend",
+            CONSTEVAL,
+            "consteval",
+            CONSTEXPR,
+            "constexpr",
+            CONSTINIT,
+            "constinit",
+            REGISTER,
+            "register",
+            STATIC,
+            "static",
+            THREAD_LOCAL,
+            "thread_local",
+            EXTERN,
+            "extern",
+            MUTABLE,
+            "mutable",
+            CDECL,
+            "__cdecl",
+            CLRCALL,
+            "__clrcall",
+            FASTCALL,
+            "__fastcall",
+            STDCALL,
+            "__stdcall",
+            THISCALL,
+            "__thiscall",
+            VECTORCALL,
+            "__vectorcall"
+        )
+    }
+}
+
+impl Dump for Specifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
     }
 }
 

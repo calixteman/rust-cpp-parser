@@ -6,8 +6,8 @@
 //pub mod toplevel;
 //pub use self::toplevel::*;
 
-//pub mod dump;
-//pub use self::dump::*;
+pub mod dump;
+pub use self::dump::*;
 
 #[macro_use]
 pub mod names;

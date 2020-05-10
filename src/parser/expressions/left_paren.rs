@@ -103,7 +103,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             cv: CVQualifier::empty(),
             pointers: None,
         };
-        let (tok, decl) = npdp.parse(None, typ, Specifier::empty(), false);
+        let (tok, decl) = npdp.parse(None, typ, Specifier::empty(), false, false);
         let mut typ = decl.unwrap().typ;
         typ.pointers = Some(pointers);
 
@@ -121,7 +121,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         if CVQualifier::is_cv(&tok.tok) || TypeDeclarator::is_type_part(&tok.tok) {
             // (const ...
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(Some(tok), None);
+            let (tok, decl) = tdp.parse(Some(tok), None, false);
 
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -147,7 +147,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             }
 
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)));
+            let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), false);
 
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -182,7 +182,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     };
 
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)));
+                    let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)), false);
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -210,7 +210,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 } else if CVQualifier::is_cv(&tok.tok) {
                     // (T const...
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))));
+                    let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false);
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -565,7 +565,7 @@ mod tests {
                 cv: CVQualifier::empty(),
                 pointers: None,
             })),
-            params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("a")))),],
+            params: vec![ExprNode::Qualified(Box::new(mk_id!("a"))),],
         });
 
         assert_eq!(node, expected);
@@ -579,7 +579,7 @@ mod tests {
 
         let expected = node!(CallExpr {
             callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
-            params: vec![Some(ExprNode::Qualified(Box::new(mk_id!("a")))),],
+            params: vec![ExprNode::Qualified(Box::new(mk_id!("a"))),],
         });
 
         assert_eq!(node, expected);
@@ -593,10 +593,10 @@ mod tests {
 
         let expected = node!(CallExpr {
             callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
-            params: vec![Some(node!(UnaryOp {
+            params: vec![node!(UnaryOp {
                 op: Operator::Indirection,
                 arg: ExprNode::Qualified(Box::new(mk_id!("a"))),
-            }))],
+            })],
         });
 
         assert_eq!(node, expected);
@@ -614,10 +614,10 @@ mod tests {
                 cv: CVQualifier::empty(),
                 pointers: None,
             })),
-            params: vec![Some(node!(UnaryOp {
+            params: vec![node!(UnaryOp {
                 op: Operator::AddressOf,
                 arg: ExprNode::Qualified(Box::new(mk_id!("a"))),
-            }))],
+            })],
         });
 
         assert_eq!(node, expected);

@@ -13,6 +13,10 @@ use super::specifier::Specifier;
 use super::types::{NoPtrDeclaratorParser, TypeDeclarator};
 use crate::parser::types::{BaseType, Type};
 
+use crate::parser::dump::Dump;
+use crate::{dump_obj, dump_str, dump_vec};
+use termcolor::StandardStreamLock;
+
 bitflags! {
     pub struct MSModifier: u8 {
         const RESTRICT = 0b1;
@@ -22,23 +26,48 @@ bitflags! {
     }
 }
 
+impl ToString for MSModifier {
+    fn to_string(&self) -> String {
+        let mut vec = Vec::with_capacity(1);
+        if self.contains(Self::RESTRICT) {
+            vec.push("__restrict");
+        }
+        if self.contains(Self::UPTR) {
+            vec.push("__uptr");
+        }
+        if self.contains(Self::SPTR) {
+            vec.push("__sptr");
+        }
+        if self.contains(Self::UNALIGNED) {
+            vec.push("__unaligned");
+        }
+        vec.join(" | ")
+    }
+}
+
+impl Dump for MSModifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
+}
+
 impl MSModifier {
     pub(crate) fn from_tok(&mut self, tok: &Token) -> bool {
         match tok {
             Token::MSRestrict => {
-                *self |= MSModifier::RESTRICT;
+                *self |= Self::RESTRICT;
                 true
             }
             Token::MSUptr => {
-                *self |= MSModifier::UPTR;
+                *self |= Self::UPTR;
                 true
             }
             Token::MSSptr => {
-                *self |= MSModifier::SPTR;
+                *self |= Self::SPTR;
                 true
             }
             Token::MSUnaligned | Token::MS1Unaligned => {
-                *self |= MSModifier::UNALIGNED;
+                *self |= Self::UNALIGNED;
                 true
             }
             _ => false,
@@ -51,6 +80,22 @@ pub enum PtrKind {
     Pointer,
     Reference,
     RValue,
+}
+
+impl ToString for PtrKind {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Pointer => "*".to_string(),
+            Self::Reference => "&".to_string(),
+            Self::RValue => "&&".to_string(),
+        }
+    }
+}
+
+impl Dump for PtrKind {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
 }
 
 impl PtrKind {
@@ -79,7 +124,19 @@ pub struct Pointer {
     pub ms: MSModifier,
 }
 
+impl Dump for Pointer {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, kind, attributes, cv, ms);
+    }
+}
+
 pub type Pointers = Vec<Pointer>;
+
+impl Dump for Pointers {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "ptr", prefix, last, stdout);
+    }
+}
 
 pub struct PointerDeclaratorParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
@@ -169,7 +226,7 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
                 cv: CVQualifier::empty(),
                 pointers,
             };
-            let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false);
+            let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false, false);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok.tok != Token::RightParen {

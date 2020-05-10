@@ -11,6 +11,10 @@ use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use bitflags::bitflags;
 
+use crate::parser::dump::Dump;
+use crate::{dump_obj, dump_vec};
+use termcolor::StandardStreamLock;
+
 bitflags! {
     pub struct ClassSpecifier: u8 {
         const PRIVATE = 0b1;
@@ -44,6 +48,31 @@ impl ClassSpecifier {
     }
 }
 
+impl ToString for ClassSpecifier {
+    fn to_string(&self) -> String {
+        let mut vec = Vec::with_capacity(2);
+        if self.contains(Self::PRIVATE) {
+            vec.push("private");
+        }
+        if self.contains(Self::PUBLIC) {
+            vec.push("public");
+        }
+        if self.contains(Self::PROTECTED) {
+            vec.push("protected");
+        }
+        if self.contains(Self::VIRTUAL) {
+            vec.push("virtual");
+        }
+        vec.join(" | ")
+    }
+}
+
+impl Dump for ClassSpecifier {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), Cyan, prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Struct,
@@ -60,6 +89,14 @@ impl Kind {
             _ => None,
         }
     }
+
+    fn to_str(&self) -> &'static str {
+        match self {
+            Self::Struct => "struct",
+            Self::Class => "class",
+            Self::Union => "union",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +104,18 @@ pub struct Derived {
     pub attributes: Option<Attributes>,
     pub name: Qualified,
     pub specifier: ClassSpecifier,
+}
+
+impl Dump for Derived {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, attributes, name, specifier);
+    }
+}
+
+impl Dump for Vec<Derived> {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "der", prefix, last, stdout);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,11 +128,24 @@ pub struct Class {
     pub body: Option<ClassBody>,
 }
 
+impl Dump for Class {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let cname = self.kind.to_str();
+        dump_obj!(self, name, cname, prefix, last, stdout, attributes, name, r#final, bases, body);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClassBody {
     pub public: Members,
     pub protected: Members,
     pub private: Members,
+}
+
+impl Dump for ClassBody {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, public, protected, private);
+    }
 }
 
 struct DerivedParser<'a, 'b, PC: PreprocContext> {

@@ -10,6 +10,10 @@ use crate::parser::expressions::{Parameters, ParametersParser};
 use super::dtor::{Destructor, DtorParser};
 use super::operator::{Operator, OperatorParser};
 
+use crate::dump_str;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
     pub val: String,
@@ -32,6 +36,24 @@ pub enum Name {
     //Decltype(ExprNode), TODO: add that
 }
 
+impl ToString for Name {
+    fn to_string(&self) -> String {
+        match self {
+            Name::Identifier(id) => id.val.clone(),
+            Name::Template(t) => t.id.val.clone(),
+            Name::Destructor(d) => format!("~{}", d.name),
+            Name::Operator(op) => op.to_string(),
+            Name::Empty => "".to_string(),
+        }
+    }
+}
+
+impl Dump for Qualified {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
+    }
+}
+
 #[macro_export]
 macro_rules! mk_id {
     ( $( $name:expr ),* ) => {
@@ -48,6 +70,20 @@ macro_rules! mk_id {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Qualified {
     pub names: Vec<Name>,
+}
+
+impl ToString for Qualified {
+    fn to_string(&self) -> String {
+        let mut buf = String::new();
+        if let Some((last, names)) = self.names.split_last() {
+            for name in names.iter() {
+                buf.push_str(&name.to_string());
+                buf.push_str("::");
+            }
+            buf.push_str(&last.to_string());
+        }
+        buf
+    }
 }
 
 impl Qualified {
@@ -100,7 +136,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
                     }
                     wait_id = true;
                 }
-                Token::Lower => {
+                /*Token::Lower => {
                     let id = if let Some(Name::Identifier(id)) = names.pop() {
                         id
                     } else {
@@ -116,7 +152,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
                     }));
 
                     wait_id = false;
-                }
+                }*/
                 Token::Identifier(val) if wait_id => {
                     names.push(Name::Identifier(Identifier { val }));
                     wait_id = false;
@@ -190,7 +226,7 @@ mod tests {
         assert_eq!(q.unwrap(), mk_id!("abc", "defg", "hijkl"));
     }
 
-    #[test]
+    /*#[test]
     fn test_name_template_zero() {
         let mut l = Lexer::<DefaultContext>::new(b"A<>");
         let p = QualifiedParser::new(&mut l);
@@ -209,7 +245,7 @@ mod tests {
         );
     }
 
-    /*#[test]
+    #[test]
     fn test_name_template_one() {
         let mut l = Lexer::<DefaultContext>::new(b"A<B>");
         let p = QualifiedParser::new(&mut l);

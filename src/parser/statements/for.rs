@@ -10,6 +10,10 @@ use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser, TypeDeclarator};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct For {
     pub attributes: Option<Attributes>,
@@ -19,6 +23,14 @@ pub struct For {
     pub body: Statement,
 }
 
+impl Dump for For {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self, name, "for", prefix, last, stdout, attributes, init, condition, iteration, body
+        );
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ForRange {
     pub attributes: Option<Attributes>,
@@ -26,6 +38,24 @@ pub struct ForRange {
     pub decl: TypeDeclarator,
     pub expr: ExprNode,
     pub body: Statement,
+}
+
+impl Dump for ForRange {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "for-range",
+            prefix,
+            last,
+            stdout,
+            attributes,
+            init,
+            decl,
+            expr,
+            body
+        );
+    }
 }
 
 pub(super) enum ForRes {

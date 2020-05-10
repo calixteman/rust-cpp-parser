@@ -9,11 +9,21 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Switch {
     pub attributes: Option<Attributes>,
     pub condition: ExprNode,
     pub cases: Statement,
+}
+
+impl Dump for Switch {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "switch", prefix, last, stdout, attributes, condition, cases);
+    }
 }
 
 pub struct SwitchStmtParser<'a, 'b, PC: PreprocContext> {
@@ -63,6 +73,12 @@ pub struct Case {
     pub value: ExprNode,
 }
 
+impl Dump for Case {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "case", prefix, last, stdout, attributes, value);
+    }
+}
+
 pub struct CaseStmtParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
 }
@@ -94,6 +110,12 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Default {
     pub attributes: Option<Attributes>,
+}
+
+impl Dump for Default {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "default", prefix, last, stdout, attributes);
+    }
 }
 
 pub struct DefaultStmtParser<'a, 'b, PC: PreprocContext> {

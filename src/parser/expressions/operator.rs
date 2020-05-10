@@ -3,6 +3,10 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::parser::dump::Dump;
+use crate::{dump_fields, dump_start};
+use termcolor::StandardStreamLock;
+
 use super::ExprNode;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -99,6 +103,73 @@ impl Operator {
             }
         }
     }
+
+    pub fn to_str(&self) -> &'static str {
+        use Operator::*;
+
+        match self {
+            ScopeResolution => "::",
+            PostInc => "()++",
+            PostDec => "()--",
+            Call => "()",
+            Parenthesis => "(",
+            Dot => ".",
+            Arrow => "->",
+            Subscript => "[]",
+            PreInc => "++()",
+            PreDec => "--()",
+            Plus => "+",
+            Minus => "-",
+            Indirection => "indirection",
+            AddressOf => "address-of",
+            AddressOfLabel => "&&",
+            Sizeof => "sizeof",
+            New => "new",
+            NewArray => "new []",
+            Delete => "delete",
+            DeleteArray => "delete []",
+            CoAwait => "co_await",
+            Not => "!",
+            BitNeg => "~",
+            DotIndirection => ".*",
+            ArrowIndirection => "->*",
+            Mul => "*",
+            Div => "/",
+            Mod => "%",
+            Add => "+",
+            Sub => "-",
+            LShift => "<<",
+            RShift => ">>",
+            ThreeWayComp => "<=>",
+            Lt => "<",
+            Gt => ">",
+            Leq => "<=",
+            Geq => ">=",
+            Eq => "==",
+            Neq => "!=",
+            BitAnd => "&",
+            BitXor => "^",
+            BitOr => "|",
+            And => "&&",
+            Or => "||",
+            Conditional => "?:",
+            Throw => "throw",
+            CoYield => "coyield",
+            Assign => "=",
+            AddAssign => "+=",
+            SubAssign => "-=",
+            MulAssign => "*=",
+            DivAssign => "/=",
+            ModAssign => "%=",
+            LShiftAssign => "<<=",
+            RShiftAssign => ">>=",
+            AndAssign => "&=",
+            XorAssign => "^=",
+            OrAssign => "|=",
+            Comma => ",",
+            Cast => "()",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,4 +190,25 @@ pub struct Conditional {
     pub condition: ExprNode,
     pub left: ExprNode,
     pub right: ExprNode,
+}
+
+impl Dump for BinaryOp {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, self.op.to_str(), prefix, last, stdout);
+        dump_fields!(self, prefix, stdout, arg1, arg2);
+    }
+}
+
+impl Dump for UnaryOp {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, self.op.to_str(), prefix, last, stdout);
+        dump_fields!(self, prefix, stdout, arg);
+    }
+}
+
+impl Dump for Conditional {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, "?:", prefix, last, stdout);
+        dump_fields!(self, prefix, stdout, condition, left, right);
+    }
 }

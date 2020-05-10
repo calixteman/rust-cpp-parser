@@ -9,11 +9,21 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 
+use crate::dump_obj;
+use crate::parser::dump::Dump;
+use termcolor::StandardStreamLock;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Do {
     pub attributes: Option<Attributes>,
     pub body: Statement,
     pub condition: ExprNode,
+}
+
+impl Dump for Do {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "do", prefix, last, stdout, attributes, body, condition);
+    }
 }
 
 pub struct DoStmtParser<'a, 'b, PC: PreprocContext> {

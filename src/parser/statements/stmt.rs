@@ -13,17 +13,31 @@ use crate::lexer::{Lexer, LocToken, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
 use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
+use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::QualifiedParser;
+use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Break {
     pub(crate) attributes: Option<Attributes>,
 }
 
+impl Dump for Break {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "break", prefix, last, stdout, attributes);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Continue {
     pub(crate) attributes: Option<Attributes>,
+}
+
+impl Dump for Continue {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "continue", prefix, last, stdout, attributes);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +59,36 @@ pub enum Statement {
     Declaration(Box<Declaration>),
     Expression(Box<ExprNode>),
     Empty,
+}
+
+impl Dump for Statement {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        macro_rules! dump {
+            ( $x: ident) => {
+                $x.dump(name, prefix, last, stdout)
+            };
+        }
+
+        match self {
+            Self::Compound(x) => dump!(x),
+            Self::Return(x) => dump!(x),
+            Self::If(x) => dump!(x),
+            Self::Switch(x) => dump!(x),
+            Self::Case(x) => dump!(x),
+            Self::Default(x) => dump!(x),
+            Self::Do(x) => dump!(x),
+            Self::While(x) => dump!(x),
+            Self::Continue(x) => dump!(x),
+            Self::Break(x) => dump!(x),
+            Self::Goto(x) => dump!(x),
+            Self::Try(x) => dump!(x),
+            Self::For(x) => dump!(x),
+            Self::ForRange(x) => dump!(x),
+            Self::Declaration(x) => dump!(x),
+            Self::Expression(x) => dump!(x),
+            Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
+        }
+    }
 }
 
 #[macro_export]
@@ -185,7 +229,6 @@ impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
 
                     (tok, Some(Statement::Expression(Box::new(expr.unwrap()))))
                 };
-
                 check_semicolon!(self, tok);
                 (None, stmt)
             }
