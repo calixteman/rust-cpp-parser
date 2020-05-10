@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use bitflags::bitflags;
 
@@ -149,15 +149,15 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         hint: Option<PtrKind>,
-    ) -> (Option<LocToken>, Option<Pointers>) {
+    ) -> (Option<Token>, Option<Pointers>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut ptrs = Vec::new();
         let mut kind = if let Some(hint) = hint {
             hint
         } else {
-            let kind = PtrKind::from_tok(&tok.tok);
+            let kind = PtrKind::from_tok(&tok);
             if let Some(kind) = kind {
                 kind
             } else {
@@ -173,7 +173,7 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
             let mut cv = CVQualifier::empty();
             let mut ms = MSModifier::empty();
 
-            while cv.from_tok(&tok.tok) || ms.from_tok(&tok.tok) {
+            while cv.from_tok(&tok) || ms.from_tok(&tok) {
                 tok = self.lexer.next_useful();
             }
 
@@ -184,7 +184,7 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
                 ms,
             });
 
-            kind = if let Some(kind) = PtrKind::from_tok(&tok.tok) {
+            kind = if let Some(kind) = PtrKind::from_tok(&tok) {
                 kind
             } else {
                 break tok;
@@ -206,10 +206,10 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
 
     pub(super) fn parse(
         self,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, (Option<TypeDeclarator>, bool)) {
+        tok: Option<Token>,
+    ) -> (Option<Token>, (Option<TypeDeclarator>, bool)) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             return (Some(tok), (None, false));
         }
 
@@ -229,7 +229,7 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
             let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false, false);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if tok.tok != Token::RightParen {
+            if tok != Token::RightParen {
                 unreachable!("Invalid token in function pointer: {:?}", tok);
             }
 

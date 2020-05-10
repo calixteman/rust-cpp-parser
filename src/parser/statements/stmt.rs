@@ -9,7 +9,7 @@ use super::{
     Return, ReturnStmtParser, Switch, SwitchStmtParser, Try, TryStmtParser, While, WhileStmtParser,
 };
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
 use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
@@ -95,7 +95,7 @@ impl Dump for Statement {
 macro_rules! check_semicolon {
     ( $self:expr, $tok:expr ) => {
         let tok = $tok.unwrap_or_else(|| $self.lexer.next_useful());
-        if tok.tok != Token::SemiColon {
+        if tok != Token::SemiColon {
             unreachable!("Invalid token in statements: {:?}", tok);
         }
     };
@@ -132,12 +132,12 @@ impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Statement>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Statement>) {
         let ap = AttributesParser::new(self.lexer);
         let (tok, attributes) = ap.parse(tok);
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        match tok.tok {
+        match tok {
             Token::Return => {
                 let rp = ReturnStmtParser::new(self.lexer);
                 let (tok, ret) = rp.parse(attributes);
@@ -217,7 +217,7 @@ impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
                 let (tok, name) = qp.parse(None, Some(id));
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                let (tok, stmt) = if TypeDeclaratorParser::<PC>::is_decl_part(&tok.tok) {
+                let (tok, stmt) = if TypeDeclaratorParser::<PC>::is_decl_part(&tok) {
                     let dp = DeclarationParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
                     let (tok, decl) = dp.parse(Some(tok), Some(hint));

@@ -5,7 +5,7 @@
 
 use super::TypeDeclarator;
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::Operator;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
@@ -37,9 +37,9 @@ impl<'a, 'b, PC: PreprocContext> BitFieldDeclaratorParser<'a, 'b, PC> {
 
     pub(super) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         typ: TypeDeclarator,
-    ) -> (Option<LocToken>, Option<BitFieldDeclarator>) {
+    ) -> (Option<Token>, Option<BitFieldDeclarator>) {
         let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
         let (tok, size) = ep.parse(tok);
 

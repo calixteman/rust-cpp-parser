@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Destructor {
@@ -20,14 +20,14 @@ impl<'a, 'b, PC: PreprocContext> DtorParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Destructor>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Destructor>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Tilde {
+        if tok != Token::Tilde {
             return (Some(tok), None);
         }
 
         let tok = self.lexer.next_useful();
-        if let Token::Identifier(name) = tok.tok {
+        if let Token::Identifier(name) = tok {
             (None, Some(Destructor { name }))
         } else {
             unreachable!("Invalid token in dtor name: {:?}", tok)

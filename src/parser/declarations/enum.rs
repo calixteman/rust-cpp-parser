@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -78,10 +78,10 @@ impl<'a, 'b, PC: PreprocContext> BaseTypeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Type>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Type>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        if tok.tok != Token::Colon {
+        if tok != Token::Colon {
             return (Some(tok), None);
         }
 
@@ -101,10 +101,10 @@ impl<'a, 'b, PC: PreprocContext> EntryParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Entry>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Entry>) {
         // Identifier
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (tok, id) = if let Token::Identifier(id) = tok.tok {
+        let (tok, id) = if let Token::Identifier(id) = tok {
             (None, id)
         } else {
             return (Some(tok), None);
@@ -115,7 +115,7 @@ impl<'a, 'b, PC: PreprocContext> EntryParser<'a, 'b, PC> {
         let (tok, attributes) = ap.parse(tok);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (tok, init) = if tok.tok == Token::Equal {
+        let (tok, init) = if tok == Token::Equal {
             let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
             ep.parse(None)
         } else {
@@ -142,9 +142,9 @@ impl<'a, 'b, PC: PreprocContext> EntriesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Entries>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Entries>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::LeftBrace {
+        if tok != Token::LeftBrace {
             return (Some(tok), None);
         }
 
@@ -159,7 +159,7 @@ impl<'a, 'b, PC: PreprocContext> EntriesParser<'a, 'b, PC> {
             }
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            match tok.tok {
+            match tok {
                 Token::Comma => continue,
                 Token::RightBrace => {
                     return (None, Some(entries));
@@ -179,16 +179,16 @@ impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Enum>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Enum>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        if tok.tok != Token::Enum {
+        if tok != Token::Enum {
             return (Some(tok), None);
         }
 
         // enum, enum struct, enum class
         let tok = self.lexer.next_useful();
-        let (kind, tok) = match tok.tok {
+        let (kind, tok) = match tok {
             Token::Struct => (Kind::Struct, self.lexer.next_useful()),
             Token::Class => (Kind::Class, self.lexer.next_useful()),
             _ => (Kind::None, tok),

@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::declarations::{pointer::PointerDeclaratorParser, types::DeclSpecifierParser};
 use crate::parser::expressions;
 use crate::parser::types::r#type::Type;
@@ -44,17 +44,17 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Operator>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Operator>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Operator {
+        if tok != Token::Operator {
             return (Some(tok), None);
         }
 
         let tok = self.lexer.next_useful();
-        match tok.tok {
+        match tok {
             Token::LiteralString(_) => {
                 let tok = self.lexer.next_useful();
-                if let Token::Identifier(id) = tok.tok {
+                if let Token::Identifier(id) = tok {
                     (None, Some(Operator::UD(id)))
                 } else {
                     unreachable!("Invalid token in operator name: {:?}", tok);
@@ -66,9 +66,9 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             }
             Token::New => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::LeftBrack {
+                if tok == Token::LeftBrack {
                     let tok = self.lexer.next_useful();
-                    if tok.tok == Token::RightBrack {
+                    if tok == Token::RightBrack {
                         (None, Some(Operator::Op(expressions::Operator::NewArray)))
                     } else {
                         unreachable!("Invalid token in operator name: {:?}", tok);
@@ -79,9 +79,9 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             }
             Token::Delete => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::LeftBrack {
+                if tok == Token::LeftBrack {
                     let tok = self.lexer.next_useful();
-                    if tok.tok == Token::RightBrack {
+                    if tok == Token::RightBrack {
                         (None, Some(Operator::Op(expressions::Operator::DeleteArray)))
                     } else {
                         unreachable!("Invalid token in operator name: {:?}", tok);
@@ -93,7 +93,7 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             Token::CoAwait => (None, Some(Operator::Op(expressions::Operator::CoAwait))),
             Token::LeftParen => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::RightParen {
+                if tok == Token::RightParen {
                     (None, Some(Operator::Op(expressions::Operator::Call)))
                 } else {
                     unreachable!("Invalid token in operator name: {:?}", tok);
@@ -101,7 +101,7 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             }
             Token::LeftBrack => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::RightBrack {
+                if tok == Token::RightBrack {
                     (None, Some(Operator::Op(expressions::Operator::Subscript)))
                 } else {
                     unreachable!("Invalid token in operator name: {:?}", tok);
@@ -181,7 +181,7 @@ impl<'a, 'b, PC: PreprocContext> ConversionTypeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Type>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Type>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
         let (tok, (_, typ, _)) = dsp.parse(tok, None);
 

@@ -5,7 +5,7 @@
 
 use crate::dump_vec;
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use termcolor::StandardStreamLock;
@@ -30,12 +30,12 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         first: Option<ExprNode>,
-    ) -> (Option<LocToken>, Option<Parameters>) {
+    ) -> (Option<Token>, Option<Parameters>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let (mut tok, mut params) = if let Some(first) = first {
-            let tok = if tok.tok == Token::Comma {
+            let tok = if tok == Token::Comma {
                 self.lexer.next_useful()
             } else {
                 tok
@@ -45,7 +45,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
             (tok, Vec::new())
         };
 
-        if tok.tok == self.term {
+        if tok == self.term {
             return (None, Some(params));
         }
 
@@ -57,10 +57,10 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
 
-            match tk.tok {
+            match tk {
                 Token::Comma => {}
                 _ => {
-                    if tk.tok == self.term {
+                    if tk == self.term {
                         return (None, Some(params));
                     } else {
                         unreachable!("Invalid token in params: {:?}", tk);

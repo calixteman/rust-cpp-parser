@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::{
     ExprNode, ExpressionParser, ListInitialization, ListInitializationParser, Parameters,
     ParametersParser,
@@ -45,10 +45,10 @@ impl<'a, 'b, PC: PreprocContext> InitializerParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Initializer>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Initializer>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        match tok.tok {
+        match tok {
             Token::Equal => {
                 let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
                 let (tok, expr) = ep.parse(None);

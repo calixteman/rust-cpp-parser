@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::{Statement, StatementParser};
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser, TypeDeclarator};
@@ -72,13 +72,10 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken>, Option<ForRes>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<ForRes>) {
         let tok = self.lexer.next_useful();
 
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
@@ -86,7 +83,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         let (tok, init) = dep.parse(None);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::Colon {
+        if tok == Token::Colon {
             // for (decl : ...)
             let decl = if let DeclOrExpr::Decl(typ) = init.unwrap() {
                 typ
@@ -98,7 +95,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             let (tok, expr) = ep.parse(None);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if tok.tok != Token::RightParen {
+            if tok != Token::RightParen {
                 unreachable!("Invalid token in for statements: {:?}", tok);
             }
 
@@ -117,7 +114,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             );
         }
 
-        if tok.tok != Token::SemiColon {
+        if tok != Token::SemiColon {
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
@@ -125,7 +122,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         let (tok, condition) = dep.parse(None);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::Colon {
+        if tok == Token::Colon {
             // for (init; decl : ...)
             let decl = if let DeclOrExpr::Decl(typ) = condition.unwrap() {
                 typ
@@ -137,7 +134,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             let (tok, expr) = ep.parse(None);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if tok.tok != Token::RightParen {
+            if tok != Token::RightParen {
                 unreachable!("Invalid token in for statements: {:?}", tok);
             }
 
@@ -167,7 +164,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             None
         };
 
-        if tok.tok != Token::SemiColon {
+        if tok != Token::SemiColon {
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
@@ -175,7 +172,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         let (tok, iteration) = ep.parse(None);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::RightParen {
+        if tok != Token::RightParen {
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 

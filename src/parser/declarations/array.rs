@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::types::Type;
@@ -32,12 +32,12 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Array>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Array>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut dimensions = Vec::new();
 
         loop {
-            if tok.tok != Token::LeftBrack {
+            if tok != Token::LeftBrack {
                 break;
             }
 
@@ -45,7 +45,7 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
             let (tk, size) = ep.parse(None);
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            if tk.tok != Token::RightBrack {
+            if tk != Token::RightBrack {
                 unreachable!("Invalid array size delimiter: {:?}", tk);
             }
 

@@ -7,7 +7,7 @@ use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::names::{Qualified, QualifiedParser};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,13 +40,13 @@ impl<'a, 'b, PC: PreprocContext> NsNamesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<LocToken>, Option<NsNames>) {
+    fn parse(self) -> (Option<Token>, Option<NsNames>) {
         let mut tok = self.lexer.next_useful();
         let mut names = Vec::new();
         let mut inline = false;
 
         loop {
-            match tok.tok {
+            match tok {
                 Token::Inline => {
                     inline = true;
                 }
@@ -74,12 +74,12 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Declaration>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let inline = if tok.tok == Token::Inline {
+        let inline = if tok == Token::Inline {
             let tok = self.lexer.next_useful();
-            if tok.tok != Token::Namespace {
+            if tok != Token::Namespace {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let hint = DeclHint::Specifier(Specifier::INLINE);
                 let (tok, typ) = tdp.parse(Some(tok), Some(hint), true);
@@ -87,7 +87,7 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
                 return (tok, Some(Declaration::Type(typ.unwrap())));
             }
             true
-        } else if tok.tok != Token::Namespace {
+        } else if tok != Token::Namespace {
             return (Some(tok), None);
         } else {
             false
@@ -97,7 +97,7 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         let (tok, name) = np.parse();
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        match tok.tok {
+        match tok {
             Token::LeftBrace => {
                 let dlp = DeclarationListParser::new(self.lexer);
                 let (tok, body, _) = dlp.parse(Some(tok));

@@ -10,7 +10,7 @@ use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
 use super::r#enum::EnumParser;
 use super::specifier::Specifier;
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
@@ -100,12 +100,9 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         hint: Option<DeclHint>,
-    ) -> (
-        Option<LocToken>,
-        (Specifier, Option<Type>, Option<Qualified>),
-    ) {
+    ) -> (Option<Token>, (Specifier, Option<Type>, Option<Qualified>)) {
         let (mut typ, mut spec, mut ty_modif) = if let Some(hint) = hint {
             match hint {
                 DeclHint::Name(id) => (
@@ -128,19 +125,19 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         loop {
             // const, volatile
-            if cv.from_tok(&tok.tok) {
+            if cv.from_tok(&tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
             // typedef, inline, ...
-            if spec.from_tok(&tok.tok) {
+            if spec.from_tok(&tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
 
             // unsigned, long, ...
-            if ty_modif.from_tok(&tok.tok) {
+            if ty_modif.from_tok(&tok) {
                 tok = self.lexer.next_useful();
                 continue;
             }
@@ -168,7 +165,7 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
 
                 // identifier
                 let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-                if let Token::Identifier(id) = tk.tok {
+                if let Token::Identifier(id) = tk {
                     // TODO: check that the name is a type
                     let qp = QualifiedParser::new(self.lexer);
                     let (tk, name) = qp.parse(None, Some(id));
@@ -182,7 +179,7 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
                     continue;
                 }
 
-                if tk.tok == Token::Auto {
+                if tk == Token::Auto {
                     typ = Some(BaseType::Auto);
                     tok = self.lexer.next_useful();
                     continue;
@@ -233,12 +230,12 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         typ: Type,
         specifier: Specifier,
         is_fun_arg: bool,
         init: bool,
-    ) -> (Option<LocToken>, Option<TypeDeclarator>) {
+    ) -> (Option<Token>, Option<TypeDeclarator>) {
         let (tok, identifier) = if !is_fun_arg {
             // declarator-id
             let qp = QualifiedParser::new(self.lexer);
@@ -333,10 +330,10 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         hint: Option<DeclHint>,
         init: bool,
-    ) -> (Option<LocToken>, Option<TypeDeclarator>) {
+    ) -> (Option<Token>, Option<TypeDeclarator>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
         let (tok, (spec, typ, op)) = dsp.parse(tok, hint);
 
@@ -449,15 +446,15 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<DeclOrExpr>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<DeclOrExpr>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        match tok.tok {
+        match tok {
             Token::Identifier(id) => {
                 let qp = QualifiedParser::new(self.lexer);
                 let (tok, name) = qp.parse(None, Some(id));
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                if TypeDeclaratorParser::<PC>::is_decl_part(&tok.tok) {
+                if TypeDeclaratorParser::<PC>::is_decl_part(&tok) {
                     let tp = TypeDeclaratorParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
                     let (tok, typ) = tp.parse(Some(tok), Some(hint), true);

@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::{ExpressionParser, ExprNode, Parameters, ParametersParser};
 
 
@@ -48,8 +48,8 @@ impl<'a, 'b, PC: PreprocContext> TypeOrExprParser<'a, 'b, PC> {
     
     pub(super) fn parse(
         self,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, Option<Qualified>) {
+        tok: Option<Token>,
+    ) -> (Option<Token>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if Self::is_type_token(&tok) {

@@ -474,25 +474,6 @@ pub struct Location {
     pub column: u32,
 }
 
-#[derive(Clone, Debug)]
-pub struct LocToken {
-    pub tok: Token,
-    pub file: Option<FileId>,
-    pub start: Location,
-    pub end: Location,
-}
-
-impl LocToken {
-    fn new(tok: Token, file: Option<FileId>, start: Location, end: Location) -> Self {
-        Self {
-            tok,
-            file,
-            start,
-            end,
-        }
-    }
-}
-
 impl Token {
     pub(crate) fn get_string(self) -> Option<String> {
         match self {
@@ -563,14 +544,6 @@ macro_rules! get_basic_operator {
         } else {
             Token::$single
         }
-    }};
-}
-
-macro_rules! loc {
-    ($self: ident, $tok: expr, $start: expr) => {{
-        let tok = $tok;
-        let end = $self.location();
-        LocToken::new(tok, $self.buf.get_source_id(), $start, end)
     }};
 }
 
@@ -667,7 +640,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     pub fn consume_all(&mut self) {
-        while self.next_token().tok != Token::Eof {}
+        while self.next_token() != Token::Eof {}
     }
 
     pub fn get_line(&self) -> u32 {
@@ -983,12 +956,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         self.get_preproc_keyword(true)
     }
 
-    pub(crate) fn steal_until(&mut self, term: Token) -> (LocToken, Vec<LocToken>) {
+    pub(crate) fn steal_until(&mut self, term: Token) -> (Token, Vec<Token>) {
         let mut level = 0;
         let mut stole = Vec::with_capacity(64);
         loop {
             let tok = self.next_useful();
-            match tok.tok {
+            match tok {
                 Token::LeftParen | Token::LeftBrack | Token::LeftBrace | Token::DoubleLeftBrack => {
                     level += 1;
                 }
@@ -1001,7 +974,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 _ => {}
             }
 
-            if (tok.tok == term && level == 0) || tok.tok == Token::Eof {
+            if (tok == term && level == 0) || tok == Token::Eof {
                 return (tok, stole);
             }
 
@@ -1009,10 +982,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub(crate) fn next_useful(&mut self) -> LocToken {
+    pub(crate) fn next_useful(&mut self) -> Token {
         loop {
             let tok = self.next_token();
-            match tok.tok {
+            match tok {
                 Token::Comment | Token::Eol => {}
                 _ => {
                     return tok;
@@ -1029,9 +1002,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub fn next_token(&mut self) -> LocToken {
+    pub fn next_token(&mut self) -> Token {
         loop {
-            let start = self.location();
             if self.buf.check_char() {
                 let c = self.buf.next_char();
                 self.buf.inc();
@@ -1041,171 +1013,151 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         self.buf.add_new_line();
                         // TODO: useless in general but useful to know the a #if condition is finished
                         // Probably remove it and find a way for the condition stuff
-                        return loc!(self, Token::Eol, start);
+                        return Token::Eol;
                     }
                     b' ' => skip_whites!(self),
                     b'!' => {
-                        return loc!(self, self.get_exclamation(), start);
+                        return self.get_exclamation();
                     }
                     b'\"' => {
-                        return loc!(self, self.get_string(StringType::None), start);
+                        return self.get_string(StringType::None);
                     }
                     b'#' => {
-                        return loc!(self, self.get_preproc(), start);
+                        return self.get_preproc();
                     }
                     b'$' => {
-                        return loc!(self, Token::Dollar, start);
+                        return Token::Dollar;
                     }
                     b'%' => {
-                        return loc!(self, self.get_modulo(), start);
+                        return self.get_modulo();
                     }
                     b'&' => {
-                        return loc!(
-                            self,
-                            get_operator!(self, b'&', And, AndAnd, AndEqual),
-                            start
-                        );
+                        return get_operator!(self, b'&', And, AndAnd, AndEqual);
                     }
                     b'\'' => {
-                        return loc!(self, self.get_char(StringType::None), start);
+                        return self.get_char(StringType::None);
                     }
                     b'(' => {
-                        return loc!(self, Token::LeftParen, start);
+                        return Token::LeftParen;
                     }
                     b')' => {
-                        return loc!(self, Token::RightParen, start);
+                        return Token::RightParen;
                     }
                     b'*' => {
-                        return loc!(
-                            self,
-                            get_basic_operator!(self, b'*', Star, StarEqual),
-                            start
-                        );
+                        return get_basic_operator!(self, b'*', Star, StarEqual);
                     }
                     b'+' => {
-                        return loc!(
-                            self,
-                            get_operator!(self, b'+', Plus, PlusPlus, PlusEqual),
-                            start
-                        );
+                        return get_operator!(self, b'+', Plus, PlusPlus, PlusEqual);
                     }
                     b',' => {
-                        return loc!(self, Token::Comma, start);
+                        return Token::Comma;
                     }
                     b'-' => {
-                        return loc!(self, self.get_minus(), start);
+                        return self.get_minus();
                     }
                     b'.' => {
-                        return loc!(self, self.get_dot_or_number(), start);
+                        return self.get_dot_or_number();
                     }
                     b'/' => {
-                        return loc!(self, self.get_slash(), start);
+                        return self.get_slash();
                     }
                     b'0'..=b'9' => {
-                        return loc!(self, self.get_number(u64::from(c - b'0')), start);
+                        return self.get_number(u64::from(c - b'0'));
                     }
                     b':' => {
-                        return loc!(self, get_operator!(self, b':', Colon, ColonColon), start);
+                        return get_operator!(self, b':', Colon, ColonColon);
                     }
                     b';' => {
-                        return loc!(self, Token::SemiColon, start);
+                        return Token::SemiColon;
                     }
                     b'<' => {
-                        return loc!(self, self.get_lower(), start);
+                        return self.get_lower();
                     }
                     b'=' => {
-                        return loc!(self, get_operator!(self, b'=', Equal, EqualEqual), start);
+                        return get_operator!(self, b'=', Equal, EqualEqual);
                     }
                     b'>' => {
-                        return loc!(self, self.get_greater(), start);
+                        return self.get_greater();
                     }
                     b'?' => {
-                        return loc!(self, Token::Question, start);
+                        return Token::Question;
                     }
                     b'@' => {
-                        return loc!(self, Token::At, start);
+                        return Token::At;
                     }
                     b'A'..=b'K' | b'M'..=b'Q' | b'S'..=b'T' | b'V'..=b'Z' => {
                         if let Some(tok) = self.get_identifier() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'L' => {
                         if let Some(tok) = self.get_special_string_char(StringType::L) {
-                            return loc!(self, tok, start);
+                            return tok;
                         } else if let Some(tok) = self.get_identifier() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'R' => {
                         if let Some(tok) = self.get_special_string_char(StringType::R) {
-                            return loc!(self, tok, start);
+                            return tok;
                         } else if let Some(tok) = self.get_identifier() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'U' => {
                         if let Some(tok) = self.get_special_string_char(StringType::UU) {
-                            return loc!(self, tok, start);
+                            return tok;
                         } else if let Some(tok) = self.get_identifier() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'[' => {
-                        return loc!(
-                            self,
-                            get_operator!(self, b'[', LeftBrack, DoubleLeftBrack),
-                            start
-                        );
+                        return get_operator!(self, b'[', LeftBrack, DoubleLeftBrack);
                     }
                     b'\\' => {
                         if let Some(tok) = self.get_backslash() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b']' => {
-                        return loc!(
-                            self,
-                            get_operator!(self, b']', RightBrack, DoubleRightBrack),
-                            start
-                        );
+                        return get_operator!(self, b']', RightBrack, DoubleRightBrack);
                     }
                     b'^' => {
-                        return loc!(self, get_basic_operator!(self, b'^', Xor, XorEqual), start);
+                        return get_basic_operator!(self, b'^', Xor, XorEqual);
                     }
                     b'_' | b'a'..=b't' | b'v'..=b'z' => {
                         if let Some(tok) = self.get_identifier_or_keyword() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'u' => {
                         if let Some(tok) = self.get_special_string_char(StringType::U) {
-                            return loc!(self, tok, start);
+                            return tok;
                         } else if let Some(tok) = self.get_identifier_or_keyword() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     b'{' => {
-                        return loc!(self, Token::LeftBrace, start);
+                        return Token::LeftBrace;
                     }
                     b'|' => {
-                        return loc!(self, get_operator!(self, b'|', Or, OrOr, OrEqual), start);
+                        return get_operator!(self, b'|', Or, OrOr, OrEqual);
                     }
                     b'}' => {
-                        return loc!(self, Token::RightBrace, start);
+                        return Token::RightBrace;
                     }
                     b'~' => {
-                        return loc!(self, Token::Tilde, start);
+                        return Token::Tilde;
                     }
                     b'\x7F'..=b'\xFF' => {
                         if let Some(tok) = self.get_identifier() {
-                            return loc!(self, tok, start);
+                            return tok;
                         }
                     }
                     _ => {}
                 }
             } else {
-                return loc!(self, Token::Eof, start);
+                return Token::Eof;
             }
         }
     }
@@ -1221,13 +1173,13 @@ mod tests {
     #[test]
     fn test_keywords() {
         let mut p = Lexer::<DefaultContext>::new(b"while foa whila for While For static_cast");
-        assert_eq!(p.next_token().tok, Token::While);
-        assert_eq!(p.next_token().tok, Token::Identifier("foa".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("whila".to_string()));
-        assert_eq!(p.next_token().tok, Token::For);
-        assert_eq!(p.next_token().tok, Token::Identifier("While".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("For".to_string()));
-        assert_eq!(p.next_token().tok, Token::StaticCast);
+        assert_eq!(p.next_token(), Token::While);
+        assert_eq!(p.next_token(), Token::Identifier("foa".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("whila".to_string()));
+        assert_eq!(p.next_token(), Token::For);
+        assert_eq!(p.next_token(), Token::Identifier("While".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("For".to_string()));
+        assert_eq!(p.next_token(), Token::StaticCast);
     }
 
     #[test]
@@ -1235,16 +1187,16 @@ mod tests {
         let mut p = Lexer::<DefaultContext>::new(
             b"hello world whilee Roo Lar uoo Uar u851 hello_world_WORLD_HELLO123",
         );
-        assert_eq!(p.next_token().tok, Token::Identifier("hello".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("world".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("whilee".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("Roo".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("Lar".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("uoo".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("Uar".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("u851".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("hello".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("world".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("whilee".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("Roo".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("Lar".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("uoo".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("Uar".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("u851".to_string()));
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::Identifier("hello_world_WORLD_HELLO123".to_string())
         );
     }
@@ -1252,11 +1204,11 @@ mod tests {
     #[test]
     fn test_identifiers_utf8() {
         let mut p = Lexer::<DefaultContext>::new("🌹 🌵 🌻 🌷🌷🌷🌷🌷🌷".as_bytes());
-        assert_eq!(p.next_token().tok, Token::Identifier("🌹".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("🌵".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("🌻".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("🌹".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("🌵".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("🌻".to_string()));
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::Identifier("🌷🌷🌷🌷🌷🌷".to_string())
         );
     }
@@ -1264,51 +1216,51 @@ mod tests {
     #[test]
     fn test_divide() {
         let mut p = Lexer::<DefaultContext>::new(b"a / b");
-        assert_eq!(p.next_token().tok, Token::Identifier("a".to_string()));
-        assert_eq!(p.next_token().tok, Token::Divide);
-        assert_eq!(p.next_token().tok, Token::Identifier("b".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("a".to_string()));
+        assert_eq!(p.next_token(), Token::Divide);
+        assert_eq!(p.next_token(), Token::Identifier("b".to_string()));
     }
 
     #[test]
     fn test_operators() {
         let mut p = Lexer::<DefaultContext>::new(b"+ += ++ - -= -- -> / /= % %= | |= || & &= && ^ ^= * *= < <= > >= << <<= >> >>= = != == ! ~ ->* .* ... <=>");
-        assert_eq!(p.next_token().tok, Token::Plus);
-        assert_eq!(p.next_token().tok, Token::PlusEqual);
-        assert_eq!(p.next_token().tok, Token::PlusPlus);
-        assert_eq!(p.next_token().tok, Token::Minus);
-        assert_eq!(p.next_token().tok, Token::MinusEqual);
-        assert_eq!(p.next_token().tok, Token::MinusMinus);
-        assert_eq!(p.next_token().tok, Token::Arrow);
-        assert_eq!(p.next_token().tok, Token::Divide);
-        assert_eq!(p.next_token().tok, Token::DivideEqual);
-        assert_eq!(p.next_token().tok, Token::Modulo);
-        assert_eq!(p.next_token().tok, Token::ModuloEqual);
-        assert_eq!(p.next_token().tok, Token::Or);
-        assert_eq!(p.next_token().tok, Token::OrEqual);
-        assert_eq!(p.next_token().tok, Token::OrOr);
-        assert_eq!(p.next_token().tok, Token::And);
-        assert_eq!(p.next_token().tok, Token::AndEqual);
-        assert_eq!(p.next_token().tok, Token::AndAnd);
-        assert_eq!(p.next_token().tok, Token::Xor);
-        assert_eq!(p.next_token().tok, Token::XorEqual);
-        assert_eq!(p.next_token().tok, Token::Star);
-        assert_eq!(p.next_token().tok, Token::StarEqual);
-        assert_eq!(p.next_token().tok, Token::Lower);
-        assert_eq!(p.next_token().tok, Token::LowerEqual);
-        assert_eq!(p.next_token().tok, Token::Greater);
-        assert_eq!(p.next_token().tok, Token::GreaterEqual);
-        assert_eq!(p.next_token().tok, Token::LeftShift);
-        assert_eq!(p.next_token().tok, Token::LeftShiftEqual);
-        assert_eq!(p.next_token().tok, Token::RightShift);
-        assert_eq!(p.next_token().tok, Token::RightShiftEqual);
-        assert_eq!(p.next_token().tok, Token::Equal);
-        assert_eq!(p.next_token().tok, Token::NotEqual);
-        assert_eq!(p.next_token().tok, Token::EqualEqual);
-        assert_eq!(p.next_token().tok, Token::Not);
-        assert_eq!(p.next_token().tok, Token::Tilde);
-        assert_eq!(p.next_token().tok, Token::ArrowStar);
-        assert_eq!(p.next_token().tok, Token::DotStar);
-        assert_eq!(p.next_token().tok, Token::Ellipsis);
-        assert_eq!(p.next_token().tok, Token::LowerEqualGreater);
+        assert_eq!(p.next_token(), Token::Plus);
+        assert_eq!(p.next_token(), Token::PlusEqual);
+        assert_eq!(p.next_token(), Token::PlusPlus);
+        assert_eq!(p.next_token(), Token::Minus);
+        assert_eq!(p.next_token(), Token::MinusEqual);
+        assert_eq!(p.next_token(), Token::MinusMinus);
+        assert_eq!(p.next_token(), Token::Arrow);
+        assert_eq!(p.next_token(), Token::Divide);
+        assert_eq!(p.next_token(), Token::DivideEqual);
+        assert_eq!(p.next_token(), Token::Modulo);
+        assert_eq!(p.next_token(), Token::ModuloEqual);
+        assert_eq!(p.next_token(), Token::Or);
+        assert_eq!(p.next_token(), Token::OrEqual);
+        assert_eq!(p.next_token(), Token::OrOr);
+        assert_eq!(p.next_token(), Token::And);
+        assert_eq!(p.next_token(), Token::AndEqual);
+        assert_eq!(p.next_token(), Token::AndAnd);
+        assert_eq!(p.next_token(), Token::Xor);
+        assert_eq!(p.next_token(), Token::XorEqual);
+        assert_eq!(p.next_token(), Token::Star);
+        assert_eq!(p.next_token(), Token::StarEqual);
+        assert_eq!(p.next_token(), Token::Lower);
+        assert_eq!(p.next_token(), Token::LowerEqual);
+        assert_eq!(p.next_token(), Token::Greater);
+        assert_eq!(p.next_token(), Token::GreaterEqual);
+        assert_eq!(p.next_token(), Token::LeftShift);
+        assert_eq!(p.next_token(), Token::LeftShiftEqual);
+        assert_eq!(p.next_token(), Token::RightShift);
+        assert_eq!(p.next_token(), Token::RightShiftEqual);
+        assert_eq!(p.next_token(), Token::Equal);
+        assert_eq!(p.next_token(), Token::NotEqual);
+        assert_eq!(p.next_token(), Token::EqualEqual);
+        assert_eq!(p.next_token(), Token::Not);
+        assert_eq!(p.next_token(), Token::Tilde);
+        assert_eq!(p.next_token(), Token::ArrowStar);
+        assert_eq!(p.next_token(), Token::DotStar);
+        assert_eq!(p.next_token(), Token::Ellipsis);
+        assert_eq!(p.next_token(), Token::LowerEqualGreater);
     }
 }

@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::{Parameters, ParametersParser};
 
 use super::dtor::{Destructor, DtorParser};
@@ -115,9 +115,9 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         first: Option<String>,
-    ) -> (Option<LocToken>, Option<Qualified>) {
+    ) -> (Option<Token>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut names = Vec::new();
         let mut wait_id = if let Some(val) = first {
@@ -128,7 +128,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
         };
 
         loop {
-            match tok.tok {
+            match tok {
                 Token::ColonColon => {
                     if names.is_empty() {
                         // ::foo::bar

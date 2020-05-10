@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::{Statement, StatementParser};
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
@@ -37,7 +37,7 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Try>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Try>) {
         let sp = StatementParser::new(self.lexer);
         let (tok, body) = sp.parse(None);
 
@@ -48,17 +48,17 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Catch {
+        if tok != Token::Catch {
             unreachable!("Catch expected after body in try statement");
         }
 
         let tok = self.lexer.next_useful();
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             unreachable!("Invalid token in catch clause: {:?}", tok);
         }
 
         let tok = self.lexer.next_useful();
-        let (tok, clause) = if tok.tok == Token::Ellipsis {
+        let (tok, clause) = if tok == Token::Ellipsis {
             (None, None)
         } else {
             let tp = TypeDeclaratorParser::new(self.lexer);
@@ -72,7 +72,7 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::RightParen {
+        if tok != Token::RightParen {
             unreachable!("Invalid token in catch clause: {:?}", tok);
         }
 

@@ -6,7 +6,7 @@
 use super::expr::{CallExpr, ExprNode, ExpressionParser, LastKind};
 use super::operator::Operator;
 use super::params::ParametersParser;
-use crate::lexer::lexer::{LocToken, Token};
+use crate::lexer::lexer::Token;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::{
     DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
@@ -41,7 +41,7 @@ impl CastType {
 }
 
 impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
-    fn handle_paren_after_type(&mut self, ctyp: CastType) -> Option<LocToken> {
+    fn handle_paren_after_type(&mut self, ctyp: CastType) -> Option<Token> {
         // (T (...: we may have a function/array pointer
         let pdp = PointerDeclaratorParser::new(self.lexer);
         let (tok, pointers) = pdp.parse(None, None);
@@ -63,7 +63,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::RightParen {
+        if tok != Token::RightParen {
             // (T (***a...: function call
             let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
             for p in pointers {
@@ -108,7 +108,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         typ.pointers = Some(pointers);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::RightParen {
+        if tok == Token::RightParen {
             self.operands.push(ExprNode::Type(Box::new(typ)));
             self.push_operator(Operator::Cast);
         }
@@ -116,9 +116,9 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         None
     }
 
-    pub(super) fn parse_left_paren(&mut self) -> Option<LocToken> {
+    pub(super) fn parse_left_paren(&mut self) -> Option<Token> {
         let tok = self.lexer.next_useful();
-        if CVQualifier::is_cv(&tok.tok) || TypeDeclarator::is_type_part(&tok.tok) {
+        if CVQualifier::is_cv(&tok) || TypeDeclarator::is_type_part(&tok) {
             // (const ...
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(Some(tok), None, false);
@@ -126,7 +126,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-            if tok.tok == Token::RightParen {
+            if tok == Token::RightParen {
                 self.operands.push(ExprNode::Type(Box::new(typ)));
                 self.push_operator(Operator::Cast);
                 self.last = LastKind::Operator;
@@ -134,13 +134,13 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             return None;
         }
 
-        if Modifier::is_primitive_part(&tok.tok) {
+        if Modifier::is_primitive_part(&tok) {
             // (int...
             let mut modif = Modifier::empty();
-            modif.from_tok(&tok.tok);
+            modif.from_tok(&tok);
 
             let tok = self.lexer.next_useful();
-            if tok.tok == Token::LeftParen {
+            if tok == Token::LeftParen {
                 // (int(...: not a cast
                 self.handle_paren_after_type(CastType::Prim(modif.to_primitive()));
                 return None;
@@ -152,7 +152,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-            if tok.tok == Token::RightParen {
+            if tok == Token::RightParen {
                 self.operands.push(ExprNode::Type(Box::new(typ)));
                 self.push_operator(Operator::Cast);
                 self.last = LastKind::Operator;
@@ -161,16 +161,16 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         }
 
         // TODO: handle case where id is final, override, ...
-        if let Token::Identifier(id) = tok.tok {
+        if let Token::Identifier(id) = tok {
             let qp = QualifiedParser::new(self.lexer);
             let (tok, qual) = qp.parse(None, Some(id));
             let qual = qual.unwrap();
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if let Some(kind) = PtrKind::from_tok(&tok.tok) {
+            if let Some(kind) = PtrKind::from_tok(&tok) {
                 // (T *...)
                 let tok = self.lexer.next_useful();
-                if CVQualifier::is_cv(&tok.tok) || PtrKind::is_ptr(&tok.tok) {
+                if CVQualifier::is_cv(&tok) || PtrKind::is_ptr(&tok) {
                     // (T * const... or (T **... => we've a type !
                     let pdp = PointerDeclaratorParser::new(self.lexer);
                     let (tok, pointers) = pdp.parse(Some(tok), Some(kind));
@@ -186,12 +186,12 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    if tok.tok == Token::RightParen {
+                    if tok == Token::RightParen {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
                         self.push_operator(Operator::Cast);
                     }
                     return None;
-                } else if tok.tok == Token::RightParen {
+                } else if tok == Token::RightParen {
                     // (T *)
                     let typ = Type {
                         base: BaseType::UD(qual),
@@ -207,14 +207,14 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.operands.push(ExprNode::Type(Box::new(typ)));
                     self.push_operator(Operator::Cast);
                     return None;
-                } else if CVQualifier::is_cv(&tok.tok) {
+                } else if CVQualifier::is_cv(&tok) {
                     // (T const...
                     let tdp = TypeDeclaratorParser::new(self.lexer);
                     let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false);
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    if tok.tok == Token::RightParen {
+                    if tok == Token::RightParen {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
                         self.push_operator(Operator::Cast);
                     }
@@ -234,10 +234,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     self.last = LastKind::Operator;
                     return Some(tok);
                 }
-            } else if tok.tok == Token::LeftParen {
+            } else if tok == Token::LeftParen {
                 // (T (...: we may have a function/array pointer
                 return self.handle_paren_after_type(CastType::Qual(qual));
-            } else if tok.tok == Token::RightParen {
+            } else if tok == Token::RightParen {
                 // (T)
                 let tok = self.lexer.next_useful();
 
@@ -248,7 +248,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 // here if T is a type node will become Cast(T, -a * 3)
                 // else Sub(T, a * 3)
                 // I don't know if it's correct... check that
-                let tok = match tok.tok {
+                let tok = match tok {
                     Token::Plus
                     | Token::Minus
                     | Token::And

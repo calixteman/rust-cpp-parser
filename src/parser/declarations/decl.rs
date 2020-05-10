@@ -11,7 +11,7 @@ use super::{
 };
 use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
 use crate::{dump_str, dump_vec};
@@ -91,11 +91,11 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         hint: Option<DeclHint>, // TODO: remove hint
-    ) -> (Option<LocToken>, Option<Declaration>) {
+    ) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::SemiColon {
+        if tok == Token::SemiColon {
             return (None, Some(Declaration::Empty));
         }
         let tok = Some(tok);
@@ -132,7 +132,7 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
         let (tok, mut attrs) = ap.parse(tok);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::SemiColon {
+        if tok == Token::SemiColon {
             return (None, Some(Declaration::Attributes(attrs.unwrap())));
         }
         let tok = Some(tok);
@@ -171,12 +171,9 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, Option<Declarations>, bool) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declarations>, bool) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (mut tok, has_lbrace) = if tok.tok == Token::LeftBrace {
+        let (mut tok, has_lbrace) = if tok == Token::LeftBrace {
             (None, true)
         } else {
             (Some(tok), false)
@@ -203,7 +200,7 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
 
             tok = if has_lbrace {
                 let tok = tk.unwrap_or_else(|| self.lexer.next_useful());
-                if tok.tok == Token::RightBrace {
+                if tok == Token::RightBrace {
                     return (None, Some(list), has_lbrace);
                 } else {
                     Some(tok)

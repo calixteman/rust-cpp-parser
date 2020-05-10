@@ -7,7 +7,7 @@ use super::list::{ListInitialization, ListInitializationParser};
 use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::dump_fields;
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::dump::Dump;
@@ -243,7 +243,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         self.term == tok || (tok == Token::RightParen && !self.is_nested())
     }
 
-    fn handle_id(&mut self, id: String) -> LocToken {
+    fn handle_id(&mut self, id: String) -> Token {
         let qp = QualifiedParser::new(self.lexer);
         let (tk, qual) = qp.parse(None, Some(id));
 
@@ -256,16 +256,16 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 
     pub(crate) fn parse_with_id(
         &mut self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         name: Qualified,
-    ) -> (Option<LocToken>, Option<ExprNode>) {
+    ) -> (Option<Token>, Option<ExprNode>) {
         self.operands.push(ExprNode::Qualified(Box::new(name)));
         self.last = LastKind::Operand;
 
         self.parse(tok)
     }
 
-    pub(crate) fn parse(&mut self, tok: Option<LocToken>) -> (Option<LocToken>, Option<ExprNode>) {
+    pub(crate) fn parse(&mut self, tok: Option<Token>) -> (Option<Token>, Option<ExprNode>) {
         macro_rules! str_literal {
             ($s: expr, $name: ident) => {{
                 let slp = StringLiteralParser::new(self.lexer);
@@ -294,11 +294,11 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
-            if tok.tok == self.term && self.level == 0 {
+            if tok == self.term && self.level == 0 {
                 return (Some(tok), self.get_node());
             }
 
-            match tok.tok {
+            match tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Add);
@@ -341,7 +341,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 }
                 Token::Sizeof => {
                     let tk = self.lexer.next_useful();
-                    if tk.tok == Token::LeftParen {
+                    if tk == Token::LeftParen {
                         let pp = ParametersParser::new(self.lexer, Token::RightParen);
                         let (_, params) = pp.parse(None, None);
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
@@ -405,7 +405,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                         self.flush_with_op(Operator::Subscript);
                         let mut ep = ExpressionParser::new(&mut self.lexer, Token::RightBrack);
                         let (tk, expr) = ep.parse(None);
-                        if tk.map_or(true, |t| t.tok == Token::RightBrack) {
+                        if tk.map_or(true, |t| t == Token::RightBrack) {
                             let array = self.operands.pop().unwrap();
                             self.operands.push(ExprNode::BinaryOp(Box::new(BinaryOp {
                                 op: Operator::Subscript,
@@ -425,9 +425,9 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 }
                 Token::RightShift => {
                     if self.is_terminal(Token::Greater) {
-                        let mut tok = tok.clone();
-                        tok.tok = Token::Greater;
-                        tok.start.column += 1;
+                        let tok = Token::Greater;
+                        // TODO: fix token location in lexer
+                        //tok.start.column += 1;
                         return (Some(tok), self.get_node());
                     } else {
                         self.push_operator(Operator::RShift);
@@ -451,9 +451,9 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 }
                 Token::GreaterEqual => {
                     if self.is_terminal(Token::Greater) {
-                        let mut tok = tok.clone();
-                        tok.tok = Token::Equal;
-                        tok.start.column += 1;
+                        let tok = Token::Equal;
+                        // TODO: fix token location in lexer
+                        //tok.start.column += 1;
                         return (Some(tok), self.get_node());
                     } else {
                         self.push_operator(Operator::Geq);
@@ -541,7 +541,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     let (tok, expr) = ep.parse(None);
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-                    if tok.tok != Token::Colon {
+                    if tok != Token::Colon {
                         unreachable!("Wrong token conditional operator: {:?}", tok);
                     }
 

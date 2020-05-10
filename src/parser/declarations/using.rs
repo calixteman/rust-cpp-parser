@@ -6,7 +6,7 @@
 use super::decl::Declaration;
 use super::types::{TypeDeclarator, TypeDeclaratorParser};
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 
@@ -110,14 +110,14 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Declaration>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Using {
+        if tok != Token::Using {
             return (Some(tok), None);
         }
 
         let tok = self.lexer.next_useful();
-        if tok.tok == Token::Enum {
+        if tok == Token::Enum {
             let qp = QualifiedParser::new(self.lexer);
             let (tok, name) = qp.parse(None, None);
 
@@ -128,7 +128,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
             };
         }
 
-        if tok.tok == Token::Namespace {
+        if tok == Token::Namespace {
             let qp = QualifiedParser::new(self.lexer);
             let (tok, name) = qp.parse(None, None);
 
@@ -149,7 +149,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         let mut tok = tok;
 
         loop {
-            let (tk, typename) = if tok.tok == Token::Typename {
+            let (tk, typename) = if tok == Token::Typename {
                 (self.lexer.next_useful(), true)
             } else {
                 (tok, false)
@@ -165,7 +165,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            match tk.tok {
+            match tk {
                 Token::Comma => {
                     names.push(Name { name, typename });
                     tok = self.lexer.next_useful();
@@ -185,7 +185,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                     let (tok, attrs) = ap.parse(Some(tk));
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-                    if tok.tok != Token::Equal {
+                    if tok != Token::Equal {
                         unreachable!("Invalid token in alias declaration: {:?}", tok)
                     }
 

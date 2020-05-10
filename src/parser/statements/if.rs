@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::{Statement, StatementParser};
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -39,16 +39,16 @@ impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<If>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<If>) {
         let mut tok = self.lexer.next_useful();
-        let constexpr = if tok.tok == Token::Constexpr {
+        let constexpr = if tok == Token::Constexpr {
             tok = self.lexer.next_useful();
             true
         } else {
             false
         };
 
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             unreachable!("Invalid token in if statements: {:?}", tok);
         }
 
@@ -56,7 +56,7 @@ impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
         let (tok, condition) = ep.parse(None);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::RightParen {
+        if tok != Token::RightParen {
             unreachable!("Invalid token in if statements: {:?}", tok);
         }
 
@@ -65,7 +65,7 @@ impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let (tok, r#else) = if tok.tok == Token::Else {
+        let (tok, r#else) = if tok == Token::Else {
             let sp = StatementParser::new(self.lexer);
             sp.parse(None)
         } else {

@@ -549,7 +549,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     fn eval(&mut self) -> Int {
         loop {
             let tok = self.lexer.next_token();
-            match tok.tok {
+            match tok {
                 Token::Plus => {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Add);
@@ -716,9 +716,8 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
                 }
                 _ => {
                     unreachable!(
-                        "Got token {:?} at line {} in file {:?}",
-                        tok.tok,
-                        tok.start.line,
+                        "Got token {:?} at line ?? in file {:?}",
+                        tok,
                         self.lexer
                             .context
                             .get_path(self.lexer.buf.get_source_id().unwrap())

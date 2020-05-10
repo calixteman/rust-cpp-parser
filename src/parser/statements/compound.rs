@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::{Statement, StatementParser};
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 
@@ -44,15 +44,12 @@ impl<'a, 'b, PC: PreprocContext> CompoundStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken>, Option<Compound>) {
+    pub(crate) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Compound>) {
         let mut stmts = Vec::new();
         let mut tok = self.lexer.next_useful();
 
         loop {
-            if tok.tok == Token::RightBrace {
+            if tok == Token::RightBrace {
                 return (None, Some(Compound { attributes, stmts }));
             }
 

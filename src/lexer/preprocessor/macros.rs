@@ -392,16 +392,16 @@ mod tests {
             .as_bytes(),
         );
 
-        assert_eq!(p.next_token().tok, Token::PreprocDefine);
-        assert_eq!(p.next_token().tok, Token::While);
-        assert_eq!(p.next_token().tok, Token::Eol);
-        assert_eq!(p.next_token().tok, Token::PreprocDefine);
-        assert_eq!(p.next_token().tok, Token::Identifier("lewhi".to_string()));
-        assert_eq!(p.next_token().tok, Token::Eol);
-        assert_eq!(p.next_token().tok, Token::PreprocDefine);
-        assert_eq!(p.next_token().tok, Token::Identifier("bar".to_string()));
-        assert_eq!(p.next_token().tok, Token::Identifier("foo".to_string()));
-        assert_eq!(p.next_token().tok, Token::Eol);
+        assert_eq!(p.next_token(), Token::PreprocDefine);
+        assert_eq!(p.next_token(), Token::While);
+        assert_eq!(p.next_token(), Token::Eol);
+        assert_eq!(p.next_token(), Token::PreprocDefine);
+        assert_eq!(p.next_token(), Token::Identifier("lewhi".to_string()));
+        assert_eq!(p.next_token(), Token::Eol);
+        assert_eq!(p.next_token(), Token::PreprocDefine);
+        assert_eq!(p.next_token(), Token::Identifier("bar".to_string()));
+        assert_eq!(p.next_token(), Token::Identifier("foo".to_string()));
+        assert_eq!(p.next_token(), Token::Eol);
     }
 
     #[test]

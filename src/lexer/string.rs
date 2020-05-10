@@ -337,91 +337,76 @@ mod tests {
     #[test]
     fn test_string() {
         let mut p = Lexer::<DefaultContext>::new(b"\"foo\" \"foo\\\"bar\"");
-        assert_eq!(p.next_token().tok, Token::LiteralString("foo".to_string()));
-        assert_eq!(
-            p.next_token().tok,
-            Token::LiteralString("foo\"bar".to_string())
-        );
+        assert_eq!(p.next_token(), Token::LiteralString("foo".to_string()));
+        assert_eq!(p.next_token(), Token::LiteralString("foo\"bar".to_string()));
 
         let mut p = Lexer::<DefaultContext>::new(b"u\"foo\" u\"foo\\\"bar\"");
-        assert_eq!(p.next_token().tok, Token::LiteralUString("foo".to_string()));
+        assert_eq!(p.next_token(), Token::LiteralUString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralUString("foo\"bar".to_string())
         );
 
         let mut p = Lexer::<DefaultContext>::new(b"U\"foo\" U\"foo\\\"bar\"");
+        assert_eq!(p.next_token(), Token::LiteralUUString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
-            Token::LiteralUUString("foo".to_string())
-        );
-        assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralUUString("foo\"bar".to_string())
         );
 
         let mut p = Lexer::<DefaultContext>::new(b"u8\"foo\" u8\"foo\\\"bar\"");
+        assert_eq!(p.next_token(), Token::LiteralU8String("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
-            Token::LiteralU8String("foo".to_string())
-        );
-        assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralU8String("foo\"bar".to_string())
         );
 
         let mut p = Lexer::<DefaultContext>::new(b"L\"foo\" L\"foo\\\"bar\"");
-        assert_eq!(p.next_token().tok, Token::LiteralLString("foo".to_string()));
+        assert_eq!(p.next_token(), Token::LiteralLString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralLString("foo\"bar".to_string())
         );
 
         let mut p = Lexer::<DefaultContext>::new(
             b"R\"hello(foo)hello\" R\"world(foo\n\\\"bar)world\" R\"world(foo)world  )world\"",
         );
-        assert_eq!(p.next_token().tok, Token::LiteralRString("foo".to_string()));
+        assert_eq!(p.next_token(), Token::LiteralRString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralRString("foo\n\\\"bar".to_string())
         );
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralRString("foo)world  ".to_string())
         );
 
         let mut p =
             Lexer::<DefaultContext>::new(b"LR\"hello(foo)hello\" UR\"world(foo\n\\\"bar)world\"");
+        assert_eq!(p.next_token(), Token::LiteralLRString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
-            Token::LiteralLRString("foo".to_string())
-        );
-        assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralUURString("foo\n\\\"bar".to_string())
         );
 
         let mut p =
             Lexer::<DefaultContext>::new(b"uR\"hello(foo)hello\" u8R\"world(foo\n\\\"bar)world\"");
+        assert_eq!(p.next_token(), Token::LiteralURString("foo".to_string()));
         assert_eq!(
-            p.next_token().tok,
-            Token::LiteralURString("foo".to_string())
-        );
-        assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralU8RString("foo\n\\\"bar".to_string())
         );
 
         let mut p = Lexer::<DefaultContext>::new(b"R\"(abc)\ndef)\n)\"");
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralRString("abc)\ndef)\n".to_string())
         );
 
         let mut p =
             Lexer::<DefaultContext>::new(b"\"test\\0\\\\\\\"\\t\\a\\b\\234\\u1234\\U0010ffff\"");
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralString("test\u{0}\\\"\t\u{7}\u{8}\u{9c}\u{1234}\u{10ffff}".to_string())
         );
     }
@@ -430,7 +415,7 @@ mod tests {
     fn test_string_suffix() {
         let mut p = Lexer::<DefaultContext>::new(b"\"foo\"_abcde");
         assert_eq!(
-            p.next_token().tok,
+            p.next_token(),
             Token::LiteralStringUD(Box::new(("foo".to_string(), "_abcde".to_string())))
         );
     }

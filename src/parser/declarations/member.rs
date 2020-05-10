@@ -9,7 +9,7 @@ use super::{
     UsingParser,
 };
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
 
 use crate::parser::dump::Dump;
@@ -89,9 +89,9 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<MemberRes>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<MemberRes>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok == Token::SemiColon {
+        if tok == Token::SemiColon {
             return (None, Some(MemberRes::Decl(Member::Empty)));
         }
         let tok = Some(tok);
@@ -143,7 +143,7 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (tok, member) = if tok.tok == Token::Colon {
+        let (tok, member) = if tok == Token::Colon {
             // we've a bitfield
             let bfdp = BitFieldDeclaratorParser::new(self.lexer);
             let (tok, bitfield) = bfdp.parse(None, typ);
@@ -165,9 +165,9 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Visibility>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Visibility>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let visibility = match tok.tok {
+        let visibility = match tok {
             Token::Public => Visibility::Public,
             Token::Protected => Visibility::Protected,
             Token::Private => Visibility::Private,
@@ -177,7 +177,7 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
         };
 
         let tok = self.lexer.next_useful();
-        if tok.tok != Token::Colon {
+        if tok != Token::Colon {
             unreachable!("Invalid token {:?}", tok);
         }
 

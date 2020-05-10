@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 
 use crate::dump_str;
 use crate::parser::dump::Dump;
@@ -232,13 +232,13 @@ impl<'a, 'b, PC: PreprocContext> StringLiteralParser<'a, 'b, PC> {
         res
     }
 
-    pub(crate) fn parse(self, first: &str) -> (Option<LocToken>, String) {
+    pub(crate) fn parse(self, first: &str) -> (Option<Token>, String) {
         let mut strings = Vec::with_capacity(32); // TODO: put a good value here if it's useful
         let mut lens = 0;
 
         let tok = loop {
             let tok = self.lexer.next_useful();
-            match tok.tok {
+            match tok {
                 Token::LiteralString(s)
                 | Token::LiteralLString(s)
                 | Token::LiteralUString(s)

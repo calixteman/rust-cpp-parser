@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 
 use crate::parser::dump::Dump;
 use crate::{dump_fields, dump_start};
@@ -57,14 +57,14 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<LocToken>, Option<String>) {
+    fn parse(self) -> (Option<Token>, Option<String>) {
         let tok = self.lexer.next_useful();
-        if tok.tok == Token::Using {
+        if tok == Token::Using {
             let tok = self.lexer.next_useful();
-            if let Token::Identifier(ns) = tok.tok {
+            if let Token::Identifier(ns) = tok {
                 let ns = Some(ns);
                 let tok = self.lexer.next_useful();
-                match tok.tok {
+                match tok {
                     Token::Colon => {
                         return (None, ns);
                     }
@@ -89,9 +89,9 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<AttributeArg>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<AttributeArg>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             return (Some(tok), None);
         }
 
@@ -102,7 +102,7 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
 
         loop {
             let tok = self.lexer.next_useful();
-            match tok.tok {
+            match tok {
                 Token::LeftParen => {
                     paren_count += 1;
                 }
@@ -157,14 +157,14 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: LocToken) -> (Option<LocToken>, (Option<String>, String)) {
-        match tok.tok {
+    fn parse(self, tok: Token) -> (Option<Token>, (Option<String>, String)) {
+        match tok {
             Token::Identifier(id) => {
                 let tk = self.lexer.next_useful();
-                if tk.tok == Token::ColonColon {
+                if tk == Token::ColonColon {
                     let ns = Some(id);
                     let tk = self.lexer.next_useful();
-                    if let Token::Identifier(id) = tk.tok {
+                    if let Token::Identifier(id) = tk {
                         (None, (ns, id))
                     } else {
                         unreachable!("Invalid token in attributes: {:?}", tk);
@@ -189,7 +189,7 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, attributes: &mut Attributes, tok: Option<LocToken>) -> (Option<LocToken>, bool) {
+    fn parse(self, attributes: &mut Attributes, tok: Option<Token>) -> (Option<Token>, bool) {
         // [[ attribute-list ]]
         // [[ using attribute-namespace : attribute-list ]]
         //
@@ -200,7 +200,7 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
         //   attribute-namespace :: identifier ( argument-list )
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::DoubleLeftBrack {
+        if tok != Token::DoubleLeftBrack {
             return (Some(tok), false);
         }
 
@@ -225,7 +225,7 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
             });
 
             tok = tk.unwrap_or_else(|| self.lexer.next_useful());
-            match tok.tok {
+            match tok {
                 Token::Comma => {}
                 Token::DoubleRightBrack => {
                     return (None, true);
@@ -249,7 +249,7 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Attributes>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Attributes>) {
         let mut attributes = Vec::new();
         let mut tok = tok;
         let mut has_attributes = false;

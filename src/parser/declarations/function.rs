@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
@@ -171,12 +171,9 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, Option<CtorInitializers>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<CtorInitializers>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Colon {
+        if tok != Token::Colon {
             return (Some(tok), None);
         }
 
@@ -205,7 +202,7 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
             inits.push(CtorInit { name, init });
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            if tk.tok != Token::Comma {
+            if tk != Token::Comma {
                 return (Some(tk), Some(inits));
             }
             tok = Some(tk);
@@ -265,14 +262,14 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
 
     pub(super) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         skip_lparen: bool,
-    ) -> (Option<LocToken>, Option<Vec<Parameter>>) {
+    ) -> (Option<Token>, Option<Vec<Parameter>>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut tok = if skip_lparen {
             Some(tok)
         } else {
-            if tok.tok != Token::LeftParen {
+            if tok != Token::LeftParen {
                 return (Some(tok), None);
             }
             None
@@ -293,7 +290,7 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            match tk.tok {
+            match tk {
                 Token::Comma => {
                     params.push(Parameter { attributes, decl });
                 }
@@ -321,9 +318,9 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
     pub(super) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         skip_lparen: bool,
-    ) -> (Option<LocToken>, Option<Function>) {
+    ) -> (Option<Token>, Option<Function>) {
         let plp = ParameterListParser::new(self.lexer);
         let (tok, params) = plp.parse(tok, skip_lparen);
         let params = if let Some(params) = params {
@@ -336,13 +333,13 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let mut cv = CVQualifier::empty();
         loop {
-            if !cv.from_tok(&tok.tok) {
+            if !cv.from_tok(&tok) {
                 break;
             }
             tok = self.lexer.next_useful();
         }
 
-        let (tok, refq) = match tok.tok {
+        let (tok, refq) = match tok {
             Token::And => (None, RefQualifier::LValue),
             Token::AndAnd => (None, RefQualifier::RValue),
             _ => (Some(tok), RefQualifier::None),
@@ -356,7 +353,7 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let (tok, trailing) = if tok.tok == Token::Arrow {
+        let (tok, trailing) = if tok == Token::Arrow {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(None, None, false);
             (tok, decl.map(|d| d.typ))
@@ -366,11 +363,11 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let mut virt_specifier = VirtSpecifier::empty();
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        while virt_specifier.from_tok(&tok.tok) {
+        while virt_specifier.from_tok(&tok) {
             tok = self.lexer.next_useful();
         }
 
-        let (tok, requires) = if tok.tok == Token::Requires {
+        let (tok, requires) = if tok == Token::Requires {
             let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
             let (tok, e) = ep.parse(None);
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -379,9 +376,9 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
             (tok, None)
         };
 
-        let (tok, status) = if tok.tok == Token::Equal {
+        let (tok, status) = if tok == Token::Equal {
             let tok = self.lexer.next_useful();
-            match tok.tok {
+            match tok {
                 Token::Default => (self.lexer.next_useful(), FunStatus::Default),
                 Token::Delete => (self.lexer.next_useful(), FunStatus::Delete),
                 Token::LiteralInt(0) => (self.lexer.next_useful(), FunStatus::Pure),
@@ -398,7 +395,7 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let (tok, body) = if tok.tok == Token::LeftBrace {
+        let (tok, body) = if tok == Token::LeftBrace {
             let cp = CompoundStmtParser::new(self.lexer);
             cp.parse(None)
         } else {
@@ -433,17 +430,17 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Exception>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Exception>) {
         // noexcept
         // noexcept(expression)
         // throw()                    (removed in C++20)
         // throw(typeid, typeid, ...)
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        match tok.tok {
+        match tok {
             Token::Noexcept => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::LeftParen {
+                if tok == Token::LeftParen {
                     let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
                     let (tok, exp) = ep.parse(None);
                     (tok, Some(Exception::Noexcept(exp)))
@@ -453,7 +450,7 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
             }
             Token::Throw => {
                 let tok = self.lexer.next_useful();
-                if tok.tok == Token::LeftParen {
+                if tok == Token::LeftParen {
                     let pp = ParametersParser::new(self.lexer, Token::RightParen);
                     let (tok, params) = pp.parse(None, None);
                     (tok, Some(Exception::Throw(params)))
@@ -479,8 +476,8 @@ impl<'a, 'b, PC: PreprocContext> ConvOperatorDeclaratorParser<'a, 'b, PC> {
         self,
         specifier: Specifier,
         name: Option<Qualified>,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, Option<TypeDeclarator>) {
+        tok: Option<Token>,
+    ) -> (Option<Token>, Option<TypeDeclarator>) {
         let (tok, name) = if name.is_none() {
             let op = OperatorParser::new(self.lexer);
             let (tok, op) = op.parse(tok);

@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::literals::StringLiteralParser;
 
@@ -44,16 +44,16 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<StaticAssert>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<StaticAssert>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::StaticAssert && tok.tok != Token::CStaticAssert {
+        if tok != Token::StaticAssert && tok != Token::CStaticAssert {
             return (Some(tok), None);
         }
 
-        let cpp = tok.tok == Token::StaticAssert;
+        let cpp = tok == Token::StaticAssert;
 
         let tok = self.lexer.next_useful();
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             unreachable!("Invalid token in static_assert: {:?}", tok);
         }
 
@@ -67,7 +67,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        match tok.tok {
+        match tok {
             Token::RightParen => {
                 return (
                     None,
@@ -83,7 +83,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         }
 
         let tok = self.lexer.next_useful();
-        let string = tok.tok.get_string();
+        let string = tok.get_string();
 
         let string = if let Some(string) = string {
             string
@@ -95,7 +95,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         let (tok, string) = slp.parse(&string);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::RightParen {
+        if tok != Token::RightParen {
             unreachable!("Invalid token in static_assert: {:?}", tok)
         }
 

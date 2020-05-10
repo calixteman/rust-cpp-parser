@@ -6,7 +6,7 @@
 use super::member::{MemberParser, MemberRes, Members, Visibility};
 use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use bitflags::bitflags;
@@ -157,7 +157,7 @@ impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Derived>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Derived>) {
         // optional: attributes
         let ap = AttributesParser::new(self.lexer);
         let (tok, attributes) = ap.parse(tok);
@@ -165,7 +165,7 @@ impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
         // access-specifier | virtual-specifier
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut specifier = ClassSpecifier::empty();
-        while specifier.from_tok(&tok.tok) {
+        while specifier.from_tok(&tok) {
             tok = self.lexer.next_useful();
         }
 
@@ -199,10 +199,10 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Vec<Derived>>) {
+    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Vec<Derived>>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        if tok.tok != Token::Colon {
+        if tok != Token::Colon {
             return (Some(tok), None);
         }
 
@@ -219,7 +219,7 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
             }
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if tok.tok != Token::Comma {
+            if tok != Token::Comma {
                 break Some(tok);
             }
         };
@@ -241,9 +241,9 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Class>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Class>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let kind = if let Some(kind) = Kind::from_tok(&tok.tok) {
+        let kind = if let Some(kind) = Kind::from_tok(&tok) {
             kind
         } else {
             return (Some(tok), None);
@@ -260,7 +260,7 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
 
         // optional: final
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (tok, r#final) = if tok.tok == Token::Final {
+        let (tok, r#final) = if tok == Token::Final {
             (None, true)
         } else {
             (Some(tok), false)
@@ -297,11 +297,11 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
+        tok: Option<Token>,
         kind: Kind,
-    ) -> (Option<LocToken>, Option<ClassBody>) {
+    ) -> (Option<Token>, Option<ClassBody>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::LeftBrace {
+        if tok != Token::LeftBrace {
             return (Some(tok), None);
         }
 
@@ -355,7 +355,7 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            tok = if tk.tok == Token::RightBrace {
+            tok = if tk == Token::RightBrace {
                 return (None, Some(body));
             } else {
                 Some(tk)

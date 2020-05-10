@@ -3,7 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -48,10 +48,10 @@ impl<'a, 'b, PC: PreprocContext> GotoStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<LocToken>, Option<Goto>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Goto>) {
         let tok = self.lexer.next_useful();
 
-        match tok.tok {
+        match tok {
             Token::Identifier(id) => (
                 None,
                 Some(Goto {

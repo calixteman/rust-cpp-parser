@@ -4,7 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken, Token};
+use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::literals::StringLiteralParser;
 
@@ -23,25 +23,25 @@ impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Asm>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Asm>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Asm {
+        if tok != Token::Asm {
             return (Some(tok), None);
         }
 
         let tok = self.lexer.next_useful();
-        if tok.tok != Token::LeftParen {
+        if tok != Token::LeftParen {
             unreachable!("Invalid token in asm declaration: {:?}", tok);
         }
 
         let tok = self.lexer.next_useful();
 
-        if let Some(code) = tok.tok.get_string() {
+        if let Some(code) = tok.get_string() {
             let slp = StringLiteralParser::new(self.lexer);
             let (tok, code) = slp.parse(&code);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if tok.tok != Token::RightParen {
+            if tok != Token::RightParen {
                 unreachable!("Invalid token in asm declaration: {:?}", tok);
             }
 

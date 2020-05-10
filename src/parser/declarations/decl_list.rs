@@ -6,7 +6,7 @@
 use super::namespace::{NPRes, Namespace, NamespaceParser};
 use super::r#extern::{EPRes, Extern, ExternParser};
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, LocToken};
+use crate::lexer::{Lexer, Token};
 use crate::parser::statements::{Statement, StatementParser};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -27,7 +27,7 @@ impl<'a, 'b, PC: PreprocContext> TopLevelParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<TopLevel>) {
+    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<TopLevel>) {
         let ep = ExternParser::new(self.lexer);
         let (tok, epr) = ep.parse(tok);
 
@@ -78,8 +78,8 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
 
     pub(crate) fn parse(
         self,
-        tok: Option<LocToken>,
-    ) -> (Option<LocToken>, Option<DeclarationList>) {
+        tok: Option<Token>,
+    ) -> (Option<Token>, Option<DeclarationList>) {
         let mut tok = tok;
         let mut list = Vec::new();
 

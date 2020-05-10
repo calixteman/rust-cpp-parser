@@ -23,7 +23,7 @@ fn main() {
     loop {
         let tok = lexer.next_token();
         eprintln!("TOK: {:?}", tok);
-        if tok.tok == Token::Eof {
+        if tok == Token::Eof {
             break;
         }
     }

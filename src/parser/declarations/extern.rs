@@ -6,7 +6,7 @@
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,15 +25,15 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<LocToken>) -> (Option<LocToken>, Option<Declaration>) {
+    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok.tok != Token::Extern {
+        if tok != Token::Extern {
             return (Some(tok), None);
         }
 
         let tok = self.lexer.next_useful();
 
-        if let Token::LiteralString(language) = tok.tok {
+        if let Token::LiteralString(language) = tok {
             let dlp = DeclarationListParser::new(self.lexer);
 
             let (tok, list, multiple) = dlp.parse(None);

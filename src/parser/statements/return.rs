@@ -3,7 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::lexer::{Lexer, LocToken, Token};
+use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -33,10 +33,7 @@ impl<'a, 'b, PC: PreprocContext> ReturnStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(
-        self,
-        attributes: Option<Attributes>,
-    ) -> (Option<LocToken>, Option<Return>) {
+    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Return>) {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
         let (tok, expr) = ep.parse(None);
 
