@@ -230,7 +230,7 @@ namespace A {
                             inline: false,
                             name: "B".to_string(),
                         },],),
-                        body: vec![Declaration::Type(TypeDeclarator {
+                        body: vec![Declaration::Type(Rc::new(TypeDeclarator {
                             typ: Type {
                                 base: BaseType::Function(Box::new(Function {
                                     return_type: Some(Type {
@@ -259,9 +259,9 @@ namespace A {
                                 attributes: None
                             },
                             init: None,
-                        })],
+                        }))],
                     },),
-                    Declaration::Type(TypeDeclarator {
+                    Declaration::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Function(Box::new(Function {
                                 return_type: Some(Type {
@@ -290,7 +290,7 @@ namespace A {
                             attributes: None
                         },
                         init: None,
-                    })
+                    }))
                 ],
             })
         );

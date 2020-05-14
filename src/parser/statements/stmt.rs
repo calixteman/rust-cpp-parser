@@ -273,6 +273,7 @@ mod tests {
     use crate::parser::names::Qualified;
     use crate::parser::types::*;
     use pretty_assertions::assert_eq;
+    use std::rc::Rc;
 
     #[test]
     fn test_statement_compound_1() {
@@ -330,7 +331,7 @@ mod tests {
                             value: IntLiteral::Int(1)
                         })),
                     }))),
-                    Statement::Declaration(Box::new(Declaration::Type(TypeDeclarator {
+                    Statement::Declaration(Box::new(Declaration::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
@@ -346,8 +347,8 @@ mod tests {
                                 value: IntLiteral::Int(1)
                             }
                         )))),
-                    }))),
-                    Statement::Declaration(Box::new(Declaration::Type(TypeDeclarator {
+                    })))),
+                    Statement::Declaration(Box::new(Declaration::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::UD(mk_id!("A"),),
                             cv: CVQualifier::empty(),
@@ -364,7 +365,7 @@ mod tests {
                             attributes: None
                         },
                         init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {}))))
-                    }))),
+                    })))),
                     Statement::Empty,
                 ]
             }))

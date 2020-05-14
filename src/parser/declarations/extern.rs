@@ -94,7 +94,7 @@ extern "C" {
             ext,
             Declaration::Extern(Extern {
                 language: "C".to_string(),
-                decls: vec![Declaration::Type(TypeDeclarator {
+                decls: vec![Declaration::Type(Rc::new(TypeDeclarator {
                     typ: Type {
                         base: BaseType::Function(Box::new(Function {
                             return_type: Some(Type {
@@ -138,7 +138,7 @@ extern "C" {
                         attributes: None
                     },
                     init: None,
-                })],
+                }))],
                 multiple: true,
             })
         );
@@ -159,7 +159,7 @@ extern double sqrt(double);
 
         assert_eq!(
             ext,
-            Declaration::Type(TypeDeclarator {
+            Declaration::Type(Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -203,7 +203,7 @@ extern double sqrt(double);
                     attributes: None
                 },
                 init: None,
-            })
+            }))
         );
     }
 }
