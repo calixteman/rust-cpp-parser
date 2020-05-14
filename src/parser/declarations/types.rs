@@ -85,7 +85,7 @@ impl TypeDeclarator {
         if self.specifier.intersects(Specifier::TYPEDEF) {
             true
         } else {
-            false;
+            false
         }
     }
 }
