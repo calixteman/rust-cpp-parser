@@ -9,6 +9,7 @@ use crate::errors::{Span, StringlyError};
 pub enum LexerError {
     ErrorDirective { sp: Span, msg: String },
     EndifWithoutPreceedingIf { sp: Span },
+    FileIncludeError { sp: Span, file: String },
 }
 
 impl LexerError {
@@ -18,6 +19,9 @@ impl LexerError {
             ErrorDirective { sp, msg } => (*sp, format!("reached #error directive: {}", msg)),
             EndifWithoutPreceedingIf { sp } => {
                 (*sp, "reached #endif without preceeding #if".to_owned())
+            }
+            FileIncludeError { sp, file } => {
+                (*sp, format!("can't open file {} for inclusion", file))
             }
         };
         StringlyError { message, sp }

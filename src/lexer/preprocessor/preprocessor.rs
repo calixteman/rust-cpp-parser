@@ -110,11 +110,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         skip_whites!(self);
         Ok(match instr {
             Token::PreprocInclude => {
-                self.get_include(false);
+                self.get_include(false)?;
                 Token::PreprocInclude
             }
             Token::PreprocIncludeNext => {
-                self.get_include(true);
+                self.get_include(true)?;
                 Token::PreprocIncludeNext
             }
             Token::PreprocUndef => {

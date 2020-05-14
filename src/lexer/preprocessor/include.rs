@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::lexer::buffer::BufferData;
+use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::Lexer;
 use crate::lexer::preprocessor::PreprocContext;
 use crate::lexer::source::{FileId, SourceMutex};
@@ -229,7 +230,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         IncludeType::Other
     }
 
-    pub(crate) fn get_include(&mut self, next: bool) {
+    pub(crate) fn get_include(&mut self, next: bool) -> Result<(), LexerError> {
         match self.get_path() {
             IncludeType::Quote(path) => {
                 let source_id = self.buf.get_source_id().unwrap();
@@ -237,7 +238,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let buf = self
                     .context
                     .find(false, path, next, source_id, path_index)
-                    .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
+                    .ok_or_else(|| LexerError::FileIncludeError {
+                        sp: self.span(),
+                        file: path.to_string(),
+                    })?;
                 self.buf.add_buffer(buf);
             }
             IncludeType::Angle(path) => {
@@ -246,7 +250,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let buf = self
                     .context
                     .find(true, path, next, source_id, path_index)
-                    .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
+                    .ok_or_else(|| LexerError::FileIncludeError {
+                        sp: self.span(),
+                        file: path.to_string(),
+                    })?;
                 self.buf.add_buffer(buf);
             }
             IncludeType::Other => {
@@ -264,14 +271,20 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             let buf = self
                                 .context
                                 .find(false, path, next, source_id, path_index)
-                                .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
+                                .ok_or_else(|| LexerError::FileIncludeError {
+                                    sp: self.span(),
+                                    file: path.to_string(),
+                                })?;
                             self.buf.add_buffer(buf);
                         }
                         IncludeType::Angle(path) => {
                             let buf = self
                                 .context
                                 .find(true, path, next, source_id, path_index)
-                                .unwrap_or_else(|| unreachable!("Can't load file '{}' for include", path));
+                                .ok_or_else(|| LexerError::FileIncludeError {
+                                    sp: self.span(),
+                                    file: path.to_string(),
+                                })?;
                             self.buf.add_buffer(buf);
                         }
                         _ => {
@@ -283,6 +296,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -342,7 +356,7 @@ mod tests {
                 match path {
                     "path1" => b"#define foo 123\n".to_vec(),
                     "path2" => b"#include <path1>\n#define bar(x) foo x\n".to_vec(),
-                    _ => unreachable!(),
+                    _ => return None,
                 }
             } else {
                 match path {
@@ -370,7 +384,7 @@ mod tests {
                     )
                     .as_bytes()
                     .to_vec(),
-                    _ => unreachable!(),
+                    _ => return None,
                 }
             };
             Some(BufferData::new(buf, FileId(0), PathIndex(0)))
@@ -551,5 +565,37 @@ mod tests {
         assert_eq!(p.next_token(), Token::Eol);
         assert_eq!(p.next_token(), Token::Eol);
         assert_eq!(p.next_token(), Token::Identifier("sys_foo".to_string()));
+    }
+
+    #[test]
+    fn test_include_nonexistent() {
+        let mut p = Lexer::<Context<TestIncludeLocator>>::new(
+            concat!("#define something\n", "#include \"nonexistent\"\n",).as_bytes(),
+        );
+        p.consume_all();
+        assert_eq!(p.errors.len(), 1);
+        if let LexerError::FileIncludeError { sp, file } = &p.errors[0] {
+            assert_eq!(sp.start.pos, 18);
+            assert_eq!(sp.end.pos, 40);
+            assert_eq!(file, "nonexistent");
+        } else {
+            panic!("mismatch. Was: {:?}", p.errors[0]);
+        }
+    }
+
+    #[test]
+    fn test_include_nonexistent_angle() {
+        let mut p = Lexer::<Context<TestIncludeLocator>>::new(
+            concat!("#define something\n", "#include <nonexistent>\n",).as_bytes(),
+        );
+        p.consume_all();
+        assert_eq!(p.errors.len(), 1);
+        if let LexerError::FileIncludeError { sp, file } = &p.errors[0] {
+            assert_eq!(sp.start.pos, 18);
+            assert_eq!(sp.end.pos, 40);
+            assert_eq!(file, "nonexistent");
+        } else {
+            panic!("mismatch. Was: {:?}", p.errors[0]);
+        }
     }
 }
