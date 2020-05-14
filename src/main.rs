@@ -19,12 +19,24 @@ fn main() {
         includes: Vec::new(),
         current_dir: PathBuf::from("."),
     };
-    let mut lexer = Lexer::<DefaultContext>::new_from_file(file.to_str().unwrap(), source, opt);
+    let mut lexer = Lexer::<DefaultContext>::new_from_file(file.to_str().unwrap(), source.clone(), opt);
     loop {
         let tok = lexer.next_token();
         eprintln!("TOK: {:?}", tok);
         if tok == Token::Eof {
             break;
+        }
+    }
+    {
+        let source_lock = source.lock().unwrap();
+        for error in lexer.get_errors().iter() {
+            let error = error.stringly();
+            let file_path = if let Some(file) = error.sp.file {
+                source_lock.get_path(file).to_str().unwrap().to_owned()
+            } else {
+                "<unknown>".to_owned()
+            };
+            eprintln!("ERROR: {}:{}:{}: {}", file_path, error.sp.start.line, error.sp.start.column, error.message);
         }
     }
 }

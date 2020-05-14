@@ -9,6 +9,8 @@ pub use self::lexer::*;
 pub mod preprocessor;
 pub mod source;
 
+pub mod errors;
+
 mod buffer;
 mod cchar;
 mod comment;

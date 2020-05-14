@@ -14,6 +14,8 @@ use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
+use super::errors::LexerError;
+use crate::errors::Span;
 use crate::args;
 
 #[derive(PartialEq)]
@@ -507,6 +509,7 @@ pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) context: PC,
     pub(crate) comment: Option<&'a [u8]>,
     pub(crate) start: Location,
+    pub(crate) errors: Vec<LexerError>,
 }
 
 macro_rules! get_operator {
@@ -565,6 +568,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context: PC::default(),
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -574,6 +578,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context,
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -636,6 +641,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             context,
             comment: None,
             start: Location::dummy(),
+            errors: Vec::new(),
         }
     }
 
@@ -645,6 +651,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub fn get_context(&self) -> &PC {
         &self.context
+    }
+
+    pub fn get_errors(&self) -> &[LexerError] {
+        &self.errors
     }
 
     pub fn consume_tokens(&mut self, n: usize) {
@@ -720,7 +730,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
             if eval {
-                self.preproc_parse(keyword.clone())
+                self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
+                    self.errors.push(error);
+                    Token::Eof
+                })
             } else {
                 keyword.clone()
             }
@@ -1013,6 +1026,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             pos: self.buf.pos(),
             line: self.buf.get_line(),
             column: self.buf.get_column(),
+        }
+    }
+
+    pub(super) fn span(&self) -> Span {
+        Span {
+            file: self.buf.get_source_id(),
+            start: self.start,
+            end: self.location(),
         }
     }
 
