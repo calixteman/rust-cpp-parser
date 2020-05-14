@@ -3,19 +3,19 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
-use crate::parser::attributes::{Attributes, AttributesParser};
 use bitflags::bitflags;
+use termcolor::StandardStreamLock;
 
 use super::super::types::CVQualifier;
 use super::specifier::Specifier;
 use super::types::{NoPtrDeclaratorParser, TypeDeclarator};
-use crate::parser::types::{BaseType, Type};
-
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::types::{BaseType, Type};
+use crate::parser::Context;
 use crate::{dump_obj, dump_str, dump_vec};
-use termcolor::StandardStreamLock;
 
 bitflags! {
     pub struct MSModifier: u8 {
@@ -75,7 +75,7 @@ impl MSModifier {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum PtrKind {
     Pointer,
     Reference,
@@ -116,7 +116,7 @@ impl PtrKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Pointer {
     pub kind: PtrKind,
     pub attributes: Option<Attributes>,
@@ -151,6 +151,7 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         hint: Option<PtrKind>,
+        context: &mut Context,
     ) -> (Option<Token>, Option<Pointers>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut ptrs = Vec::new();
@@ -167,7 +168,7 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
 
         let tok = loop {
             let ap = AttributesParser::new(self.lexer);
-            let (tok, attributes) = ap.parse(None);
+            let (tok, attributes) = ap.parse(None, context);
             let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
             let mut cv = CVQualifier::empty();
@@ -207,6 +208,7 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         tok: Option<Token>,
+        context: &mut Context,
     ) -> (Option<Token>, (Option<TypeDeclarator>, bool)) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftParen {
@@ -217,7 +219,7 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
         // so we can have some params (function type, e.g. int * (int, int)))
         // or a function/array pointer
         let pdp = PointerDeclaratorParser::new(self.lexer);
-        let (tok, pointers) = pdp.parse(None, None);
+        let (tok, pointers) = pdp.parse(None, None, context);
 
         if pointers.is_some() {
             let npp = NoPtrDeclaratorParser::new(self.lexer);
@@ -226,7 +228,7 @@ impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
                 cv: CVQualifier::empty(),
                 pointers,
             };
-            let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false, false);
+            let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false, false, context);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {

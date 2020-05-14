@@ -3,6 +3,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::bitfield::{BitFieldDeclarator, BitFieldDeclaratorParser};
 use super::{
     Enum, EnumParser, StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum,
@@ -13,8 +15,8 @@ use crate::lexer::{Lexer, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
 
 use crate::parser::dump::Dump;
+use crate::parser::Context;
 use crate::{dump_str, dump_vec};
-use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Member {
@@ -89,7 +91,11 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<MemberRes>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<MemberRes>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::SemiColon {
             return (None, Some(MemberRes::Decl(Member::Empty)));
@@ -97,28 +103,28 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         let tok = Some(tok);
 
         let pppp = PPPParser::new(self.lexer);
-        let (tok, vis) = pppp.parse(tok);
+        let (tok, vis) = pppp.parse(tok, context);
 
         if let Some(vis) = vis {
             return (tok, Some(MemberRes::Vis(vis)));
         }
 
         let sap = StaticAssertParser::new(self.lexer);
-        let (tok, sa) = sap.parse(tok);
+        let (tok, sa) = sap.parse(tok, context);
 
         if let Some(sa) = sa {
             return (tok, Some(MemberRes::Decl(Member::StaticAssert(sa))));
         }
 
         let ep = EnumParser::new(self.lexer);
-        let (tok, en) = ep.parse(tok);
+        let (tok, en) = ep.parse(tok, context);
 
         if let Some(en) = en {
             return (tok, Some(MemberRes::Decl(Member::Enum(en))));
         }
 
         let up = UsingParser::new(self.lexer);
-        let (tok, using) = up.parse(tok);
+        let (tok, using) = up.parse(tok, context);
 
         if let Some(using) = using {
             let using = match using {
@@ -134,7 +140,7 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         }
 
         let tdp = TypeDeclaratorParser::new(self.lexer);
-        let (tok, typ) = tdp.parse(tok, None, true);
+        let (tok, typ) = tdp.parse(tok, None, true, context);
 
         let typ = if let Some(typ) = typ {
             typ
@@ -146,7 +152,7 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         let (tok, member) = if tok == Token::Colon {
             // we've a bitfield
             let bfdp = BitFieldDeclaratorParser::new(self.lexer);
-            let (tok, bitfield) = bfdp.parse(None, typ);
+            let (tok, bitfield) = bfdp.parse(None, typ, context);
             (tok, Member::BitField(bitfield.unwrap()))
         } else {
             (Some(tok), Member::Type(typ))
@@ -165,7 +171,11 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Visibility>) {
+    fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Visibility>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let visibility = match tok {
             Token::Public => Visibility::Public,
@@ -202,7 +212,8 @@ mod tests {
     fn test_member_public() {
         let mut l = Lexer::<DefaultContext>::new(b"public:");
         let p = MemberParser::new(&mut l);
-        let (_, m) = p.parse(None);
+        let mut context = Context::default();
+        let (_, m) = p.parse(None, &mut context);
         let v = if let MemberRes::Vis(v) = m.unwrap() {
             v
         } else {
@@ -217,7 +228,8 @@ mod tests {
     fn test_member_bitfield() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4");
         let p = MemberParser::new(&mut l);
-        let (_, m) = p.parse(None);
+        let mut context = Context::default();
+        let (_, m) = p.parse(None, &mut context);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {
@@ -252,7 +264,8 @@ mod tests {
     fn test_member_bitfield_equal() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 = 1");
         let p = MemberParser::new(&mut l);
-        let (_, m) = p.parse(None);
+        let mut context = Context::default();
+        let (_, m) = p.parse(None, &mut context);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {
@@ -289,7 +302,8 @@ mod tests {
     fn test_member_bitfield_brace() {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 {1}");
         let p = MemberParser::new(&mut l);
-        let (_, m) = p.parse(None);
+        let mut context = Context::default();
+        let (_, m) = p.parse(None, &mut context);
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {

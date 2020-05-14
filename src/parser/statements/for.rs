@@ -3,16 +3,17 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::{Statement, StatementParser};
+use crate::dump_obj;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser, TypeDeclarator};
-use crate::parser::expressions::{ExprNode, ExpressionParser};
-
-use crate::dump_obj;
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::expressions::{ExprNode, ExpressionParser};
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct For {
@@ -72,7 +73,11 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<ForRes>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<ForRes>) {
         let tok = self.lexer.next_useful();
 
         if tok != Token::LeftParen {
@@ -80,7 +85,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         }
 
         let dep = DeclOrExprParser::new(self.lexer);
-        let (tok, init) = dep.parse(None);
+        let (tok, init) = dep.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::Colon {
@@ -92,7 +97,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             };
 
             let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-            let (tok, expr) = ep.parse(None);
+            let (tok, expr) = ep.parse(None, context);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
@@ -100,7 +105,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             }
 
             let sp = StatementParser::new(self.lexer);
-            let (tok, body) = sp.parse(None);
+            let (tok, body) = sp.parse(None, context);
 
             return (
                 tok,
@@ -119,7 +124,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         }
 
         let dep = DeclOrExprParser::new(self.lexer);
-        let (tok, condition) = dep.parse(None);
+        let (tok, condition) = dep.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::Colon {
@@ -131,7 +136,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             };
 
             let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-            let (tok, expr) = ep.parse(None);
+            let (tok, expr) = ep.parse(None, context);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
@@ -139,7 +144,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
             }
 
             let sp = StatementParser::new(self.lexer);
-            let (tok, body) = sp.parse(None);
+            let (tok, body) = sp.parse(None, context);
 
             return (
                 tok,
@@ -169,7 +174,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, iteration) = ep.parse(None);
+        let (tok, iteration) = ep.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
@@ -177,7 +182,7 @@ impl<'a, 'b, PC: PreprocContext> ForStmtParser<'a, 'b, PC> {
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None);
+        let (tok, body) = sp.parse(None, context);
 
         (
             tok,

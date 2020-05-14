@@ -16,6 +16,6 @@ pub use self::macros::*;
 
 pub mod args;
 pub mod defaults;
+pub mod errors;
 pub mod lexer;
 pub mod parser;
-pub mod errors;

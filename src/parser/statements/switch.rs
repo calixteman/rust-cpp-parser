@@ -3,6 +3,8 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::{Statement, StatementParser};
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
@@ -11,7 +13,7 @@ use crate::parser::expressions::{ExprNode, ExpressionParser};
 
 use crate::dump_obj;
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Switch {
@@ -35,14 +37,18 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Switch>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Switch>) {
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
             unreachable!("Invalid token in switch statements: {:?}", tok);
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, condition) = ep.parse(None);
+        let (tok, condition) = ep.parse(None, context);
 
         if let Some(tok) = tok {
             if tok != Token::RightParen {
@@ -51,7 +57,7 @@ impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, cases) = sp.parse(None);
+        let (tok, cases) = sp.parse(None, context);
 
         (
             tok,
@@ -85,9 +91,13 @@ impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Case>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Case>) {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-        let (tok, value) = ep.parse(None);
+        let (tok, value) = ep.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Colon {
@@ -124,7 +134,11 @@ impl<'a, 'b, PC: PreprocContext> DefaultStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Default>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Default>) {
         let tok = self.lexer.next_useful();
         if tok != Token::Colon {
             unreachable!("Invalid token in case statements: {:?}", tok);

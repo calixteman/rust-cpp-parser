@@ -7,6 +7,7 @@ use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::literals::StringLiteralParser;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Asm {
@@ -23,7 +24,11 @@ impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Asm>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Asm>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Asm {
             return (Some(tok), None);
@@ -38,7 +43,7 @@ impl<'a, 'b, PC: PreprocContext> AsmParser<'a, 'b, PC> {
 
         if let Some(code) = tok.get_string() {
             let slp = StringLiteralParser::new(self.lexer);
-            let (tok, code) = slp.parse(&code);
+            let (tok, code) = slp.parse(&code, context);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
@@ -82,7 +87,8 @@ asm(R"(
             .as_bytes(),
         );
         let p = AsmParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         let code = r#"
 .globl func

@@ -5,21 +5,42 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
-use crate::parser::declarations::{pointer::PointerDeclaratorParser, types::DeclSpecifierParser};
+use crate::parser::declarations::{
+    pointer::{PointerDeclaratorParser, Pointers},
+    types::DeclSpecifierParser,
+};
 use crate::parser::expressions;
-use crate::parser::types::r#type::Type;
+use crate::parser::names::Qualified;
+use crate::parser::types::{
+    r#type::{BaseType, Type},
+    CVQualifier, Primitive,
+};
+use crate::parser::Context;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
+pub enum ConvBaseType {
+    Primitive(Primitive),
+    UD(Qualified),
+}
+
+#[derive(Clone, Debug, PartialEq, Hash)]
+pub struct ConvType {
+    pub base: ConvBaseType,
+    pub cv: CVQualifier,
+    pub pointers: Option<Pointers>,
+}
+
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum Operator {
     Op(expressions::Operator),
     UD(String),
-    Conv(Type),
+    Conv(ConvType),
 }
 
 impl Operator {
     pub fn is_conv(&self) -> bool {
         match self {
-            Operator::Op(_) => false,
+            Operator::Op(_) | Operator::UD(_) => false,
             _ => true,
         }
     }
@@ -44,7 +65,11 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Operator>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Operator>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Operator {
             return (Some(tok), None);
@@ -158,9 +183,17 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
             Token::Comma => (None, Some(Operator::Op(expressions::Operator::Comma))),
             _ => {
                 let ctp = ConversionTypeParser::new(self.lexer);
-                let (tok, typ) = ctp.parse(Some(tok));
+                let (tok, typ) = ctp.parse(Some(tok), context);
 
-                if let Some(typ) = typ {
+                if let Some(Type { base, cv, pointers }) = typ {
+                    let base = match base {
+                        BaseType::Primitive(p) => ConvBaseType::Primitive(p),
+                        BaseType::UD(q) => ConvBaseType::UD(q),
+                        _ => {
+                            unreachable!("Invalid type for operator conversion");
+                        }
+                    };
+                    let typ = ConvType { base, cv, pointers };
                     (tok, Some(Operator::Conv(typ)))
                 } else {
                     unreachable!("Invalid token in operator name: {:?}", tok);
@@ -181,9 +214,13 @@ impl<'a, 'b, PC: PreprocContext> ConversionTypeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Type>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Type>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, (_, typ, _)) = dsp.parse(tok, None);
+        let (tok, (_, typ, _)) = dsp.parse(tok, None, context);
 
         let mut typ = if let Some(typ) = typ {
             typ
@@ -193,7 +230,7 @@ impl<'a, 'b, PC: PreprocContext> ConversionTypeParser<'a, 'b, PC> {
 
         // Pointer: *, &, &&
         let pdp = PointerDeclaratorParser::new(self.lexer);
-        let (tok, ptrs) = pdp.parse(tok, None);
+        let (tok, ptrs) = pdp.parse(tok, None, context);
         typ.pointers = ptrs;
 
         (tok, Some(typ))

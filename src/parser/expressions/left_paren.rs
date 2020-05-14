@@ -14,6 +14,7 @@ use crate::parser::declarations::{
 };
 use crate::parser::name::{Qualified, QualifiedParser};
 use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type};
+use crate::parser::Context;
 
 enum CastType {
     Qual(Qualified),
@@ -41,16 +42,16 @@ impl CastType {
 }
 
 impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
-    fn handle_paren_after_type(&mut self, ctyp: CastType) -> Option<Token> {
+    fn handle_paren_after_type(&mut self, ctyp: CastType, context: &mut Context) -> Option<Token> {
         // (T (...: we may have a function/array pointer
         let pdp = PointerDeclaratorParser::new(self.lexer);
-        let (tok, pointers) = pdp.parse(None, None);
+        let (tok, pointers) = pdp.parse(None, None, context);
 
         let pointers = if let Some(pointers) = pointers {
             pointers
         } else {
             let pp = ParametersParser::new(self.lexer, Token::RightParen);
-            let (tok, params) = pp.parse(tok, None);
+            let (tok, params) = pp.parse(tok, None, context);
 
             self.operators.push(Operator::Parenthesis);
             self.level += 1;
@@ -81,10 +82,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             }
             ep.last = LastKind::Operator;
             // Get the first argument
-            let (tok, first) = ep.parse(Some(tok));
+            let (tok, first) = ep.parse(Some(tok), context);
 
             let pp = ParametersParser::new(self.lexer, Token::RightParen);
-            let (tok, params) = pp.parse(tok, first);
+            let (tok, params) = pp.parse(tok, first, context);
 
             self.operators.push(Operator::Parenthesis);
             self.level += 1;
@@ -103,7 +104,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             cv: CVQualifier::empty(),
             pointers: None,
         };
-        let (tok, decl) = npdp.parse(None, typ, Specifier::empty(), false, false);
+        let (tok, decl) = npdp.parse(None, typ, Specifier::empty(), false, false, context);
         let mut typ = decl.unwrap().typ;
         typ.pointers = Some(pointers);
 
@@ -116,12 +117,12 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         None
     }
 
-    pub(super) fn parse_left_paren(&mut self) -> Option<Token> {
+    pub(super) fn parse_left_paren(&mut self, context: &mut Context) -> Option<Token> {
         let tok = self.lexer.next_useful();
         if CVQualifier::is_cv(&tok) || TypeDeclarator::is_type_part(&tok) {
             // (const ...
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(Some(tok), None, false);
+            let (tok, decl) = tdp.parse(Some(tok), None, false, context);
 
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -142,12 +143,12 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let tok = self.lexer.next_useful();
             if tok == Token::LeftParen {
                 // (int(...: not a cast
-                self.handle_paren_after_type(CastType::Prim(modif.to_primitive()));
+                self.handle_paren_after_type(CastType::Prim(modif.to_primitive()), context);
                 return None;
             }
 
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), false);
+            let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), false, context);
 
             let typ = decl.unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -163,7 +164,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
         // TODO: handle case where id is final, override, ...
         if let Token::Identifier(id) = tok {
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, qual) = qp.parse(None, Some(id));
+            let (tok, qual) = qp.parse(None, Some(id), context);
             let qual = qual.unwrap();
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -173,7 +174,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 if CVQualifier::is_cv(&tok) || PtrKind::is_ptr(&tok) {
                     // (T * const... or (T **... => we've a type !
                     let pdp = PointerDeclaratorParser::new(self.lexer);
-                    let (tok, pointers) = pdp.parse(Some(tok), Some(kind));
+                    let (tok, pointers) = pdp.parse(Some(tok), Some(kind), context);
 
                     let typ = Type {
                         base: BaseType::UD(qual),
@@ -182,7 +183,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     };
 
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)), false);
+                    let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)), false, context);
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -210,7 +211,8 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 } else if CVQualifier::is_cv(&tok) {
                     // (T const...
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false);
+                    let (tok, decl) =
+                        tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false, context);
 
                     let typ = decl.unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -236,7 +238,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 }
             } else if tok == Token::LeftParen {
                 // (T (...: we may have a function/array pointer
-                return self.handle_paren_after_type(CastType::Qual(qual));
+                return self.handle_paren_after_type(CastType::Qual(qual), context);
             } else if tok == Token::RightParen {
                 // (T)
                 let tok = self.lexer.next_useful();
@@ -359,7 +361,8 @@ mod tests {
     fn test_cast_primitive() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int)a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -378,7 +381,8 @@ mod tests {
     fn test_cast_primitive_paren() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int)(a)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -397,7 +401,8 @@ mod tests {
     fn test_cast_primitive_pointer() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int *)a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -421,7 +426,8 @@ mod tests {
     fn test_cast_type_pointer() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T *)a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -445,7 +451,8 @@ mod tests {
     fn test_cast_fun_pointer_int() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int (*) (int))a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -501,7 +508,8 @@ mod tests {
     fn test_cast_fun_pointer_type() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T (*) (int))a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Cast,
@@ -557,7 +565,8 @@ mod tests {
     fn test_cast_invalid_1() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int(a))");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
             callee: ExprNode::Type(Box::new(Type {
@@ -575,7 +584,8 @@ mod tests {
     fn test_cast_invalid_2() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T(a))");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
             callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
@@ -589,7 +599,8 @@ mod tests {
     fn test_cast_invalid_3() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T(*a))");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
             callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
@@ -606,7 +617,8 @@ mod tests {
     fn test_cast_invalid_4() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(int(&a))");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
             callee: ExprNode::Type(Box::new(Type {
@@ -627,7 +639,8 @@ mod tests {
     fn test_cast_invalid_5() {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T * a)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
-        let node = parser.parse(None).1.unwrap();
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Mul,

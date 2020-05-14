@@ -3,15 +3,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::{Statement, StatementParser};
+use crate::dump_obj;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
-
-use crate::dump_obj;
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Try {
@@ -37,9 +38,13 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Try>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Try>) {
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None);
+        let (tok, body) = sp.parse(None, context);
 
         let body = if let Some(body) = body {
             body
@@ -62,7 +67,7 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
             (None, None)
         } else {
             let tp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, typ) = tp.parse(Some(tok), None, false);
+            let (tok, typ) = tp.parse(Some(tok), None, false, context);
 
             if typ.is_some() {
                 (tok, typ)
@@ -77,7 +82,7 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, handler) = sp.parse(None);
+        let (tok, handler) = sp.parse(None, context);
 
         let handler = if let Some(handler) = handler {
             handler

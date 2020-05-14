@@ -3,12 +3,14 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::hash::{Hash, Hasher};
+use termcolor::StandardStreamLock;
+
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
-
 use crate::parser::dump::Dump;
+use crate::parser::Context;
 use crate::{dump_fields, dump_start};
-use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
@@ -16,6 +18,14 @@ pub struct Attribute {
     pub name: String,
     pub arg: Option<AttributeArg>,
     pub has_using: bool,
+}
+
+impl Hash for Attribute {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.namespace.hash(state);
+        self.name.hash(state);
+        self.has_using.hash(state);
+    }
 }
 
 impl Dump for Attribute {
@@ -57,7 +67,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<Token>, Option<String>) {
+    fn parse(self, context: &mut Context) -> (Option<Token>, Option<String>) {
         let tok = self.lexer.next_useful();
         if tok == Token::Using {
             let tok = self.lexer.next_useful();
@@ -89,7 +99,11 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<AttributeArg>) {
+    fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<AttributeArg>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftParen {
             return (Some(tok), None);
@@ -157,7 +171,7 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Token) -> (Option<Token>, (Option<String>, String)) {
+    fn parse(self, tok: Token, context: &mut Context) -> (Option<Token>, (Option<String>, String)) {
         match tok {
             Token::Identifier(id) => {
                 let tk = self.lexer.next_useful();
@@ -189,7 +203,12 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, attributes: &mut Attributes, tok: Option<Token>) -> (Option<Token>, bool) {
+    fn parse(
+        self,
+        attributes: &mut Attributes,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, bool) {
         // [[ attribute-list ]]
         // [[ using attribute-namespace : attribute-list ]]
         //
@@ -205,17 +224,17 @@ impl<'a, 'b, PC: PreprocContext> AttributeParser<'a, 'b, PC> {
         }
 
         let up = UsingParser::new(self.lexer);
-        let (tok, default_ns) = up.parse();
+        let (tok, default_ns) = up.parse(context);
         let has_using = default_ns.is_some();
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
             let np = NameParser::new(self.lexer);
-            let (tk, (namespace, id)) = np.parse(tok);
+            let (tk, (namespace, id)) = np.parse(tok, context);
 
             let ap = ArgumentParser::new(self.lexer);
-            let (tk, arg) = ap.parse(tk);
+            let (tk, arg) = ap.parse(tk, context);
 
             attributes.push(Attribute {
                 namespace: namespace.or_else(|| default_ns.clone()),
@@ -249,14 +268,18 @@ impl<'a, 'b, PC: PreprocContext> AttributesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Attributes>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Attributes>) {
         let mut attributes = Vec::new();
         let mut tok = tok;
         let mut has_attributes = false;
 
         loop {
             let ap = AttributeParser::new(self.lexer);
-            let (tk, has_attr) = ap.parse(&mut attributes, tok);
+            let (tk, has_attr) = ap.parse(&mut attributes, tok, context);
             tok = tk;
             has_attributes |= has_attr;
 
@@ -284,7 +307,8 @@ mod tests {
     fn test_attr_single() {
         let mut l = Lexer::<DefaultContext>::new(b"[[noreturn]]");
         let p = AttributesParser::new(&mut l);
-        let (_, a) = p.parse(None);
+        let mut context = Context::default();
+        let (_, a) = p.parse(None, &mut context);
 
         assert_eq!(
             a.unwrap(),
@@ -301,7 +325,8 @@ mod tests {
     fn test_attr_ns() {
         let mut l = Lexer::<DefaultContext>::new(b"[[gnu::unused]]");
         let p = AttributesParser::new(&mut l);
-        let (_, a) = p.parse(None);
+        let mut context = Context::default();
+        let (_, a) = p.parse(None, &mut context);
 
         assert_eq!(
             a.unwrap(),
@@ -318,7 +343,8 @@ mod tests {
     fn test_attr_arg() {
         let mut l = Lexer::<DefaultContext>::new(b"[[deprecated(\"because\")]]");
         let p = AttributesParser::new(&mut l);
-        let (_, a) = p.parse(None);
+        let mut context = Context::default();
+        let (_, a) = p.parse(None, &mut context);
 
         assert_eq!(
             a.unwrap(),
@@ -337,7 +363,8 @@ mod tests {
     fn test_attr_using() {
         let mut l = Lexer::<DefaultContext>::new(b"[[using CC: opt(1), debug]]");
         let p = AttributesParser::new(&mut l);
-        let (_, a) = p.parse(None);
+        let mut context = Context::default();
+        let (_, a) = p.parse(None, &mut context);
 
         assert_eq!(
             a.unwrap(),
@@ -364,7 +391,8 @@ mod tests {
     fn test_attr_several() {
         let mut l = Lexer::<DefaultContext>::new(b"[[A]] [[B]] [[C]]");
         let p = AttributesParser::new(&mut l);
-        let (_, a) = p.parse(None);
+        let mut context = Context::default();
+        let (_, a) = p.parse(None, &mut context);
 
         assert_eq!(
             a.unwrap(),

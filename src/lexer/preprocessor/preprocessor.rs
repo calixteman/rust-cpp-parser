@@ -9,9 +9,9 @@ use super::condition::Condition;
 use super::context::{IfKind, IfState, PreprocContext};
 use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
 use crate::lexer::buffer::FileInfo;
+use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::string::StringType;
-use crate::lexer::errors::LexerError;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -171,7 +171,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 skip_until!(self, b'\n');
                 let sl = self.buf.slice(spos);
                 let msg = String::from_utf8_lossy(&sl).to_string();
-                return Err(LexerError::ErrorDirective { sp: self.span(), msg });
+                return Err(LexerError::ErrorDirective {
+                    sp: self.span(),
+                    msg,
+                });
             }
             _ => instr,
         })
@@ -1205,12 +1208,7 @@ mod tests {
 
     #[test]
     fn test_error_directive() {
-        let mut p = Lexer::<DefaultContext>::new(
-            concat!(
-                "#error foo\n",
-            )
-            .as_bytes(),
-        );
+        let mut p = Lexer::<DefaultContext>::new(concat!("#error foo\n",).as_bytes());
 
         assert_eq!(p.next_token(), Token::Eof);
         assert_eq!(p.errors.len(), 1);
@@ -1225,14 +1223,8 @@ mod tests {
 
     #[test]
     fn test_endif_without_preceeding_if() {
-        let mut p = Lexer::<DefaultContext>::new(
-            concat!(
-                "#if 0\n",
-                "#endif\n",
-                "#endif\n",
-            )
-            .as_bytes(),
-        );
+        let mut p =
+            Lexer::<DefaultContext>::new(concat!("#if 0\n", "#endif\n", "#endif\n",).as_bytes());
 
         assert_eq!(p.next_token(), Token::PreprocIf);
         assert_eq!(p.next_token(), Token::Eol);

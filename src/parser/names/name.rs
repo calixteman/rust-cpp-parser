@@ -3,18 +3,18 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
-use crate::parser::expressions::{Parameters, ParametersParser};
+use termcolor::StandardStreamLock;
 
 use super::dtor::{Destructor, DtorParser};
 use super::operator::{Operator, OperatorParser};
-
 use crate::dump_str;
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, Token};
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::expressions::{Parameters, ParametersParser};
+use crate::parser::Context;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Identifier {
     pub val: String,
 }
@@ -26,31 +26,27 @@ pub struct Template {
     //keyword: bool, TODO: set to true when we've A::template B<...>::...
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum Name {
     Identifier(Identifier),
     Destructor(Destructor),
-    Template(Template),
+    //Template(Template),
     Operator(Box<Operator>),
     Empty,
     //Decltype(ExprNode), TODO: add that
 }
 
+impl Eq for Name {}
+
 impl ToString for Name {
     fn to_string(&self) -> String {
         match self {
             Name::Identifier(id) => id.val.clone(),
-            Name::Template(t) => t.id.val.clone(),
+            //Name::Template(t) => t.id.val.clone(),
             Name::Destructor(d) => format!("~{}", d.name),
             Name::Operator(op) => op.to_string(),
             Name::Empty => "".to_string(),
         }
-    }
-}
-
-impl Dump for Qualified {
-    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        dump_str!(name, self.to_string(), prefix, last, stdout);
     }
 }
 
@@ -67,7 +63,7 @@ macro_rules! mk_id {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Qualified {
     pub names: Vec<Name>,
 }
@@ -83,6 +79,12 @@ impl ToString for Qualified {
             buf.push_str(&last.to_string());
         }
         buf
+    }
+}
+
+impl Dump for Qualified {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_str!(name, self.to_string(), prefix, last, stdout);
     }
 }
 
@@ -117,6 +119,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         first: Option<String>,
+        context: &mut Context,
     ) -> (Option<Token>, Option<Qualified>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut names = Vec::new();
@@ -162,7 +165,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
                 }
                 Token::Operator => {
                     let op = OperatorParser::new(self.lexer);
-                    let (tok, operator) = op.parse(Some(tok));
+                    let (tok, operator) = op.parse(Some(tok), context);
 
                     names.push(Name::Operator(Box::new(operator.unwrap())));
 
@@ -171,7 +174,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
                 Token::Tilde => {
                     if wait_id {
                         let dp = DtorParser::new(self.lexer);
-                        let (tok, dtor) = dp.parse(Some(tok));
+                        let (tok, dtor) = dp.parse(Some(tok), context);
 
                         names.push(Name::Destructor(dtor.unwrap()));
                         return (tok, Some(Qualified { names }));
@@ -203,7 +206,8 @@ mod tests {
     fn test_name_one() {
         let mut l = Lexer::<DefaultContext>::new(b"abc");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None, None);
+        let mut context = Context::default();
+        let (_, q) = p.parse(None, None, &mut context);
 
         assert_eq!(q.unwrap(), mk_id!("abc"));
     }
@@ -212,7 +216,8 @@ mod tests {
     fn test_name_two() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None, None);
+        let mut context = Context::default();
+        let (_, q) = p.parse(None, None, &mut context);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg"));
     }
@@ -221,7 +226,8 @@ mod tests {
     fn test_name_three() {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg::hijkl");
         let p = QualifiedParser::new(&mut l);
-        let (_, q) = p.parse(None, None);
+        let mut context = Context::default();
+        let (_, q) = p.parse(None, None, &mut context);
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg", "hijkl"));
     }

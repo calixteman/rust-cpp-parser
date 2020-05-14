@@ -10,13 +10,13 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use super::buffer::{Buffer, BufferData};
+use super::errors::LexerError;
 use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
-use super::errors::LexerError;
-use crate::errors::Span;
 use crate::args;
+use crate::errors::Span;
 
 #[derive(PartialEq)]
 pub(super) enum Kind {

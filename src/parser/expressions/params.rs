@@ -3,12 +3,14 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use crate::dump_vec;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 pub type Parameters = Vec<ExprNode>;
 
@@ -32,6 +34,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         first: Option<ExprNode>,
+        context: &mut Context,
     ) -> (Option<Token>, Option<Parameters>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let (mut tok, mut params) = if let Some(first) = first {
@@ -51,7 +54,7 @@ impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
 
         loop {
             let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-            let (tk, expr) = ep.parse(Some(tok));
+            let (tk, expr) = ep.parse(Some(tok), context);
 
             params.push(expr.unwrap());
 

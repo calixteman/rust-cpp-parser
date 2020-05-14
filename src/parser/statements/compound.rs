@@ -3,14 +3,15 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::{Statement, StatementParser};
+use crate::dump_start;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
-
-use crate::dump_start;
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Compound {
@@ -44,7 +45,11 @@ impl<'a, 'b, PC: PreprocContext> CompoundStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Compound>) {
+    pub(crate) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Compound>) {
         let mut stmts = Vec::new();
         let mut tok = self.lexer.next_useful();
 
@@ -54,7 +59,7 @@ impl<'a, 'b, PC: PreprocContext> CompoundStmtParser<'a, 'b, PC> {
             }
 
             let sp = StatementParser::new(self.lexer);
-            let (tk, stmt) = sp.parse(Some(tok));
+            let (tk, stmt) = sp.parse(Some(tok), context);
 
             if let Some(stmt) = stmt {
                 stmts.push(stmt);

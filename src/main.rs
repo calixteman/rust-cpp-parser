@@ -19,7 +19,8 @@ fn main() {
         includes: Vec::new(),
         current_dir: PathBuf::from("."),
     };
-    let mut lexer = Lexer::<DefaultContext>::new_from_file(file.to_str().unwrap(), source.clone(), opt);
+    let mut lexer =
+        Lexer::<DefaultContext>::new_from_file(file.to_str().unwrap(), source.clone(), opt);
     loop {
         let tok = lexer.next_token();
         eprintln!("TOK: {:?}", tok);
@@ -36,7 +37,10 @@ fn main() {
             } else {
                 "<unknown>".to_owned()
             };
-            eprintln!("ERROR: {}:{}:{}: {}", file_path, error.sp.start.line, error.sp.start.column, error.message);
+            eprintln!(
+                "ERROR: {}:{}:{}: {}",
+                file_path, error.sp.start.line, error.sp.start.column, error.message
+            );
         }
     }
 }

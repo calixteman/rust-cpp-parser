@@ -3,16 +3,17 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::decl::Declaration;
 use super::types::{TypeDeclarator, TypeDeclaratorParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::names::{Qualified, QualifiedParser};
-
 use crate::parser::dump::Dump;
+use crate::parser::names::{Qualified, QualifiedParser};
+use crate::parser::Context;
 use crate::{dump_obj, dump_vec};
-use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsingDecl {
@@ -110,7 +111,11 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Using {
             return (Some(tok), None);
@@ -119,7 +124,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         let tok = self.lexer.next_useful();
         if tok == Token::Enum {
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, name) = qp.parse(None, None);
+            let (tok, name) = qp.parse(None, None, context);
 
             if let Some(name) = name {
                 return (tok, Some(Declaration::UsingEnum(UsingEnum { name })));
@@ -130,7 +135,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
 
         if tok == Token::Namespace {
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, name) = qp.parse(None, None);
+            let (tok, name) = qp.parse(None, None, context);
 
             if let Some(name) = name {
                 return (
@@ -156,7 +161,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
             };
 
             let qp = QualifiedParser::new(self.lexer);
-            let (tk, name) = qp.parse(Some(tk), None);
+            let (tk, name) = qp.parse(Some(tk), None, context);
 
             let name = if let Some(name) = name {
                 name
@@ -182,7 +187,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                 }
                 Token::DoubleLeftBrack => {
                     let ap = AttributesParser::new(self.lexer);
-                    let (tok, attrs) = ap.parse(Some(tk));
+                    let (tok, attrs) = ap.parse(Some(tk), context);
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
                     if tok != Token::Equal {
@@ -190,7 +195,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                     }
 
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None, false);
+                    let (tok, typ) = tdp.parse(None, None, false, context);
                     let name = name.get_first_name();
 
                     return (
@@ -204,7 +209,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                 }
                 Token::Equal => {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None, false);
+                    let (tok, typ) = tdp.parse(None, None, false, context);
                     let name = name.get_first_name();
 
                     return (
@@ -243,7 +248,8 @@ mod tests {
     fn test_using_one() {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -261,7 +267,8 @@ mod tests {
     fn test_using_typename_one() {
         let mut l = Lexer::<DefaultContext>::new(b"using typename A::B");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -279,7 +286,8 @@ mod tests {
     fn test_using_several() {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B, typename C, D::E");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -307,7 +315,8 @@ mod tests {
     fn test_using_ellipsis() {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B...");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -325,7 +334,8 @@ mod tests {
     fn test_using_enum() {
         let mut l = Lexer::<DefaultContext>::new(b"using enum A::B");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -339,7 +349,8 @@ mod tests {
     fn test_using_namespace() {
         let mut l = Lexer::<DefaultContext>::new(b"using namespace A::B");
         let p = UsingParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),

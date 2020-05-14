@@ -9,7 +9,7 @@ use termcolor::StandardStreamLock;
 
 use super::ExprNode;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Operator {
     ScopeResolution,
     PostInc,

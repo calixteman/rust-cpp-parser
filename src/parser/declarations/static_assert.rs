@@ -3,14 +3,15 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
-use crate::parser::expressions::{ExprNode, ExpressionParser};
-use crate::parser::literals::StringLiteralParser;
+use termcolor::StandardStreamLock;
 
 use crate::dump_obj;
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, Token};
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::expressions::{ExprNode, ExpressionParser};
+use crate::parser::literals::StringLiteralParser;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StaticAssert {
@@ -44,7 +45,11 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<StaticAssert>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<StaticAssert>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::StaticAssert && tok != Token::CStaticAssert {
             return (Some(tok), None);
@@ -58,7 +63,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-        let (tok, expr) = ep.parse(None);
+        let (tok, expr) = ep.parse(None, context);
 
         let condition = if let Some(cond) = expr {
             cond
@@ -92,7 +97,7 @@ impl<'a, 'b, PC: PreprocContext> StaticAssertParser<'a, 'b, PC> {
         };
 
         let slp = StringLiteralParser::new(self.lexer);
-        let (tok, string) = slp.parse(&string);
+        let (tok, string) = slp.parse(&string, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
@@ -123,7 +128,8 @@ mod tests {
     fn test_static_assert_1() {
         let mut l = Lexer::<DefaultContext>::new(b"static_assert(a != b)");
         let p = StaticAssertParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),
@@ -143,7 +149,8 @@ mod tests {
     fn test_static_assert_2() {
         let mut l = Lexer::<DefaultContext>::new(b"_Static_assert(a != b, \"an assertion\")");
         let p = StaticAssertParser::new(&mut l);
-        let (_, u) = p.parse(None);
+        let mut context = Context::default();
+        let (_, u) = p.parse(None, &mut context);
 
         assert_eq!(
             u.unwrap(),

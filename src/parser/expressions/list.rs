@@ -6,6 +6,7 @@
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::expressions::{Parameters, ParametersParser};
+use crate::parser::Context;
 
 pub type ListInitialization = Parameters;
 
@@ -18,7 +19,11 @@ impl<'a, 'b, PC: PreprocContext> ListInitializationParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<ListInitialization>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<ListInitialization>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok != Token::LeftBrace {
@@ -26,6 +31,6 @@ impl<'a, 'b, PC: PreprocContext> ListInitializationParser<'a, 'b, PC> {
         }
 
         let pp = ParametersParser::new(self.lexer, Token::RightBrace);
-        pp.parse(None, None)
+        pp.parse(None, None, context)
     }
 }

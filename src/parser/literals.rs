@@ -3,12 +3,13 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use termcolor::StandardStreamLock;
 
 use crate::dump_str;
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, Token};
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum IntLiteral {
@@ -232,7 +233,7 @@ impl<'a, 'b, PC: PreprocContext> StringLiteralParser<'a, 'b, PC> {
         res
     }
 
-    pub(crate) fn parse(self, first: &str) -> (Option<Token>, String) {
+    pub(crate) fn parse(self, first: &str, context: &mut Context) -> (Option<Token>, String) {
         let mut strings = Vec::with_capacity(32); // TODO: put a good value here if it's useful
         let mut lens = 0;
 

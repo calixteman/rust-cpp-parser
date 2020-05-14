@@ -3,12 +3,15 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
+
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::names::{Qualified, QualifiedParser};
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct NsName {
@@ -40,7 +43,7 @@ impl<'a, 'b, PC: PreprocContext> NsNamesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self) -> (Option<Token>, Option<NsNames>) {
+    fn parse(self, context: &mut Context) -> (Option<Token>, Option<NsNames>) {
         let mut tok = self.lexer.next_useful();
         let mut names = Vec::new();
         let mut inline = false;
@@ -74,7 +77,11 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let inline = if tok == Token::Inline {
@@ -82,9 +89,11 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
             if tok != Token::Namespace {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let hint = DeclHint::Specifier(Specifier::INLINE);
-                let (tok, typ) = tdp.parse(Some(tok), Some(hint), true);
+                let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
+                let typ = Rc::new(typ.unwrap());
+                context.add_type(Rc::clone(&typ));
 
-                return (tok, Some(Declaration::Type(typ.unwrap())));
+                return (tok, Some(Declaration::Type(typ)));
             }
             true
         } else if tok != Token::Namespace {
@@ -94,13 +103,13 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         };
 
         let np = NsNamesParser::new(self.lexer);
-        let (tok, name) = np.parse();
+        let (tok, name) = np.parse(context);
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         match tok {
             Token::LeftBrace => {
                 let dlp = DeclarationListParser::new(self.lexer);
-                let (tok, body, _) = dlp.parse(Some(tok));
+                let (tok, body, _) = dlp.parse(Some(tok), context);
 
                 let ns = Namespace {
                     inline,
@@ -111,7 +120,7 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
             }
             Token::Equal => {
                 let qp = QualifiedParser::new(self.lexer);
-                let (tok, alias) = qp.parse(None, None);
+                let (tok, alias) = qp.parse(None, None, context);
 
                 let mut s = String::new();
                 std::mem::swap(&mut s, &mut name.unwrap()[0].name);
@@ -143,7 +152,8 @@ mod tests {
     fn test_namespace_one() {
         let mut l = Lexer::<DefaultContext>::new(b"A");
         let p = NsNamesParser::new(&mut l);
-        let (_, ns) = p.parse();
+        let mut context = Context::default();
+        let (_, ns) = p.parse(&mut context);
 
         assert_eq!(
             ns.unwrap(),
@@ -158,7 +168,8 @@ mod tests {
     fn test_namespace_multiple() {
         let mut l = Lexer::<DefaultContext>::new(b"A::inline B::C::inline D::E");
         let p = NsNamesParser::new(&mut l);
-        let (_, ns) = p.parse();
+        let mut context = Context::default();
+        let (_, ns) = p.parse(&mut context);
 
         assert_eq!(
             ns.unwrap(),
@@ -200,7 +211,8 @@ namespace A {
         "#,
         );
         let p = DeclarationParser::new(&mut l);
-        let (_, ns) = p.parse(None, None);
+        let mut context = Context::default();
+        let (_, ns) = p.parse(None, None, &mut context);
         let ns = ns.unwrap();
 
         assert_eq!(
@@ -288,7 +300,8 @@ namespace A {
     fn test_namespace_alias() {
         let mut l = Lexer::<DefaultContext>::new(b"namespace A = B::C::D::E;");
         let p = DeclarationParser::new(&mut l);
-        let (_, ns) = p.parse(None, None);
+        let mut context = Context::default();
+        let (_, ns) = p.parse(None, None, &mut context);
         let ns = ns.unwrap();
 
         assert_eq!(

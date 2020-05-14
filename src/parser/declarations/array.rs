@@ -8,6 +8,7 @@ use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::types::Type;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Dimension {
@@ -32,7 +33,11 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Array>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Array>) {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut dimensions = Vec::new();
 
@@ -42,7 +47,7 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
             }
 
             let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
-            let (tk, size) = ep.parse(None);
+            let (tk, size) = ep.parse(None, context);
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             if tk != Token::RightBrack {
@@ -50,7 +55,7 @@ impl<'a, 'b, PC: PreprocContext> ArrayParser<'a, 'b, PC> {
             }
 
             let ap = AttributesParser::new(self.lexer);
-            let (tk, attributes) = ap.parse(None);
+            let (tk, attributes) = ap.parse(None, context);
 
             tok = tk.unwrap_or_else(|| self.lexer.next_useful());
 

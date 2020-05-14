@@ -3,17 +3,18 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use bitflags::bitflags;
+use termcolor::StandardStreamLock;
+
 use super::member::{MemberParser, MemberRes, Members, Visibility};
 use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::names::{Qualified, QualifiedParser};
-use bitflags::bitflags;
-
 use crate::parser::dump::Dump;
+use crate::parser::names::{Qualified, QualifiedParser};
+use crate::parser::Context;
 use crate::{dump_obj, dump_vec};
-use termcolor::StandardStreamLock;
 
 bitflags! {
     pub struct ClassSpecifier: u8 {
@@ -157,10 +158,10 @@ impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Derived>) {
+    fn parse(self, tok: Option<Token>, context: &mut Context) -> (Option<Token>, Option<Derived>) {
         // optional: attributes
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok);
+        let (tok, attributes) = ap.parse(tok, context);
 
         // access-specifier | virtual-specifier
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -171,7 +172,7 @@ impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
 
         // class or decltype
         let qp = QualifiedParser::new(self.lexer);
-        let (tok, name) = qp.parse(Some(tok), None);
+        let (tok, name) = qp.parse(Some(tok), None, context);
 
         let name = if let Some(name) = name {
             name
@@ -199,7 +200,11 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Vec<Derived>>) {
+    fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Vec<Derived>>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok != Token::Colon {
@@ -210,7 +215,7 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
 
         let tok = loop {
             let dp = DerivedParser::new(self.lexer);
-            let (tok, derived) = dp.parse(None);
+            let (tok, derived) = dp.parse(None, context);
 
             if let Some(derived) = derived {
                 bases.push(derived);
@@ -241,7 +246,11 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Class>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Class>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let kind = if let Some(kind) = Kind::from_tok(&tok) {
             kind
@@ -252,11 +261,11 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
         // optional: attributes
         // TODO: alignas
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(None);
+        let (tok, attributes) = ap.parse(None, context);
 
         // optional: name
         let qp = QualifiedParser::new(self.lexer);
-        let (tok, name) = qp.parse(tok, None);
+        let (tok, name) = qp.parse(tok, None, context);
 
         // optional: final
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -268,10 +277,10 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
 
         // optional: base-clause
         let bcp = BaseClauseParser::new(self.lexer);
-        let (tok, bases) = bcp.parse(tok);
+        let (tok, bases) = bcp.parse(tok, context);
 
         let cbp = ClassBodyParser::new(self.lexer);
-        let (tok, body) = cbp.parse(tok, kind.clone());
+        let (tok, body) = cbp.parse(tok, kind.clone(), context);
 
         let class = Class {
             kind,
@@ -299,6 +308,7 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         kind: Kind,
+        context: &mut Context,
     ) -> (Option<Token>, Option<ClassBody>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftBrace {
@@ -320,7 +330,7 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
 
         loop {
             let mp = MemberParser::new(self.lexer);
-            let (tk, memb) = mp.parse(tok);
+            let (tk, memb) = mp.parse(tok, context);
 
             let tk = if let Some(memb) = memb {
                 match memb {
@@ -402,7 +412,8 @@ public:
 "#,
         );
         let p = ClassParser::new(&mut l);
-        let (_, c) = p.parse(None);
+        let mut context = Context::default();
+        let (_, c) = p.parse(None, &mut context);
         let c = c.unwrap();
 
         let expected = Class {

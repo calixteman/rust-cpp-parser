@@ -3,11 +3,14 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
+
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Extern {
@@ -25,7 +28,11 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Declaration>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Declaration>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Extern {
             return (Some(tok), None);
@@ -36,7 +43,7 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         if let Token::LiteralString(language) = tok {
             let dlp = DeclarationListParser::new(self.lexer);
 
-            let (tok, list, multiple) = dlp.parse(None);
+            let (tok, list, multiple) = dlp.parse(None, context);
 
             (
                 tok,
@@ -49,9 +56,11 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         } else {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let hint = DeclHint::Specifier(Specifier::EXTERN);
-            let (tok, typ) = tdp.parse(Some(tok), Some(hint), true);
+            let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
+            let typ = Rc::new(typ.unwrap());
+            context.add_type(Rc::clone(&typ));
 
-            (tok, Some(Declaration::Type(typ.unwrap())))
+            (tok, Some(Declaration::Type(typ)))
         }
     }
 }
@@ -76,7 +85,8 @@ extern "C" {
         "#,
         );
         let p = ExternParser::new(&mut l);
-        let (_, ext) = p.parse(None);
+        let mut context = Context::default();
+        let (_, ext) = p.parse(None, &mut context);
 
         let ext = ext.unwrap();
 
@@ -142,7 +152,8 @@ extern double sqrt(double);
         "#,
         );
         let p = ExternParser::new(&mut l);
-        let (_, ext) = p.parse(None);
+        let mut context = Context::default();
+        let (_, ext) = p.parse(None, &mut context);
 
         let ext = ext.unwrap();
 

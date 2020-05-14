@@ -3,15 +3,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
+use crate::parser::dump::Dump;
 use crate::parser::expressions::{
     ExprNode, ExpressionParser, ListInitialization, ListInitializationParser, Parameters,
     ParametersParser,
 };
-
-use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Initializer {
@@ -45,23 +46,27 @@ impl<'a, 'b, PC: PreprocContext> InitializerParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Initializer>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Initializer>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         match tok {
             Token::Equal => {
                 let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-                let (tok, expr) = ep.parse(None);
+                let (tok, expr) = ep.parse(None, context);
                 (tok, Some(Initializer::Equal(expr.unwrap())))
             }
             Token::LeftParen => {
                 let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                let (tok, params) = pp.parse(None, None);
+                let (tok, params) = pp.parse(None, None, context);
                 (tok, Some(Initializer::Paren(params.unwrap())))
             }
             Token::LeftBrace => {
                 let lip = ListInitializationParser::new(self.lexer);
-                let (tok, params) = lip.parse(Some(tok));
+                let (tok, params) = lip.parse(Some(tok), context);
                 (tok, Some(Initializer::Brace(params.unwrap())))
             }
             _ => (Some(tok), None),

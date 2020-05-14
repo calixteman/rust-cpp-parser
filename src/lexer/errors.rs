@@ -7,20 +7,19 @@ use crate::errors::{Span, StringlyError};
 
 #[derive(Clone, Debug)]
 pub enum LexerError {
-    ErrorDirective { sp: Span, msg: String, },
-    EndifWithoutPreceedingIf { sp: Span, },
+    ErrorDirective { sp: Span, msg: String },
+    EndifWithoutPreceedingIf { sp: Span },
 }
 
 impl LexerError {
     pub fn stringly(&self) -> StringlyError {
         use self::LexerError::*;
         let (sp, message) = match self {
-            ErrorDirective { sp, msg, } => (*sp, format!("reached #error directive: {}", msg)),
-            EndifWithoutPreceedingIf { sp } => (*sp, "reached #endif without preceeding #if".to_owned()),
+            ErrorDirective { sp, msg } => (*sp, format!("reached #error directive: {}", msg)),
+            EndifWithoutPreceedingIf { sp } => {
+                (*sp, "reached #endif without preceeding #if".to_owned())
+            }
         };
-        StringlyError {
-            message,
-            sp,
-        }
+        StringlyError { message, sp }
     }
 }

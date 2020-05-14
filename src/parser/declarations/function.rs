@@ -3,22 +3,22 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
-use crate::parser::attributes::{Attributes, AttributesParser};
-use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
-use crate::parser::initializer::{Initializer, InitializerParser};
-use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
-use crate::parser::statements::{Compound, CompoundStmtParser};
 use bitflags::bitflags;
+use termcolor::StandardStreamLock;
 
 use super::super::types::{BaseType, CVQualifier, Type};
 use super::specifier::Specifier;
 use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
-
+use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{Lexer, Token};
+use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
+use crate::parser::initializer::{Initializer, InitializerParser};
+use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
+use crate::parser::statements::{Compound, CompoundStmtParser};
+use crate::parser::Context;
 use crate::{bitflags_to_str, dump_obj};
-use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
@@ -171,7 +171,11 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<CtorInitializers>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<CtorInitializers>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Colon {
             return (Some(tok), None);
@@ -182,7 +186,7 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
 
         loop {
             let qp = QualifiedParser::new(self.lexer);
-            let (tk, name) = qp.parse(tok, None);
+            let (tk, name) = qp.parse(tok, None, context);
 
             let name = if let Some(name) = name {
                 name
@@ -191,7 +195,7 @@ impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
             };
 
             let ip = InitializerParser::new(self.lexer);
-            let (tk, init) = ip.parse(tk);
+            let (tk, init) = ip.parse(tk, context);
 
             let init = if let Some(init) = init {
                 init
@@ -264,6 +268,7 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         skip_lparen: bool,
+        context: &mut Context,
     ) -> (Option<Token>, Option<Vec<Parameter>>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut tok = if skip_lparen {
@@ -279,10 +284,10 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
 
         loop {
             let ap = AttributesParser::new(self.lexer);
-            let (tk, attributes) = ap.parse(tok);
+            let (tk, attributes) = ap.parse(tok, context);
 
             let dp = TypeDeclaratorParser::new(self.lexer);
-            let (tk, decl) = dp.parse(tk, None, true);
+            let (tk, decl) = dp.parse(tk, None, true, context);
             let decl = if let Some(decl) = decl {
                 decl
             } else {
@@ -320,9 +325,10 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         skip_lparen: bool,
+        context: &mut Context,
     ) -> (Option<Token>, Option<Function>) {
         let plp = ParameterListParser::new(self.lexer);
-        let (tok, params) = plp.parse(tok, skip_lparen);
+        let (tok, params) = plp.parse(tok, skip_lparen, context);
         let params = if let Some(params) = params {
             params
         } else {
@@ -346,16 +352,16 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         };
 
         let ep = ExceptionParser::new(self.lexer);
-        let (tok, except) = ep.parse(tok);
+        let (tok, except) = ep.parse(tok, context);
 
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok);
+        let (tok, attributes) = ap.parse(tok, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, trailing) = if tok == Token::Arrow {
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(None, None, false);
+            let (tok, decl) = tdp.parse(None, None, false, context);
             (tok, decl.map(|d| d.typ))
         } else {
             (Some(tok), None)
@@ -369,7 +375,7 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
 
         let (tok, requires) = if tok == Token::Requires {
             let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-            let (tok, e) = ep.parse(None);
+            let (tok, e) = ep.parse(None, context);
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             (tok, e)
         } else {
@@ -391,13 +397,13 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         };
 
         let cip = CtorInitializersParser::new(self.lexer);
-        let (tok, ctor_init) = cip.parse(Some(tok));
+        let (tok, ctor_init) = cip.parse(Some(tok), context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, body) = if tok == Token::LeftBrace {
             let cp = CompoundStmtParser::new(self.lexer);
-            cp.parse(None)
+            cp.parse(None, context)
         } else {
             (Some(tok), None)
         };
@@ -430,7 +436,11 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Exception>) {
+    pub(super) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Exception>) {
         // noexcept
         // noexcept(expression)
         // throw()                    (removed in C++20)
@@ -442,7 +452,7 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
                 let tok = self.lexer.next_useful();
                 if tok == Token::LeftParen {
                     let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-                    let (tok, exp) = ep.parse(None);
+                    let (tok, exp) = ep.parse(None, context);
                     (tok, Some(Exception::Noexcept(exp)))
                 } else {
                     (Some(tok), Some(Exception::Noexcept(None)))
@@ -452,7 +462,7 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
                 let tok = self.lexer.next_useful();
                 if tok == Token::LeftParen {
                     let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                    let (tok, params) = pp.parse(None, None);
+                    let (tok, params) = pp.parse(None, None, context);
                     (tok, Some(Exception::Throw(params)))
                 } else {
                     unreachable!("throw must be followed by a (");
@@ -477,10 +487,11 @@ impl<'a, 'b, PC: PreprocContext> ConvOperatorDeclaratorParser<'a, 'b, PC> {
         specifier: Specifier,
         name: Option<Qualified>,
         tok: Option<Token>,
+        context: &mut Context,
     ) -> (Option<Token>, Option<TypeDeclarator>) {
         let (tok, name) = if name.is_none() {
             let op = OperatorParser::new(self.lexer);
-            let (tok, op) = op.parse(tok);
+            let (tok, op) = op.parse(tok, context);
 
             if let Some(op) = op {
                 (
@@ -498,10 +509,10 @@ impl<'a, 'b, PC: PreprocContext> ConvOperatorDeclaratorParser<'a, 'b, PC> {
 
         // attributes
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok);
+        let (tok, attributes) = ap.parse(tok, context);
 
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function) = fp.parse(tok, false);
+        let (tok, function) = fp.parse(tok, false, context);
 
         if let Some(function) = function {
             let typ = Type {

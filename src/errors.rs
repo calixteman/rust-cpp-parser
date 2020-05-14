@@ -3,9 +3,9 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::Location;
 use crate::lexer::source::FileId;
-use crate::lexer::errors::LexerError;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Span {

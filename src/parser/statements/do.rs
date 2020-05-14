@@ -3,15 +3,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::{Statement, StatementParser};
+use crate::dump_obj;
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
-use crate::parser::expressions::{ExprNode, ExpressionParser};
-
-use crate::dump_obj;
 use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+use crate::parser::expressions::{ExprNode, ExpressionParser};
+use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Do {
@@ -35,9 +36,13 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(super) fn parse(self, attributes: Option<Attributes>) -> (Option<Token>, Option<Do>) {
+    pub(super) fn parse(
+        self,
+        attributes: Option<Attributes>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Do>) {
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None);
+        let (tok, body) = sp.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::While {
@@ -50,7 +55,7 @@ impl<'a, 'b, PC: PreprocContext> DoStmtParser<'a, 'b, PC> {
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, condition) = ep.parse(None);
+        let (tok, condition) = ep.parse(None, context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {

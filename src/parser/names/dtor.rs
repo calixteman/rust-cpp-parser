@@ -5,8 +5,9 @@
 
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
+use crate::parser::Context;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct Destructor {
     pub name: String,
 }
@@ -20,7 +21,11 @@ impl<'a, 'b, PC: PreprocContext> DtorParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, tok: Option<Token>) -> (Option<Token>, Option<Destructor>) {
+    pub(crate) fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> (Option<Token>, Option<Destructor>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Tilde {
             return (Some(tok), None);
