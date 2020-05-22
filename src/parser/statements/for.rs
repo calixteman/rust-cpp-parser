@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
@@ -36,7 +37,7 @@ impl Dump for For {
 pub struct ForRange {
     pub attributes: Option<Attributes>,
     pub init: Option<DeclOrExpr>,
-    pub decl: TypeDeclarator,
+    pub decl: Rc<TypeDeclarator>,
     pub expr: ExprNode,
     pub body: Statement,
 }

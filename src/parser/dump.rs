@@ -3,8 +3,10 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::dump_str;
+use std::rc::Rc;
 use termcolor::{ColorChoice, StandardStream, StandardStreamLock};
+
+use crate::dump_str;
 
 pub trait Dump {
     fn dump_me(&self) {
@@ -44,6 +46,18 @@ impl<T: Dump> Dump for Option<T> {
         } else {
             dump_str!(name, "\u{2717}", Red, prefix, last, stdout);
         }
+    }
+}
+
+impl<T: Dump> Dump for Rc<T> {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        self.as_ref().dump(name, prefix, last, stdout);
+    }
+}
+
+impl<'a, T: Dump> Dump for &'a T {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        (*self).dump(name, prefix, last, stdout);
     }
 }
 

@@ -3,18 +3,20 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
+
 use super::expr::{CallExpr, ExprNode, ExpressionParser, LastKind};
 use super::operator::Operator;
 use super::params::ParametersParser;
 use crate::lexer::lexer::Token;
 use crate::lexer::preprocessor::context::PreprocContext;
+use crate::parser::context::{Context, TypeToFix};
 use crate::parser::declarations::{
     DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
     Specifier, TypeDeclarator, TypeDeclaratorParser,
 };
 use crate::parser::name::{Qualified, QualifiedParser};
-use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type};
-use crate::parser::Context;
+use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type, UDType, UserDefined};
 
 enum CastType {
     Qual(Qualified),
@@ -35,7 +37,10 @@ impl CastType {
 
     fn typ(self) -> BaseType {
         match self {
-            CastType::Qual(q) => BaseType::UD(q),
+            CastType::Qual(name) => BaseType::UD(Box::new(UserDefined {
+                name,
+                typ: UDType::Indirect(TypeToFix::default()),
+            })),
             CastType::Prim(p) => BaseType::Primitive(p),
         }
     }
@@ -124,7 +129,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(Some(tok), None, false, context);
 
-            let typ = decl.unwrap().typ;
+            let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
             if tok == Token::RightParen {
@@ -150,7 +155,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), false, context);
 
-            let typ = decl.unwrap().typ;
+            let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
             if tok == Token::RightParen {
@@ -167,6 +172,8 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
             let (tok, qual) = qp.parse(None, Some(id), context);
             let qual = qual.unwrap();
 
+            // If id correspond to a type then we must have it the context
+
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if let Some(kind) = PtrKind::from_tok(&tok) {
                 // (T *...)
@@ -177,7 +184,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     let (tok, pointers) = pdp.parse(Some(tok), Some(kind), context);
 
                     let typ = Type {
-                        base: BaseType::UD(qual),
+                        base: BaseType::UD(Box::new(UserDefined {
+                            name: qual,
+                            typ: UDType::Indirect(TypeToFix::default()),
+                        })),
                         cv: CVQualifier::empty(),
                         pointers,
                     };
@@ -185,7 +195,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
                     let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)), false, context);
 
-                    let typ = decl.unwrap().typ;
+                    let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
                     if tok == Token::RightParen {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
@@ -195,7 +205,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 } else if tok == Token::RightParen {
                     // (T *)
                     let typ = Type {
-                        base: BaseType::UD(qual),
+                        base: BaseType::UD(Box::new(UserDefined {
+                            name: qual,
+                            typ: UDType::Indirect(TypeToFix::default()),
+                        })),
                         cv: CVQualifier::empty(),
                         pointers: Some(vec![Pointer {
                             kind,
@@ -214,7 +227,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     let (tok, decl) =
                         tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false, context);
 
-                    let typ = decl.unwrap().typ;
+                    let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
                     if tok == Token::RightParen {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
@@ -312,7 +325,10 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                     | Token::True
                     | Token::False => {
                         let typ = Type {
-                            base: BaseType::UD(qual),
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: qual,
+                                typ: UDType::Indirect(TypeToFix::default()),
+                            })),
                             cv: CVQualifier::empty(),
                             pointers: None,
                         };
@@ -347,6 +363,8 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::rc::Rc;
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
@@ -432,7 +450,10 @@ mod tests {
         let expected = node!(BinaryOp {
             op: Operator::Cast,
             arg1: ExprNode::Type(Box::new(Type {
-                base: BaseType::UD(mk_id!("T")),
+                base: BaseType::UD(Box::new(UserDefined {
+                    name: mk_id!("T"),
+                    typ: UDType::Indirect(TypeToFix::default())
+                })),
                 cv: CVQualifier::empty(),
                 pointers: Some(vec![Pointer {
                     kind: PtrKind::Pointer,
@@ -465,7 +486,7 @@ mod tests {
                     }),
                     params: vec![Parameter {
                         attributes: None,
-                        decl: TypeDeclarator {
+                        decl: Rc::new(TypeDeclarator {
                             typ: Type {
                                 base: BaseType::Primitive(Primitive::Int),
                                 cv: CVQualifier::empty(),
@@ -476,8 +497,9 @@ mod tests {
                                 identifier: None,
                                 attributes: None
                             },
-                            init: None
-                        },
+                            init: None,
+                            bitfield_size: None,
+                        }),
                     }],
                     cv: CVQualifier::empty(),
                     refq: RefQualifier::None,
@@ -516,13 +538,16 @@ mod tests {
             arg1: ExprNode::Type(Box::new(Type {
                 base: BaseType::Function(Box::new(Function {
                     return_type: Some(Type {
-                        base: BaseType::UD(mk_id!("T")),
+                        base: BaseType::UD(Box::new(UserDefined {
+                            name: mk_id!("T"),
+                            typ: UDType::Indirect(TypeToFix::default())
+                        })),
                         cv: CVQualifier::empty(),
                         pointers: None,
                     }),
                     params: vec![Parameter {
                         attributes: None,
-                        decl: TypeDeclarator {
+                        decl: Rc::new(TypeDeclarator {
                             typ: Type {
                                 base: BaseType::Primitive(Primitive::Int),
                                 cv: CVQualifier::empty(),
@@ -533,8 +558,9 @@ mod tests {
                                 identifier: None,
                                 attributes: None
                             },
-                            init: None
-                        },
+                            init: None,
+                            bitfield_size: None,
+                        }),
                     }],
                     cv: CVQualifier::empty(),
                     refq: RefQualifier::None,

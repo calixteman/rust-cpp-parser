@@ -11,9 +11,9 @@ use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::dump::Dump;
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::Context;
 use crate::{dump_obj, dump_vec};
 
 bitflags! {
@@ -250,12 +250,12 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Class>) {
+    ) -> (Option<Token>, Option<Class>, Option<TypeToFix>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let kind = if let Some(kind) = Kind::from_tok(&tok) {
             kind
         } else {
-            return (Some(tok), None);
+            return (Some(tok), None, None);
         };
 
         // optional: attributes
@@ -279,8 +279,16 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
         let bcp = BaseClauseParser::new(self.lexer);
         let (tok, bases) = bcp.parse(tok, context);
 
-        let cbp = ClassBodyParser::new(self.lexer);
-        let (tok, body) = cbp.parse(tok, kind.clone(), context);
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        let (tok, body, to_fix) = if tok == Token::LeftBrace {
+            context.set_current(name.as_ref(), ScopeKind::Class);
+            let cbp = ClassBodyParser::new(self.lexer);
+            let (tok, body) = cbp.parse(kind.clone(), context);
+            let to_fix = context.pop_n(name.as_ref().map_or(1, |n| n.len()));
+            (tok, Some(body), to_fix)
+        } else {
+            (Some(tok), None, None)
+        };
 
         let class = Class {
             kind,
@@ -291,7 +299,7 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
             body,
         };
 
-        (tok, Some(class))
+        (tok, Some(class), to_fix)
     }
 }
 
@@ -304,17 +312,7 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(
-        self,
-        tok: Option<Token>,
-        kind: Kind,
-        context: &mut Context,
-    ) -> (Option<Token>, Option<ClassBody>) {
-        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok != Token::LeftBrace {
-            return (Some(tok), None);
-        }
-
+    pub(crate) fn parse(self, kind: Kind, context: &mut Context) -> (Option<Token>, ClassBody) {
         let mut body = ClassBody {
             public: Vec::new(),
             protected: Vec::new(),
@@ -361,12 +359,12 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
                     }
                 }
             } else {
-                return (tk, Some(body));
+                tk
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             tok = if tk == Token::RightBrace {
-                return (None, Some(body));
+                return (None, body);
             } else {
                 Some(tk)
             };
@@ -376,6 +374,8 @@ impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::rc::Rc;
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
@@ -413,7 +413,7 @@ public:
         );
         let p = ClassParser::new(&mut l);
         let mut context = Context::default();
-        let (_, c) = p.parse(None, &mut context);
+        let (_, c, _) = p.parse(None, &mut context);
         let c = c.unwrap();
 
         let expected = Class {
@@ -435,7 +435,7 @@ public:
             ]),
             body: Some(ClassBody {
                 public: vec![
-                    Member::Type(TypeDeclarator {
+                    Member::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Primitive(Primitive::Double),
                             cv: CVQualifier::empty(),
@@ -447,8 +447,9 @@ public:
                             attributes: None,
                         },
                         init: None,
-                    }),
-                    Member::Type(TypeDeclarator {
+                        bitfield_size: None,
+                    })),
+                    Member::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Function(Box::new(Function {
                                 return_type: Some(Type {
@@ -487,9 +488,10 @@ public:
                             attributes: None,
                         },
                         init: None,
-                    }),
+                        bitfield_size: None,
+                    })),
                 ],
-                protected: vec![Member::Type(TypeDeclarator {
+                protected: vec![Member::Type(Rc::new(TypeDeclarator {
                     typ: Type {
                         base: BaseType::Primitive(Primitive::Char),
                         cv: CVQualifier::empty(),
@@ -506,9 +508,10 @@ public:
                         attributes: None,
                     },
                     init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
-                })],
+                    bitfield_size: None,
+                }))],
                 private: vec![
-                    Member::Type(TypeDeclarator {
+                    Member::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
@@ -520,8 +523,9 @@ public:
                             attributes: None,
                         },
                         init: None,
-                    }),
-                    Member::Type(TypeDeclarator {
+                        bitfield_size: None,
+                    })),
+                    Member::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Function(Box::new(Function {
                                 return_type: Some(Type {
@@ -550,7 +554,8 @@ public:
                             attributes: None,
                         },
                         init: None,
-                    }),
+                        bitfield_size: None,
+                    })),
                 ],
             }),
         };

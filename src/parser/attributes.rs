@@ -67,7 +67,7 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, context: &mut Context) -> (Option<Token>, Option<String>) {
+    fn parse(self, _context: &mut Context) -> (Option<Token>, Option<String>) {
         let tok = self.lexer.next_useful();
         if tok == Token::Using {
             let tok = self.lexer.next_useful();
@@ -102,7 +102,7 @@ impl<'a, 'b, PC: PreprocContext> ArgumentParser<'a, 'b, PC> {
     fn parse(
         self,
         tok: Option<Token>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> (Option<Token>, Option<AttributeArg>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftParen {
@@ -171,7 +171,11 @@ impl<'a, 'b, PC: PreprocContext> NameParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Token, context: &mut Context) -> (Option<Token>, (Option<String>, String)) {
+    fn parse(
+        self,
+        tok: Token,
+        _context: &mut Context,
+    ) -> (Option<Token>, (Option<String>, String)) {
         match tok {
             Token::Identifier(id) => {
                 let tk = self.lexer.next_useful();

@@ -3,29 +3,13 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use termcolor::StandardStreamLock;
-
 use super::TypeDeclarator;
-use crate::dump_obj;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
-use crate::parser::dump::Dump;
 use crate::parser::expressions::Operator;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
 use crate::parser::Context;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct BitFieldDeclarator {
-    pub typ: TypeDeclarator,
-    pub size: ExprNode,
-}
-
-impl Dump for BitFieldDeclarator {
-    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        dump_obj!(self, name, "bitfield", prefix, last, stdout, typ, size);
-    }
-}
 
 pub struct BitFieldDeclaratorParser<'a, 'b, PC: PreprocContext> {
     lexer: &'b mut Lexer<'a, PC>,
@@ -39,9 +23,9 @@ impl<'a, 'b, PC: PreprocContext> BitFieldDeclaratorParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         tok: Option<Token>,
-        typ: TypeDeclarator,
+        typ: &mut TypeDeclarator,
         context: &mut Context,
-    ) -> (Option<Token>, Option<BitFieldDeclarator>) {
+    ) -> Option<Token> {
         let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
         let (tok, size) = ep.parse(tok, context);
 
@@ -63,9 +47,9 @@ impl<'a, 'b, PC: PreprocContext> BitFieldDeclaratorParser<'a, 'b, PC> {
             _ => (size, None),
         };
 
-        let mut typ = typ;
         typ.init = init;
+        typ.bitfield_size = Some(size);
 
-        (tok, Some(BitFieldDeclarator { typ, size }))
+        tok
     }
 }

@@ -3,13 +3,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
-use super::bitfield::{BitFieldDeclarator, BitFieldDeclaratorParser};
-use super::{
-    Enum, EnumParser, StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum,
-    UsingParser,
-};
+use super::bitfield::BitFieldDeclaratorParser;
+use super::{StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, UsingParser};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
@@ -20,13 +18,11 @@ use crate::{dump_str, dump_vec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Member {
-    BitField(BitFieldDeclarator),
-    Type(TypeDeclarator),
+    Type(Rc<TypeDeclarator>),
     StaticAssert(StaticAssert),
     UsingDecl(UsingDecl),
     UsingEnum(UsingEnum),
     UsingAlias(UsingAlias),
-    Enum(Enum),
     Empty,
 }
 
@@ -48,13 +44,11 @@ impl Dump for Member {
         }
 
         match self {
-            Self::BitField(x) => dump!(x),
             Self::Type(x) => dump!(x),
             Self::StaticAssert(x) => dump!(x),
             Self::UsingDecl(x) => dump!(x),
             Self::UsingEnum(x) => dump!(x),
             Self::UsingAlias(x) => dump!(x),
-            Self::Enum(x) => dump!(x),
             Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
         }
     }
@@ -116,13 +110,6 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
             return (tok, Some(MemberRes::Decl(Member::StaticAssert(sa))));
         }
 
-        let ep = EnumParser::new(self.lexer);
-        let (tok, en) = ep.parse(tok, context);
-
-        if let Some(en) = en {
-            return (tok, Some(MemberRes::Decl(Member::Enum(en))));
-        }
-
         let up = UsingParser::new(self.lexer);
         let (tok, using) = up.parse(tok, context);
 
@@ -142,23 +129,25 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
         let tdp = TypeDeclaratorParser::new(self.lexer);
         let (tok, typ) = tdp.parse(tok, None, true, context);
 
-        let typ = if let Some(typ) = typ {
+        let mut typ = if let Some(typ) = typ {
             typ
         } else {
             return (tok, None);
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (tok, member) = if tok == Token::Colon {
+        let tok = if tok == Token::Colon {
             // we've a bitfield
             let bfdp = BitFieldDeclaratorParser::new(self.lexer);
-            let (tok, bitfield) = bfdp.parse(None, typ, context);
-            (tok, Member::BitField(bitfield.unwrap()))
+            let tok = bfdp.parse(None, Rc::get_mut(&mut typ).unwrap(), context);
+            tok
         } else {
-            (Some(tok), Member::Type(typ))
+            Some(tok)
         };
 
-        (tok, Some(MemberRes::Decl(member)))
+        context.add_type_decl(Rc::clone(&typ));
+
+        (tok, Some(MemberRes::Decl(Member::Type(typ))))
     }
 }
 
@@ -174,7 +163,7 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
     fn parse(
         self,
         tok: Option<Token>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> (Option<Token>, Option<Visibility>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let visibility = match tok {
@@ -239,24 +228,22 @@ mod tests {
 
         assert_eq!(
             d,
-            Member::BitField(BitFieldDeclarator {
-                typ: TypeDeclarator {
-                    typ: Type {
-                        base: BaseType::Primitive(Primitive::Int),
-                        cv: CVQualifier::empty(),
-                        pointers: None,
-                    },
-                    specifier: Specifier::empty(),
-                    identifier: Identifier {
-                        identifier: Some(mk_id!("x")),
-                        attributes: None
-                    },
-                    init: None,
+            Member::Type(Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
                 },
-                size: ExprNode::Integer(Box::new(Integer {
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: None,
+                bitfield_size: Some(ExprNode::Integer(Box::new(Integer {
                     value: IntLiteral::Int(4)
-                })),
-            })
+                }))),
+            }))
         );
     }
 
@@ -275,26 +262,24 @@ mod tests {
 
         assert_eq!(
             d,
-            Member::BitField(BitFieldDeclarator {
-                typ: TypeDeclarator {
-                    typ: Type {
-                        base: BaseType::Primitive(Primitive::Int),
-                        cv: CVQualifier::empty(),
-                        pointers: None,
-                    },
-                    specifier: Specifier::empty(),
-                    identifier: Identifier {
-                        identifier: Some(mk_id!("x")),
-                        attributes: None
-                    },
-                    init: Some(Initializer::Equal(ExprNode::Integer(Box::new(Integer {
-                        value: IntLiteral::Int(1)
-                    })))),
+            Member::Type(Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
                 },
-                size: ExprNode::Integer(Box::new(Integer {
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: Some(Initializer::Equal(ExprNode::Integer(Box::new(Integer {
+                    value: IntLiteral::Int(1)
+                })))),
+                bitfield_size: Some(ExprNode::Integer(Box::new(Integer {
                     value: IntLiteral::Int(4)
-                })),
-            })
+                }))),
+            }))
         );
     }
 
@@ -313,28 +298,26 @@ mod tests {
 
         assert_eq!(
             d,
-            Member::BitField(BitFieldDeclarator {
-                typ: TypeDeclarator {
-                    typ: Type {
-                        base: BaseType::Primitive(Primitive::Int),
-                        cv: CVQualifier::empty(),
-                        pointers: None,
-                    },
-                    specifier: Specifier::empty(),
-                    identifier: Identifier {
-                        identifier: Some(mk_id!("x")),
-                        attributes: None
-                    },
-                    init: Some(Initializer::Brace(vec![ExprNode::Integer(Box::new(
-                        Integer {
-                            value: IntLiteral::Int(1)
-                        }
-                    )),]))
+            Member::Type(Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
                 },
-                size: ExprNode::Integer(Box::new(Integer {
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: Some(Initializer::Brace(vec![ExprNode::Integer(Box::new(
+                    Integer {
+                        value: IntLiteral::Int(1)
+                    }
+                )),])),
+                bitfield_size: Some(ExprNode::Integer(Box::new(Integer {
                     value: IntLiteral::Int(4)
-                })),
-            })
+                }))),
+            }))
         );
     }
 }

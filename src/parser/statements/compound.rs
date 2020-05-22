@@ -11,7 +11,7 @@ use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Compound {
@@ -52,9 +52,11 @@ impl<'a, 'b, PC: PreprocContext> CompoundStmtParser<'a, 'b, PC> {
     ) -> (Option<Token>, Option<Compound>) {
         let mut stmts = Vec::new();
         let mut tok = self.lexer.next_useful();
+        context.set_current(None, ScopeKind::Block);
 
         loop {
-            if tok == Token::RightBrace {
+            if tok == Token::RightBrace || tok == Token::Eof {
+                context.pop();
                 return (None, Some(Compound { attributes, stmts }));
             }
 

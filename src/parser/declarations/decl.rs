@@ -8,9 +8,8 @@ use termcolor::StandardStreamLock;
 
 use super::types::{DeclHint, TypeDeclarator, TypeDeclaratorParser};
 use super::{
-    Asm, AsmParser, Enum, EnumParser, Extern, ExternParser, Namespace, NamespaceAlias,
-    NamespaceParser, StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, UsingNS,
-    UsingParser,
+    Asm, AsmParser, Extern, ExternParser, Namespace, NamespaceAlias, NamespaceParser, StaticAssert,
+    StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, UsingNS, UsingParser,
 };
 use crate::check_semicolon;
 use crate::lexer::preprocessor::context::PreprocContext;
@@ -33,7 +32,6 @@ pub enum Declaration {
     UsingEnum(UsingEnum),
     UsingNS(UsingNS),
     UsingAlias(UsingAlias),
-    Enum(Enum),
     Empty,
 }
 
@@ -57,7 +55,6 @@ impl Dump for Declaration {
             Self::UsingEnum(x) => dump!(x),
             Self::UsingNS(x) => dump!(x),
             Self::UsingAlias(x) => dump!(x),
-            Self::Enum(x) => dump!(x),
             Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
             _ => {}
         }
@@ -125,13 +122,6 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
             return (tok, Some(Declaration::StaticAssert(sa)));
         }
 
-        let ep = EnumParser::new(self.lexer);
-        let (tok, en) = ep.parse(tok, context);
-
-        if let Some(en) = en {
-            return (tok, Some(Declaration::Enum(en)));
-        }
-
         let ap = AttributesParser::new(self.lexer);
         let (tok, mut attrs) = ap.parse(tok, context);
 
@@ -163,8 +153,7 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
         let (tok, decl) = tdp.parse(tok, hint, true, context);
 
         let decl = if let Some(decl) = decl {
-            let decl = Rc::new(decl);
-            context.add_type(Rc::clone(&decl));
+            context.add_type_decl(Rc::clone(&decl));
             Some(Declaration::Type(decl))
         } else {
             None
@@ -187,21 +176,15 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declarations>, bool) {
-        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        let (mut tok, has_lbrace) = if tok == Token::LeftBrace {
-            (None, true)
-        } else {
-            (Some(tok), false)
-        };
-
+    ) -> (Option<Token>, Option<Declarations>) {
+        let mut tok = tok;
         let mut list = Vec::new();
 
         loop {
             let dp = DeclarationParser::new(self.lexer);
             let (tk, decl) = dp.parse(tok, None, context);
 
-            let tk = if let Some(decl) = decl {
+            tok = if let Some(decl) = decl {
                 let tk = if decl.has_semicolon() {
                     check_semicolon!(self, tk);
                     None
@@ -211,18 +194,7 @@ impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
                 list.push(decl);
                 tk
             } else {
-                return (tk, Some(list), has_lbrace);
-            };
-
-            tok = if has_lbrace {
-                let tok = tk.unwrap_or_else(|| self.lexer.next_useful());
-                if tok == Token::RightBrace {
-                    return (None, Some(list), has_lbrace);
-                } else {
-                    Some(tok)
-                }
-            } else {
-                return (tk, Some(list), has_lbrace);
+                return (tk, Some(list));
             };
         }
     }

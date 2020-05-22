@@ -233,7 +233,7 @@ impl<'a, 'b, PC: PreprocContext> StringLiteralParser<'a, 'b, PC> {
         res
     }
 
-    pub(crate) fn parse(self, first: &str, context: &mut Context) -> (Option<Token>, String) {
+    pub(crate) fn parse(self, first: &str, _context: &mut Context) -> (Option<Token>, String) {
         let mut strings = Vec::with_capacity(32); // TODO: put a good value here if it's useful
         let mut lens = 0;
 

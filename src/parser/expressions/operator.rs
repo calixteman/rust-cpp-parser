@@ -104,7 +104,7 @@ impl Operator {
         }
     }
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         use Operator::*;
 
         match self {

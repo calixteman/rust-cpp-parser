@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
@@ -18,13 +19,12 @@ use crate::parser::Context;
 pub struct Try {
     pub attributes: Option<Attributes>,
     pub body: Box<Statement>,
-    pub clause: Option<TypeDeclarator>,
+    pub clause: Option<Rc<TypeDeclarator>>,
     pub handler: Box<Statement>,
 }
 
 impl Dump for Try {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        // TODO: add clause
         dump_obj!(self, name, "try", prefix, last, stdout, attributes, body, clause, handler);
     }
 }
@@ -81,8 +81,20 @@ impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
             unreachable!("Invalid token in catch clause: {:?}", tok);
         }
 
+        // Exception handler
+        let clause = if let Some(clause) = clause {
+            context.add_type_decl(Rc::clone(&clause));
+            Some(clause)
+        } else {
+            None
+        };
+
         let sp = StatementParser::new(self.lexer);
         let (tok, handler) = sp.parse(None, context);
+
+        if clause.is_some() {
+            context.pop();
+        }
 
         let handler = if let Some(handler) = handler {
             handler

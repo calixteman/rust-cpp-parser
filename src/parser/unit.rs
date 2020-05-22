@@ -30,7 +30,7 @@ impl<'a, PC: PreprocContext> UnitParser<'a, PC> {
 
     pub fn parse(&mut self) -> Unit {
         let dlp = DeclarationListParser::new(&mut self.lexer);
-        let (tok, decls, _) = dlp.parse(None, &mut self.context);
+        let (tok, decls) = dlp.parse(None, &mut self.context);
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Eof {

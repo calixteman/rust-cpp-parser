@@ -41,24 +41,42 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
         let tok = self.lexer.next_useful();
 
         if let Token::LiteralString(language) = tok {
+            let tok = self.lexer.next_useful();
+            let has_brace = tok == Token::LeftBrace;
             let dlp = DeclarationListParser::new(self.lexer);
 
-            let (tok, list, multiple) = dlp.parse(None, context);
+            let (tok, list) = dlp.parse(None, context);
 
-            (
-                tok,
-                Some(Declaration::Extern(Extern {
-                    language,
-                    decls: list.unwrap(),
-                    multiple,
-                })),
-            )
+            if has_brace {
+                let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                if tok == Token::RightBrace {
+                    (
+                        None,
+                        Some(Declaration::Extern(Extern {
+                            language,
+                            decls: list.unwrap(),
+                            multiple: true,
+                        })),
+                    )
+                } else {
+                    unreachable!("Invalid token {:?}", tok);
+                }
+            } else {
+                (
+                    tok,
+                    Some(Declaration::Extern(Extern {
+                        language,
+                        decls: list.unwrap(),
+                        multiple: false,
+                    })),
+                )
+            }
         } else {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let hint = DeclHint::Specifier(Specifier::EXTERN);
             let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
-            let typ = Rc::new(typ.unwrap());
-            context.add_type(Rc::clone(&typ));
+            let typ = typ.unwrap();
+            context.add_type_decl(Rc::clone(&typ));
 
             (tok, Some(Declaration::Type(typ)))
         }
@@ -67,6 +85,8 @@ impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::rc::Rc;
 
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
@@ -104,7 +124,7 @@ extern "C" {
                             }),
                             params: vec![Parameter {
                                 attributes: None,
-                                decl: TypeDeclarator {
+                                decl: Rc::new(TypeDeclarator {
                                     typ: Type {
                                         base: BaseType::Primitive(Primitive::Double),
                                         cv: CVQualifier::empty(),
@@ -115,8 +135,9 @@ extern "C" {
                                         identifier: None,
                                         attributes: None
                                     },
-                                    init: None
-                                },
+                                    init: None,
+                                    bitfield_size: None,
+                                }),
                             }],
                             cv: CVQualifier::empty(),
                             refq: RefQualifier::None,
@@ -138,6 +159,7 @@ extern "C" {
                         attributes: None
                     },
                     init: None,
+                    bitfield_size: None,
                 }))],
                 multiple: true,
             })
@@ -169,7 +191,7 @@ extern double sqrt(double);
                         }),
                         params: vec![Parameter {
                             attributes: None,
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Double),
                                     cv: CVQualifier::empty(),
@@ -180,8 +202,9 @@ extern double sqrt(double);
                                     identifier: None,
                                     attributes: None
                                 },
-                                init: None
-                            },
+                                init: None,
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::empty(),
                         refq: RefQualifier::None,
@@ -203,6 +226,7 @@ extern double sqrt(double);
                     attributes: None
                 },
                 init: None,
+                bitfield_size: None,
             }))
         );
     }

@@ -8,12 +8,12 @@ use termcolor::StandardStreamLock;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
-use crate::parser::Context;
 use crate::{dump_obj, dump_vec};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,7 +87,7 @@ impl<'a, 'b, PC: PreprocContext> BaseTypeParser<'a, 'b, PC> {
         }
 
         let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, (_, ty, _)) = dsp.parse(None, None, context);
+        let (tok, (_, ty, _, _)) = dsp.parse(None, None, context);
 
         (tok, ty)
     }
@@ -143,12 +143,7 @@ impl<'a, 'b, PC: PreprocContext> EntriesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>, context: &mut Context) -> (Option<Token>, Option<Entries>) {
-        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        if tok != Token::LeftBrace {
-            return (Some(tok), None);
-        }
-
+    fn parse(self, context: &mut Context) -> (Option<Token>, Option<Entries>) {
         let mut entries = Vec::new();
 
         loop {
@@ -184,11 +179,11 @@ impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Enum>) {
+    ) -> (Option<Token>, Option<Enum>, Option<TypeToFix>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok != Token::Enum {
-            return (Some(tok), None);
+            return (Some(tok), None, None);
         }
 
         // enum, enum struct, enum class
@@ -212,8 +207,16 @@ impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
         let (tok, base) = btp.parse(tok, context);
 
         // optional: '{' ... '}'
-        let ep = EntriesParser::new(self.lexer);
-        let (tok, entries) = ep.parse(tok, context);
+        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+        let (tok, entries, to_fix) = if tok == Token::LeftBrace {
+            context.set_current(name.as_ref(), ScopeKind::Enum);
+            let ep = EntriesParser::new(self.lexer);
+            let (tok, entries) = ep.parse(context);
+            let to_fix = context.pop_n(name.as_ref().map_or(1, |n| n.len()));
+            (tok, entries, to_fix)
+        } else {
+            (Some(tok), None, None)
+        };
 
         (
             tok,
@@ -224,6 +227,7 @@ impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
                 base,
                 entries,
             }),
+            to_fix,
         )
     }
 }
@@ -245,7 +249,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"enum Color {red, green , blue}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -280,7 +284,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"enum {red, green , blue}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -316,7 +320,7 @@ mod tests {
             Lexer::<DefaultContext>::new(b"enum Color : unsigned short {red, green , blue}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -355,7 +359,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"enum Color : unsigned short");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -380,7 +384,7 @@ mod tests {
         );
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -430,7 +434,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"enum class Color {red, green , blue}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -466,7 +470,7 @@ mod tests {
             Lexer::<DefaultContext>::new(b"enum struct [[attr]] Color: char {red, green , blue}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),
@@ -510,7 +514,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"enum class byte : unsigned char {}");
         let p = EnumParser::new(&mut l);
         let mut context = Context::default();
-        let (_, e) = p.parse(None, &mut context);
+        let (_, e, _) = p.parse(None, &mut context);
 
         assert_eq!(
             e.unwrap(),

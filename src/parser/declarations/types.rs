@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::array::ArrayParser;
@@ -15,12 +16,12 @@ use crate::dump_obj;
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::types::{self, BaseType, CVQualifier, Type};
-use crate::parser::Context;
+use crate::parser::types::{self, BaseType, CVQualifier, Type, UDType, UserDefined};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
@@ -41,6 +42,7 @@ pub struct TypeDeclarator {
     pub specifier: Specifier,
     pub identifier: Identifier,
     pub init: Option<Initializer>,
+    pub bitfield_size: Option<ExprNode>,
 }
 
 impl Dump for TypeDeclarator {
@@ -55,9 +57,17 @@ impl Dump for TypeDeclarator {
             typ,
             specifier,
             identifier,
-            init
+            init,
+            bitfield_size
         );
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TypeDeclNames<'a> {
+    pub(crate) var: Option<&'a Qualified>,
+    pub(crate) typ: Option<&'a Qualified>,
+    pub(crate) typd: Option<&'a Qualified>,
 }
 
 impl TypeDeclarator {
@@ -85,8 +95,31 @@ impl TypeDeclarator {
         if self.specifier.intersects(Specifier::TYPEDEF) {
             true
         } else {
+            /*match self.typ.base {
+
+            }*/
             false
         }
+    }
+
+    pub(crate) fn get_names(&self) -> TypeDeclNames {
+        // Get the variable names (if any) and the type name (if any)
+        // var and typd are exclusive
+        // but we can have a typd and typ, e.g. typedef class A {...} B;
+        let (var, typd) = if self.specifier.intersects(Specifier::TYPEDEF) {
+            (None, self.identifier.identifier.as_ref())
+        } else {
+            (self.identifier.identifier.as_ref(), None)
+        };
+
+        let typ = match &self.typ.base {
+            BaseType::UD(_) => None,
+            BaseType::Class(c) => c.name.as_ref(),
+            BaseType::Enum(e) => e.name.as_ref(),
+            _ => None,
+        };
+
+        TypeDeclNames { var, typ, typd }
     }
 }
 
@@ -112,18 +145,31 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
         tok: Option<Token>,
         hint: Option<DeclHint>,
         context: &mut Context,
-    ) -> (Option<Token>, (Specifier, Option<Type>, Option<Qualified>)) {
+    ) -> (
+        Option<Token>,
+        (
+            Specifier,
+            Option<Type>,
+            Option<Qualified>,
+            Option<TypeToFix>,
+        ),
+    ) {
         let (mut typ, mut spec, mut ty_modif) = if let Some(hint) = hint {
             match hint {
                 DeclHint::Name(id) => (
-                    id.map(BaseType::UD),
+                    id.map(|id| {
+                        BaseType::UD(Box::new(UserDefined {
+                            name: id,
+                            typ: UDType::Indirect(TypeToFix::default()),
+                        }))
+                    }),
                     Specifier::empty(),
                     types::Modifier::empty(),
                 ),
                 DeclHint::Specifier(spec) => (None, spec, types::Modifier::empty()),
                 DeclHint::Modifier(modif) => (None, Specifier::empty(), modif),
                 DeclHint::Type(typ) => {
-                    return (tok, (Specifier::empty(), Some(typ), None));
+                    return (tok, (Specifier::empty(), Some(typ), None, None));
                 }
             }
         } else {
@@ -131,6 +177,7 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
         };
 
         let mut cv = CVQualifier::empty();
+        let mut to_fix = None;
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         loop {
@@ -155,36 +202,49 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
             if ty_modif.is_empty() && typ.is_none() {
                 // enum
                 let ep = EnumParser::new(self.lexer);
-                let (tk, en) = ep.parse(Some(tok), context);
+                let (tk, en, tf) = ep.parse(Some(tok), context);
 
                 if let Some(en) = en {
                     typ = Some(BaseType::Enum(Box::new(en)));
                     tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                    to_fix = tf;
                     continue;
                 }
 
                 // class
                 let cp = ClassParser::new(self.lexer);
-                let (tk, cl) = cp.parse(tk, context);
+                let (tk, cl, tf) = cp.parse(tk, context);
 
                 if let Some(cl) = cl {
                     typ = Some(BaseType::Class(Box::new(cl)));
                     tok = tk.unwrap_or_else(|| self.lexer.next_useful());
+                    to_fix = tf;
                     continue;
                 }
 
                 // identifier
                 let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
                 if let Token::Identifier(id) = tk {
-                    // TODO: check that the name is a type
                     let qp = QualifiedParser::new(self.lexer);
                     let (tk, name) = qp.parse(None, Some(id), context);
                     let name = name.unwrap();
                     if name.is_conv_op() {
-                        return (tk, (spec, None, Some(name)));
+                        return (tk, (spec, None, Some(name), to_fix));
                     }
 
-                    typ = Some(BaseType::UD(name));
+                    let ud_typ = if let Some(res) = context.search(Some(&name)) {
+                        match res {
+                            SearchResult::Type(ty) => UDType::Direct(ty),
+                            SearchResult::Var(_) => {
+                                unreachable!("Invalid type: {:?}", name.to_string())
+                            }
+                            SearchResult::Incomplete(ty) => UDType::Indirect(ty),
+                        }
+                    } else {
+                        UDType::Indirect(TypeToFix::default())
+                    };
+
+                    typ = Some(BaseType::UD(Box::new(UserDefined { name, typ: ud_typ })));
                     tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                     continue;
                 }
@@ -207,9 +267,10 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
                         pointers: None,
                     }),
                     None,
+                    to_fix,
                 )
             } else if cv.is_empty() && ty_modif.is_empty() {
-                (spec, None, None)
+                (spec, None, None, to_fix)
             } else {
                 let typ = if ty_modif.is_empty() {
                     None
@@ -221,7 +282,7 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
                     })
                 };
 
-                (spec, typ, None)
+                (spec, typ, None, to_fix)
             };
 
             return (Some(tok), spec_ty);
@@ -291,6 +352,7 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
                     specifier,
                     identifier,
                     init: None,
+                    bitfield_size: None,
                 }),
             );
         }
@@ -325,6 +387,7 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
                 specifier,
                 identifier,
                 init,
+                bitfield_size: None,
             }),
         )
     }
@@ -345,9 +408,9 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
         hint: Option<DeclHint>,
         init: bool,
         context: &mut Context,
-    ) -> (Option<Token>, Option<TypeDeclarator>) {
+    ) -> (Option<Token>, Option<Rc<TypeDeclarator>>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, (spec, typ, op)) = dsp.parse(tok, hint, context);
+        let (tok, (spec, typ, op, to_fix)) = dsp.parse(tok, hint, context);
 
         let typ = if let Some(typ) = typ {
             typ
@@ -356,7 +419,7 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
             let codp = ConvOperatorDeclaratorParser::new(self.lexer);
             let (tok, conv) = codp.parse(spec, op, tok, context);
 
-            return (tok, conv);
+            return (tok, conv.map(Rc::new));
         };
 
         let mut typ = typ;
@@ -389,6 +452,7 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
                 specifier: _,
                 identifier,
                 init: _,
+                bitfield_size: _,
             } = paren_decl;
             let Type {
                 base,
@@ -417,6 +481,11 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
             }
         }
 
+        let decl = Rc::new(decl);
+        if let Some(to_fix) = to_fix {
+            to_fix.fix(Rc::clone(&decl));
+        }
+
         (tok, Some(decl))
     }
 
@@ -430,7 +499,7 @@ impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DeclOrExpr {
-    Decl(TypeDeclarator),
+    Decl(Rc<TypeDeclarator>),
     Expr(ExprNode),
 }
 
@@ -469,16 +538,24 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
                 let qp = QualifiedParser::new(self.lexer);
                 let (tok, name) = qp.parse(None, Some(id), context);
 
-                let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                if TypeDeclaratorParser::<PC>::is_decl_part(&tok) {
+                let (tok, is_typ) = if context.search(name.as_ref()).map_or(false, |r| r.is_type())
+                {
+                    (tok, true)
+                } else {
+                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                    let is_decl_part = TypeDeclaratorParser::<PC>::is_decl_part(&tok);
+                    (Some(tok), is_decl_part)
+                };
+
+                if is_typ {
                     let tp = TypeDeclaratorParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
-                    let (tok, typ) = tp.parse(Some(tok), Some(hint), true, context);
+                    let (tok, typ) = tp.parse(tok, Some(hint), true, context);
 
                     (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
                 } else {
                     let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-                    let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context);
+                    let (tok, expr) = ep.parse_with_id(tok, name.unwrap(), context);
 
                     (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
                 }
@@ -506,6 +583,8 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
 
 #[cfg(test)]
 mod tests {
+
+    use std::rc::Rc;
 
     use super::super::function::*;
     use super::*;
@@ -558,7 +637,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
 
             let ty = match ty.as_ref().unwrap().base() {
                 BaseType::Primitive(ty) => ty,
@@ -581,7 +660,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
             let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_const(), "{}", buf);
@@ -607,7 +686,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
             let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_volatile(), "{}", buf);
@@ -631,7 +710,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
@@ -648,7 +727,8 @@ mod tests {
                     attributes: None
                 },
                 init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -662,9 +742,12 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
-                    base: BaseType::UD(mk_id!("A", "B", "C")),
+                    base: BaseType::UD(Box::new(UserDefined {
+                        name: mk_id!("A", "B", "C"),
+                        typ: UDType::Indirect(TypeToFix::default())
+                    })),
                     cv: CVQualifier::VOLATILE,
                     pointers: Some(vec![Pointer {
                         kind: PtrKind::Pointer,
@@ -679,7 +762,8 @@ mod tests {
                     attributes: None
                 },
                 init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -693,7 +777,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::CONST,
@@ -709,7 +793,8 @@ mod tests {
                         value: IntLiteral::Int(314)
                     }
                 )),])),
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -723,7 +808,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Short),
                     cv: CVQualifier::VOLATILE,
@@ -742,7 +827,8 @@ mod tests {
                 init: Some(Initializer::Equal(ExprNode::Qualified(Box::new(mk_id!(
                     "NULL"
                 ))))),
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -756,7 +842,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
@@ -781,7 +867,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -795,7 +882,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
@@ -826,7 +913,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -840,9 +928,12 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
-                    base: BaseType::UD(mk_id!("A", "B")),
+                    base: BaseType::UD(Box::new(UserDefined {
+                        name: mk_id!("A", "B"),
+                        typ: UDType::Indirect(TypeToFix::default())
+                    })),
                     cv: CVQualifier::empty(),
                     pointers: Some(vec![
                         Pointer {
@@ -871,7 +962,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -885,7 +977,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
@@ -902,7 +994,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -916,7 +1009,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
@@ -933,7 +1026,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -947,7 +1041,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
@@ -964,7 +1058,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -978,7 +1073,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Char),
                     cv: CVQualifier::empty(),
@@ -1003,7 +1098,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1017,7 +1113,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Array(Box::new(Array {
                         base: Some(Type {
@@ -1058,7 +1154,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1072,7 +1169,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1106,7 +1203,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1120,7 +1218,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1130,7 +1228,7 @@ mod tests {
                         }),
                         params: vec![Parameter {
                             attributes: None,
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1141,8 +1239,9 @@ mod tests {
                                     identifier: Some(mk_id!("x")),
                                     attributes: None
                                 },
-                                init: None
-                            },
+                                init: None,
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::empty(),
                         refq: RefQualifier::None,
@@ -1164,7 +1263,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1178,7 +1278,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1188,7 +1288,7 @@ mod tests {
                         }),
                         params: vec![Parameter {
                             attributes: None,
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1199,8 +1299,9 @@ mod tests {
                                     identifier: Some(mk_id!("x")),
                                     attributes: None
                                 },
-                                init: None
-                            },
+                                init: None,
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::empty(),
                         refq: RefQualifier::None,
@@ -1235,7 +1336,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1249,7 +1351,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1272,7 +1374,7 @@ mod tests {
                         }),
                         params: vec![Parameter {
                             attributes: None,
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1283,8 +1385,9 @@ mod tests {
                                     identifier: Some(mk_id!("x")),
                                     attributes: None
                                 },
-                                init: None
-                            },
+                                init: None,
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::empty(),
                         refq: RefQualifier::None,
@@ -1306,7 +1409,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1320,7 +1424,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1331,7 +1435,7 @@ mod tests {
                         params: vec![
                             Parameter {
                                 attributes: None,
-                                decl: TypeDeclarator {
+                                decl: Rc::new(TypeDeclarator {
                                     typ: Type {
                                         base: BaseType::Primitive(Primitive::Int),
                                         cv: CVQualifier::empty(),
@@ -1342,12 +1446,13 @@ mod tests {
                                         identifier: Some(mk_id!("x")),
                                         attributes: None
                                     },
-                                    init: None
-                                },
+                                    init: None,
+                                    bitfield_size: None,
+                                }),
                             },
                             Parameter {
                                 attributes: None,
-                                decl: TypeDeclarator {
+                                decl: Rc::new(TypeDeclarator {
                                     typ: Type {
                                         base: BaseType::Primitive(Primitive::Double),
                                         cv: CVQualifier::CONST,
@@ -1363,8 +1468,9 @@ mod tests {
                                         identifier: Some(mk_id!("y")),
                                         attributes: None
                                     },
-                                    init: None
-                                },
+                                    init: None,
+                                    bitfield_size: None,
+                                }),
                             }
                         ],
                         cv: CVQualifier::empty(),
@@ -1387,7 +1493,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1401,7 +1508,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1411,7 +1518,7 @@ mod tests {
                         }),
                         params: vec![Parameter {
                             attributes: None,
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1426,8 +1533,9 @@ mod tests {
                                     literals::Integer {
                                         value: IntLiteral::Int(123)
                                     }
-                                ))))
-                            },
+                                )))),
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::empty(),
                         refq: RefQualifier::None,
@@ -1449,7 +1557,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1465,7 +1574,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
@@ -1480,7 +1589,7 @@ mod tests {
                                 arg: None,
                                 has_using: false,
                             }]),
-                            decl: TypeDeclarator {
+                            decl: Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1495,8 +1604,9 @@ mod tests {
                                     literals::Integer {
                                         value: IntLiteral::Int(123)
                                     }
-                                ))))
-                            },
+                                )))),
+                                bitfield_size: None,
+                            }),
                         }],
                         cv: CVQualifier::CONST,
                         refq: RefQualifier::RValue,
@@ -1511,7 +1621,10 @@ mod tests {
                             has_using: false,
                         }]),
                         trailing: Some(Type {
-                            base: BaseType::UD(mk_id!("C")),
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: mk_id!("C"),
+                                typ: UDType::Indirect(TypeToFix::default())
+                            })),
                             cv: CVQualifier::empty(),
                             pointers: None,
                         }),
@@ -1530,7 +1643,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1544,7 +1658,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Array(Box::new(Array {
                         base: Some(Type {
@@ -1568,7 +1682,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1582,7 +1697,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Enum(Box::new(Enum {
                         kind: r#enum::Kind::None,
@@ -1604,7 +1719,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1618,7 +1734,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Class(Box::new(Class {
                         kind: class::Kind::Struct,
@@ -1627,7 +1743,7 @@ mod tests {
                         r#final: false,
                         bases: None,
                         body: Some(ClassBody {
-                            public: vec![Member::Type(TypeDeclarator {
+                            public: vec![Member::Type(Rc::new(TypeDeclarator {
                                 typ: Type {
                                     base: BaseType::Primitive(Primitive::Int),
                                     cv: CVQualifier::empty(),
@@ -1639,7 +1755,8 @@ mod tests {
                                     attributes: None,
                                 },
                                 init: None,
-                            }),],
+                                bitfield_size: None,
+                            })),],
                             protected: vec![],
                             private: vec![],
                         }),
@@ -1653,7 +1770,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1667,11 +1785,14 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: Some(Type {
-                            base: BaseType::UD(mk_id!("A")),
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: mk_id!("A"),
+                                typ: UDType::Indirect(TypeToFix::default())
+                            })),
                             cv: CVQualifier::empty(),
                             pointers: None,
                         }),
@@ -1705,7 +1826,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1719,7 +1841,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: None,
@@ -1743,7 +1865,10 @@ mod tests {
                     identifier: Some(Qualified {
                         names: vec![Name::Operator(Box::new(operator::Operator::Conv(
                             ConvType {
-                                base: ConvBaseType::UD(mk_id!("A")),
+                                base: ConvBaseType::UD(Box::new(UserDefined {
+                                    name: mk_id!("A"),
+                                    typ: UDType::Indirect(TypeToFix::default())
+                                })),
                                 cv: CVQualifier::empty(),
                                 pointers: None,
                             },
@@ -1752,7 +1877,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 
@@ -1766,7 +1892,7 @@ mod tests {
 
         assert_eq!(
             decl,
-            TypeDeclarator {
+            Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Function(Box::new(Function {
                         return_type: None,
@@ -1793,7 +1919,10 @@ mod tests {
                                 val: "A".to_string()
                             }),
                             Name::Operator(Box::new(operator::Operator::Conv(ConvType {
-                                base: ConvBaseType::UD(mk_id!("B")),
+                                base: ConvBaseType::UD(Box::new(UserDefined {
+                                    name: mk_id!("B"),
+                                    typ: UDType::Indirect(TypeToFix::default())
+                                })),
                                 cv: CVQualifier::empty(),
                                 pointers: None,
                             },))),
@@ -1802,7 +1931,8 @@ mod tests {
                     attributes: None
                 },
                 init: None,
-            }
+                bitfield_size: None,
+            })
         );
     }
 }

@@ -36,6 +36,15 @@ pub enum Name {
     //Decltype(ExprNode), TODO: add that
 }
 
+impl AsRef<str> for Name {
+    fn as_ref(&self) -> &str {
+        match self {
+            Name::Identifier(id) => &id.val,
+            _ => "",
+        }
+    }
+}
+
 impl Eq for Name {}
 
 impl ToString for Name {
@@ -103,6 +112,10 @@ impl Qualified {
         } else {
             unreachable!("Not a valid identifier");
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.names.len()
     }
 }
 

@@ -137,7 +137,7 @@ impl<'a, 'b, PC: PreprocContext> DefaultStmtParser<'a, 'b, PC> {
     pub(super) fn parse(
         self,
         attributes: Option<Attributes>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> (Option<Token>, Option<Default>) {
         let tok = self.lexer.next_useful();
         if tok != Token::Colon {

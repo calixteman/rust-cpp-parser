@@ -900,7 +900,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 }
                 _ => {
                     let dsp = DeclSpecifierParser::new(self.lexer);
-                    let (tk, (_, typ, _)) = dsp.parse(Some(tok), None, context);
+                    let (tk, (_, typ, _, _)) = dsp.parse(Some(tok), None, context);
 
                     if let Some(typ) = typ {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
@@ -908,7 +908,6 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                         tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                         continue;
                     } else {
-                        //eprintln!("COUCOU {:?}\n{:?}\n", self.operands, self.operators);
                         return (tk, self.get_node());
                     }
                 }

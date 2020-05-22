@@ -3,21 +3,61 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
+use termcolor::StandardStreamLock;
+
 use super::cv::CVQualifier;
 use super::primitive::Primitive;
+use crate::dump_obj;
+use crate::parser::context::TypeToFix;
+use crate::parser::declarations::types::TypeDeclarator;
 use crate::parser::declarations::{Array, Class, Enum, Function, Pointers};
+use crate::parser::dump::Dump;
 use crate::parser::names::Qualified;
 
-use crate::dump_obj;
-use crate::parser::dump::Dump;
-use termcolor::StandardStreamLock;
+#[derive(Clone, Debug, PartialEq)]
+pub enum UDType {
+    Direct(Rc<TypeDeclarator>),
+    // Used when a type is used insided itself:
+    // struct A { ... A* ... }
+    // Once the struct is parsed then the Indirect value is set
+    Indirect(TypeToFix),
+}
+
+impl Dump for UDType {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        match self {
+            Self::Direct(_) => dump_str!(name, "<direct>", Cyan, prefix, last, stdout),
+            Self::Indirect(i) => i.dump(name, prefix, last, stdout),
+        };
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UserDefined {
+    pub name: Qualified,
+    pub typ: UDType,
+}
+
+impl Hash for UserDefined {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl Dump for UserDefined {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "UD", prefix, last, stdout, name, typ);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum BaseType {
     None,
     Auto,
     Primitive(Primitive),
-    UD(Qualified),
+    UD(Box<UserDefined>),
     Enum(Box<Enum>),
     Class(Box<Class>),
     Function(Box<Function>),

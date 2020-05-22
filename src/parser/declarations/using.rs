@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::decl::Declaration;
@@ -82,7 +83,7 @@ impl Dump for UsingNS {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UsingAlias {
     pub name: String,
-    pub typ: TypeDeclarator,
+    pub typ: Rc<TypeDeclarator>,
     pub attributes: Option<Attributes>,
 }
 
@@ -197,12 +198,15 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
                     let (tok, typ) = tdp.parse(None, None, false, context);
                     let name = name.get_first_name();
+                    let typ = typ.unwrap();
+
+                    context.add_alias(&name, Rc::clone(&typ));
 
                     return (
                         tok,
                         Some(Declaration::UsingAlias(UsingAlias {
                             name,
-                            typ: typ.unwrap(),
+                            typ,
                             attributes: attrs,
                         })),
                     );
@@ -211,12 +215,15 @@ impl<'a, 'b, PC: PreprocContext> UsingParser<'a, 'b, PC> {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
                     let (tok, typ) = tdp.parse(None, None, false, context);
                     let name = name.get_first_name();
+                    let typ = typ.unwrap();
+
+                    context.add_alias(&name, Rc::clone(&typ));
 
                     return (
                         tok,
                         Some(Declaration::UsingAlias(UsingAlias {
                             name,
-                            typ: typ.unwrap(),
+                            typ,
                             attributes: None,
                         })),
                     );

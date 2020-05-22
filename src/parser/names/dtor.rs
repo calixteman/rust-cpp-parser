@@ -24,7 +24,7 @@ impl<'a, 'b, PC: PreprocContext> DtorParser<'a, 'b, PC> {
     pub(crate) fn parse(
         self,
         tok: Option<Token>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> (Option<Token>, Option<Destructor>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Tilde {

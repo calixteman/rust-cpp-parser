@@ -4,6 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use bitflags::bitflags;
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::super::types::{BaseType, CVQualifier, Type};
@@ -17,13 +18,13 @@ use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, Paramet
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
 use crate::parser::statements::{Compound, CompoundStmtParser};
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 use crate::{bitflags_to_str, dump_obj};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
     pub(crate) attributes: Option<Attributes>,
-    pub(crate) decl: TypeDeclarator,
+    pub(crate) decl: Rc<TypeDeclarator>,
 }
 
 impl Dump for Parameter {
@@ -273,10 +274,9 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut tok = if skip_lparen {
             Some(tok)
+        } else if tok != Token::LeftParen {
+            return (Some(tok), None);
         } else {
-            if tok != Token::LeftParen {
-                return (Some(tok), None);
-            }
             None
         };
 
@@ -362,7 +362,7 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         let (tok, trailing) = if tok == Token::Arrow {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(None, None, false, context);
-            (tok, decl.map(|d| d.typ))
+            (tok, decl.map(|d| Rc::try_unwrap(d).unwrap().typ))
         } else {
             (Some(tok), None)
         };
@@ -402,8 +402,14 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, body) = if tok == Token::LeftBrace {
+            context.set_current(None, ScopeKind::Block);
+            for param in params.iter() {
+                context.add_type_decl(Rc::clone(&param.decl));
+            }
             let cp = CompoundStmtParser::new(self.lexer);
-            cp.parse(None, context)
+            let (tok, body) = cp.parse(None, context);
+            context.pop();
+            (tok, body)
         } else {
             (Some(tok), None)
         };
@@ -530,6 +536,7 @@ impl<'a, 'b, PC: PreprocContext> ConvOperatorDeclaratorParser<'a, 'b, PC> {
                         attributes,
                     },
                     init: None,
+                    bitfield_size: None,
                 }),
             )
         } else {

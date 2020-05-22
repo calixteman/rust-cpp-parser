@@ -13,12 +13,12 @@ use super::{
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::context::Context;
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
 use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::QualifiedParser;
-use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Break {
@@ -264,8 +264,11 @@ impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
 #[cfg(test)]
 mod tests {
 
+    use std::rc::Rc;
+
     use super::*;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::parser::context::TypeToFix;
     use crate::parser::declarations::*;
     use crate::parser::expressions::*;
     use crate::parser::initializer::*;
@@ -273,7 +276,6 @@ mod tests {
     use crate::parser::names::Qualified;
     use crate::parser::types::*;
     use pretty_assertions::assert_eq;
-    use std::rc::Rc;
 
     #[test]
     fn test_statement_compound_1() {
@@ -347,10 +349,14 @@ mod tests {
                                 value: IntLiteral::Int(1)
                             }
                         )))),
+                        bitfield_size: None,
                     })))),
                     Statement::Declaration(Box::new(Declaration::Type(Rc::new(TypeDeclarator {
                         typ: Type {
-                            base: BaseType::UD(mk_id!("A"),),
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: mk_id!("A"),
+                                typ: UDType::Indirect(TypeToFix::default())
+                            })),
                             cv: CVQualifier::empty(),
                             pointers: Some(vec![Pointer {
                                 kind: PtrKind::Pointer,
@@ -364,7 +370,8 @@ mod tests {
                             identifier: Some(mk_id!("b")),
                             attributes: None
                         },
-                        init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {}))))
+                        init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
+                        bitfield_size: None,
                     })))),
                     Statement::Empty,
                 ]
@@ -452,7 +459,7 @@ mod tests {
             b"
              try {
                    /* */
-             } catch (const std::exception & e) {
+             } catch (const exception & e) {
                    /* */
              }
              ",
@@ -467,9 +474,12 @@ mod tests {
                 attributes: None,
                 stmts: vec![],
             }))),
-            clause: Some(TypeDeclarator {
+            clause: Some(Rc::new(TypeDeclarator {
                 typ: Type {
-                    base: BaseType::UD(mk_id!("std", "exception")),
+                    base: BaseType::UD(Box::new(UserDefined {
+                        name: mk_id!("exception"),
+                        typ: UDType::Indirect(TypeToFix::default()),
+                    })),
                     cv: CVQualifier::CONST,
                     pointers: Some(vec![Pointer {
                         kind: PtrKind::Reference,
@@ -484,7 +494,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            }),
+                bitfield_size: None,
+            })),
             handler: Box::new(Statement::Compound(Box::new(Compound {
                 attributes: None,
                 stmts: vec![],
@@ -500,7 +511,7 @@ mod tests {
             b"
              try {
                    /* */
-             } catch (const std::exception&) {
+             } catch (const exception&) {
                    /* */
              }
              ",
@@ -515,9 +526,12 @@ mod tests {
                 attributes: None,
                 stmts: vec![],
             }))),
-            clause: Some(TypeDeclarator {
+            clause: Some(Rc::new(TypeDeclarator {
                 typ: Type {
-                    base: BaseType::UD(mk_id!("std", "exception")),
+                    base: BaseType::UD(Box::new(UserDefined {
+                        name: mk_id!("exception"),
+                        typ: UDType::Indirect(TypeToFix::default()),
+                    })),
                     cv: CVQualifier::CONST,
                     pointers: Some(vec![Pointer {
                         kind: PtrKind::Reference,
@@ -532,7 +546,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            }),
+                bitfield_size: None,
+            })),
             handler: Box::new(Statement::Compound(Box::new(Compound {
                 attributes: None,
                 stmts: vec![],
@@ -611,7 +626,7 @@ mod tests {
 
         let expected = Statement::For(Box::new(For {
             attributes: None,
-            init: Some(DeclOrExpr::Decl(TypeDeclarator {
+            init: Some(DeclOrExpr::Decl(Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Primitive(Primitive::Int),
                     cv: CVQualifier::empty(),
@@ -627,7 +642,8 @@ mod tests {
                         value: IntLiteral::Int(0),
                     },
                 )))),
-            })),
+                bitfield_size: None,
+            }))),
             condition: Some(node!(BinaryOp {
                 op: Operator::Leq,
                 arg1: ExprNode::Qualified(Box::new(mk_id!("i"))),
@@ -660,7 +676,7 @@ mod tests {
         let expected = Statement::ForRange(Box::new(ForRange {
             attributes: None,
             init: None,
-            decl: TypeDeclarator {
+            decl: Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Auto,
                     cv: CVQualifier::empty(),
@@ -677,7 +693,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            },
+                bitfield_size: None,
+            }),
             expr: node!(CallExpr {
                 callee: node!(BinaryOp {
                     op: Operator::Dot,
@@ -708,9 +725,12 @@ mod tests {
 
         let expected = Statement::ForRange(Box::new(ForRange {
             attributes: None,
-            init: Some(DeclOrExpr::Decl(TypeDeclarator {
+            init: Some(DeclOrExpr::Decl(Rc::new(TypeDeclarator {
                 typ: Type {
-                    base: BaseType::UD(mk_id!("T")),
+                    base: BaseType::UD(Box::new(UserDefined {
+                        name: mk_id!("T"),
+                        typ: UDType::Indirect(TypeToFix::default()),
+                    })),
                     cv: CVQualifier::empty(),
                     pointers: None,
                 },
@@ -723,8 +743,9 @@ mod tests {
                     callee: ExprNode::Qualified(Box::new(mk_id!("foo"))),
                     params: vec![]
                 }))),
-            })),
-            decl: TypeDeclarator {
+                bitfield_size: None,
+            }))),
+            decl: Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Auto,
                     cv: CVQualifier::empty(),
@@ -741,7 +762,8 @@ mod tests {
                     attributes: None,
                 },
                 init: None,
-            },
+                bitfield_size: None,
+            }),
             expr: node!(CallExpr {
                 callee: node!(BinaryOp {
                     op: Operator::Dot,

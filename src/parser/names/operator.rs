@@ -10,17 +10,16 @@ use crate::parser::declarations::{
     types::DeclSpecifierParser,
 };
 use crate::parser::expressions;
-use crate::parser::names::Qualified;
 use crate::parser::types::{
     r#type::{BaseType, Type},
-    CVQualifier, Primitive,
+    CVQualifier, Primitive, UserDefined,
 };
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq, Hash)]
 pub enum ConvBaseType {
     Primitive(Primitive),
-    UD(Qualified),
+    UD(Box<UserDefined>),
 }
 
 #[derive(Clone, Debug, PartialEq, Hash)]
@@ -188,7 +187,7 @@ impl<'a, 'b, PC: PreprocContext> OperatorParser<'a, 'b, PC> {
                 if let Some(Type { base, cv, pointers }) = typ {
                     let base = match base {
                         BaseType::Primitive(p) => ConvBaseType::Primitive(p),
-                        BaseType::UD(q) => ConvBaseType::UD(q),
+                        BaseType::UD(ud) => ConvBaseType::UD(ud),
                         _ => {
                             unreachable!("Invalid type for operator conversion");
                         }
@@ -220,7 +219,7 @@ impl<'a, 'b, PC: PreprocContext> ConversionTypeParser<'a, 'b, PC> {
         context: &mut Context,
     ) -> (Option<Token>, Option<Type>) {
         let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, (_, typ, _)) = dsp.parse(tok, None, context);
+        let (tok, (_, typ, _, _)) = dsp.parse(tok, None, context);
 
         let mut typ = if let Some(typ) = typ {
             typ

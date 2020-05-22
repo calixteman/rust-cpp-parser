@@ -19,12 +19,17 @@ pub struct NsName {
     pub name: String,
 }
 
+impl AsRef<str> for NsName {
+    fn as_ref(&self) -> &str {
+        &self.name
+    }
+}
+
 pub type NsNames = Vec<NsName>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namespace {
-    pub inline: bool,
-    pub name: Option<NsNames>,
+    pub name: NsNames,
     pub body: Declarations,
 }
 
@@ -43,7 +48,7 @@ impl<'a, 'b, PC: PreprocContext> NsNamesParser<'a, 'b, PC> {
         Self { lexer }
     }
 
-    fn parse(self, context: &mut Context) -> (Option<Token>, Option<NsNames>) {
+    fn parse(self, _context: &mut Context) -> (Option<Token>, NsNames) {
         let mut tok = self.lexer.next_useful();
         let mut names = Vec::new();
         let mut inline = false;
@@ -60,7 +65,13 @@ impl<'a, 'b, PC: PreprocContext> NsNamesParser<'a, 'b, PC> {
                     inline = false;
                 }
                 _ => {
-                    return (Some(tok), Some(names));
+                    if names.is_empty() {
+                        names.push(NsName {
+                            inline: false,
+                            name: "".to_string(),
+                        });
+                    }
+                    return (Some(tok), names);
                 }
             }
             tok = self.lexer.next_useful();
@@ -90,8 +101,8 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let hint = DeclHint::Specifier(Specifier::INLINE);
                 let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
-                let typ = Rc::new(typ.unwrap());
-                context.add_type(Rc::clone(&typ));
+                let typ = typ.unwrap();
+                context.add_type_decl(Rc::clone(&typ));
 
                 return (tok, Some(Declaration::Type(typ)));
             }
@@ -103,27 +114,42 @@ impl<'a, 'b, PC: PreprocContext> NamespaceParser<'a, 'b, PC> {
         };
 
         let np = NsNamesParser::new(self.lexer);
-        let (tok, name) = np.parse(context);
+        let (tok, mut name) = np.parse(context);
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+
+        if inline {
+            name[0].inline = true;
+        }
 
         match tok {
             Token::LeftBrace => {
-                let dlp = DeclarationListParser::new(self.lexer);
-                let (tok, body, _) = dlp.parse(Some(tok), context);
+                let name_len = name.len();
+                context.set_current_ns(&name);
 
-                let ns = Namespace {
-                    inline,
-                    name,
-                    body: body.unwrap(),
-                };
-                (tok, Some(Declaration::Namespace(ns)))
+                let dlp = DeclarationListParser::new(self.lexer);
+                let (tok, body) = dlp.parse(None, context);
+
+                let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                if tok == Token::RightBrace {
+                    let ns = Namespace {
+                        name,
+                        body: body.unwrap(),
+                    };
+
+                    if name_len != 0 {
+                        context.pop_n(name_len);
+                    }
+                    (None, Some(Declaration::Namespace(ns)))
+                } else {
+                    unreachable!("Invalid token in namespace definition: {:?}", tok);
+                }
             }
             Token::Equal => {
                 let qp = QualifiedParser::new(self.lexer);
                 let (tok, alias) = qp.parse(None, None, context);
 
                 let mut s = String::new();
-                std::mem::swap(&mut s, &mut name.unwrap()[0].name);
+                std::mem::swap(&mut s, &mut name[0].name);
 
                 let ns = NamespaceAlias {
                     name: s,
@@ -156,7 +182,7 @@ mod tests {
         let (_, ns) = p.parse(&mut context);
 
         assert_eq!(
-            ns.unwrap(),
+            ns,
             vec![NsName {
                 inline: false,
                 name: "A".to_string(),
@@ -172,7 +198,7 @@ mod tests {
         let (_, ns) = p.parse(&mut context);
 
         assert_eq!(
-            ns.unwrap(),
+            ns,
             vec![
                 NsName {
                     inline: false,
@@ -218,18 +244,16 @@ namespace A {
         assert_eq!(
             ns,
             Declaration::Namespace(Namespace {
-                inline: false,
-                name: Some(vec![NsName {
+                name: vec![NsName {
                     inline: false,
                     name: "A".to_string(),
-                },],),
+                },],
                 body: vec![
                     Declaration::Namespace(Namespace {
-                        inline: false,
-                        name: Some(vec![NsName {
+                        name: vec![NsName {
                             inline: false,
                             name: "B".to_string(),
-                        },],),
+                        },],
                         body: vec![Declaration::Type(Rc::new(TypeDeclarator {
                             typ: Type {
                                 base: BaseType::Function(Box::new(Function {
@@ -259,6 +283,7 @@ namespace A {
                                 attributes: None
                             },
                             init: None,
+                            bitfield_size: None,
                         }))],
                     },),
                     Declaration::Type(Rc::new(TypeDeclarator {
@@ -290,6 +315,7 @@ namespace A {
                             attributes: None
                         },
                         init: None,
+                        bitfield_size: None,
                     }))
                 ],
             })
