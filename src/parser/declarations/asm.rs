@@ -3,9 +3,12 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
 use crate::parser::attributes::Attributes;
+use crate::parser::dump::Dump;
 use crate::parser::literals::StringLiteralParser;
 use crate::parser::Context;
 
@@ -13,6 +16,12 @@ use crate::parser::Context;
 pub struct Asm {
     pub attributes: Option<Attributes>,
     pub code: String,
+}
+
+impl Dump for Asm {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "asm", prefix, last, stdout, attributes);
+    }
 }
 
 pub(crate) struct AsmParser<'a, 'b, PC: PreprocContext> {

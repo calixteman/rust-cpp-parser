@@ -45,18 +45,17 @@ impl Dump for Declaration {
 
         match self {
             Self::Type(x) => dump!(x),
-            //Self::Extern(x) => dump!(x),
-            //Self::Namespace(x) => dump!(x),
-            //Self::NamespaceAlias(x) => dump!(x),
+            Self::Extern(x) => dump!(x),
+            Self::Namespace(x) => dump!(x),
+            Self::NamespaceAlias(x) => dump!(x),
             Self::StaticAssert(x) => dump!(x),
-            //Self::Asm(x) => dump!(x),
+            Self::Asm(x) => dump!(x),
             Self::Attributes(x) => dump!(x),
             Self::UsingDecl(x) => dump!(x),
             Self::UsingEnum(x) => dump!(x),
             Self::UsingNS(x) => dump!(x),
             Self::UsingAlias(x) => dump!(x),
             Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
-            _ => {}
         }
     }
 }

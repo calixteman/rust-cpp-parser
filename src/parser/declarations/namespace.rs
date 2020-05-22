@@ -4,12 +4,14 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::rc::Rc;
+use termcolor::StandardStreamLock;
 
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, Token};
+use crate::parser::dump::Dump;
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::Context;
 
@@ -17,6 +19,12 @@ use crate::parser::Context;
 pub struct NsName {
     pub inline: bool,
     pub name: String,
+}
+
+impl Dump for NsName {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, inline, name);
+    }
 }
 
 impl AsRef<str> for NsName {
@@ -27,16 +35,43 @@ impl AsRef<str> for NsName {
 
 pub type NsNames = Vec<NsName>;
 
+impl Dump for NsNames {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "ns", prefix, last, stdout);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Namespace {
     pub name: NsNames,
     pub body: Declarations,
 }
 
+impl Dump for Namespace {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "namespace", prefix, last, stdout, name, body);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NamespaceAlias {
     pub name: String,
     pub alias: Qualified,
+}
+
+impl Dump for NamespaceAlias {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(
+            self,
+            name,
+            "namespace-alias",
+            prefix,
+            last,
+            stdout,
+            name,
+            alias
+        );
+    }
 }
 
 struct NsNamesParser<'a, 'b, PC: PreprocContext> {

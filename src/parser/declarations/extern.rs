@@ -4,12 +4,14 @@
 // copied, modified, or distributed except according to those terms.
 
 use std::rc::Rc;
+use termcolor::StandardStreamLock;
 
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::lexer::{Lexer, Token};
 use crate::lexer::preprocessor::context::PreprocContext;
+use crate::parser::dump::Dump;
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -17,6 +19,12 @@ pub struct Extern {
     pub language: String,
     pub decls: Declarations,
     pub multiple: bool,
+}
+
+impl Dump for Extern {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "extern", prefix, last, stdout, language, decls, multiple);
+    }
 }
 
 pub struct ExternParser<'a, 'b, PC: PreprocContext> {
