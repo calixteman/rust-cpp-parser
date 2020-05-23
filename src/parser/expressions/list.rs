@@ -3,19 +3,18 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::expressions::{Parameters, ParametersParser};
 use crate::parser::Context;
 
 pub type ListInitialization = Parameters;
 
-pub struct ListInitializationParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ListInitializationParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ListInitializationParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ListInitializationParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

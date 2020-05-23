@@ -5,8 +5,7 @@
 
 use termcolor::StandardStreamLock;
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::declarations::DeclSpecifierParser;
@@ -14,7 +13,6 @@ use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
-use crate::{dump_obj, dump_vec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
@@ -70,12 +68,12 @@ impl Dump for Enum {
     }
 }
 
-struct BaseTypeParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct BaseTypeParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> BaseTypeParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> BaseTypeParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -93,12 +91,12 @@ impl<'a, 'b, PC: PreprocContext> BaseTypeParser<'a, 'b, PC> {
     }
 }
 
-struct EntryParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct EntryParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> EntryParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> EntryParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -134,12 +132,12 @@ impl<'a, 'b, PC: PreprocContext> EntryParser<'a, 'b, PC> {
     }
 }
 
-struct EntriesParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct EntriesParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> EntriesParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> EntriesParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -166,12 +164,12 @@ impl<'a, 'b, PC: PreprocContext> EntriesParser<'a, 'b, PC> {
     }
 }
 
-pub(crate) struct EnumParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct EnumParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> EnumParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -236,7 +234,7 @@ impl<'a, 'b, PC: PreprocContext> EnumParser<'a, 'b, PC> {
 mod tests {
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::attributes::*;
     use crate::parser::expressions::*;
     use crate::parser::literals::*;

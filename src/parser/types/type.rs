@@ -9,7 +9,6 @@ use termcolor::StandardStreamLock;
 
 use super::cv::CVQualifier;
 use super::primitive::Primitive;
-use crate::dump_obj;
 use crate::parser::context::TypeToFix;
 use crate::parser::declarations::types::TypeDeclarator;
 use crate::parser::declarations::{Array, Class, Enum, Function, Pointers};

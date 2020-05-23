@@ -8,13 +8,11 @@ use termcolor::StandardStreamLock;
 
 use super::member::{MemberParser, MemberRes, Members, Visibility};
 use crate::check_semicolon;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::dump::Dump;
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::{dump_obj, dump_vec};
 
 bitflags! {
     pub struct ClassSpecifier: u8 {
@@ -149,12 +147,12 @@ impl Dump for ClassBody {
     }
 }
 
-struct DerivedParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct DerivedParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DerivedParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -191,12 +189,12 @@ impl<'a, 'b, PC: PreprocContext> DerivedParser<'a, 'b, PC> {
     }
 }
 
-struct BaseClauseParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct BaseClauseParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> BaseClauseParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -237,12 +235,12 @@ impl<'a, 'b, PC: PreprocContext> BaseClauseParser<'a, 'b, PC> {
     }
 }
 
-pub(crate) struct ClassParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct ClassParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ClassParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -303,12 +301,12 @@ impl<'a, 'b, PC: PreprocContext> ClassParser<'a, 'b, PC> {
     }
 }
 
-pub struct ClassBodyParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ClassBodyParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ClassBodyParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ClassBodyParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -378,7 +376,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::declarations::{self, *};
     use crate::parser::expressions::{self, *};
     use crate::parser::initializer::Initializer;

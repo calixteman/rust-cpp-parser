@@ -4,19 +4,18 @@
 // copied, modified, or distributed except according to those terms.
 
 use super::TypeDeclarator;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::expressions::Operator;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
 use crate::parser::Context;
 
-pub struct BitFieldDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct BitFieldDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> BitFieldDeclaratorParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> BitFieldDeclaratorParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

@@ -8,9 +8,7 @@ use termcolor::StandardStreamLock;
 use super::list::{ListInitialization, ListInitializationParser};
 use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
-use crate::dump_fields;
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::declarations::DeclSpecifierParser;
 use crate::parser::dump::Dump;
 use crate::parser::literals::{
@@ -173,8 +171,8 @@ fn check_precedence(left: Operator, right: Operator) -> bool {
     }
 }
 
-pub struct ExpressionParser<'a, 'b, PC: PreprocContext> {
-    pub(super) lexer: &'b mut Lexer<'a, PC>,
+pub struct ExpressionParser<'a, L: TLexer> {
+    pub(super) lexer: &'a mut L,
     pub(super) operands: Vec<ExprNode>,
     pub(super) operators: Vec<Operator>,
     pub(super) last: LastKind,
@@ -182,8 +180,8 @@ pub struct ExpressionParser<'a, 'b, PC: PreprocContext> {
     pub(super) level: usize,
 }
 
-impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token) -> Self {
+impl<'a, L: TLexer> ExpressionParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L, term: Token) -> Self {
         Self {
             lexer,
             operands: Vec::new(),
@@ -410,7 +408,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
                 Token::LeftBrack => {
                     if self.last == LastKind::Operand {
                         self.flush_with_op(Operator::Subscript);
-                        let mut ep = ExpressionParser::new(&mut self.lexer, Token::RightBrack);
+                        let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
                         let (tk, expr) = ep.parse(None, context);
                         if tk.map_or(true, |t| t == Token::RightBrack) {
                             let array = self.operands.pop().unwrap();
@@ -921,7 +919,7 @@ impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
 mod tests {
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::names::Qualified;
     use crate::parser::types::{BaseType, CVQualifier, Primitive, Type};
     use pretty_assertions::assert_eq;

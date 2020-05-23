@@ -3,11 +3,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::dump_str;
-use crate::lexer::Token;
-use crate::parser::dump::Dump;
 use bitflags::bitflags;
 use termcolor::StandardStreamLock;
+
+use crate::lexer::Token;
+use crate::parser::dump::Dump;
 
 bitflags! {
     pub(crate) struct Modifier: u64 {

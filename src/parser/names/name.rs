@@ -7,9 +7,7 @@ use termcolor::StandardStreamLock;
 
 use super::dtor::{Destructor, DtorParser};
 use super::operator::{Operator, OperatorParser};
-use crate::dump_str;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{Parameters, ParametersParser};
 use crate::parser::Context;
@@ -119,12 +117,12 @@ impl Qualified {
     }
 }
 
-pub struct QualifiedParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct QualifiedParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> QualifiedParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -212,7 +210,7 @@ impl<'a, 'b, PC: PreprocContext> QualifiedParser<'a, 'b, PC> {
 mod tests {
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use pretty_assertions::assert_eq;
 
     #[test]

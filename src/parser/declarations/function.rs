@@ -10,8 +10,7 @@ use termcolor::StandardStreamLock;
 use super::super::types::{BaseType, CVQualifier, Type};
 use super::specifier::Specifier;
 use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
@@ -19,7 +18,6 @@ use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
 use crate::parser::statements::{Compound, CompoundStmtParser};
 use crate::parser::{Context, ScopeKind};
-use crate::{bitflags_to_str, dump_obj};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
@@ -163,12 +161,12 @@ impl Dump for CtorInitializers {
     }
 }
 
-pub struct CtorInitializersParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct CtorInitializersParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> CtorInitializersParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> CtorInitializersParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -256,12 +254,12 @@ impl Dump for Function {
     }
 }
 
-pub struct ParameterListParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ParameterListParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ParameterListParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -312,12 +310,12 @@ impl<'a, 'b, PC: PreprocContext> ParameterListParser<'a, 'b, PC> {
     }
 }
 
-pub struct FunctionParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct FunctionParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> FunctionParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -433,12 +431,12 @@ impl<'a, 'b, PC: PreprocContext> FunctionParser<'a, 'b, PC> {
     }
 }
 
-pub struct ExceptionParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ExceptionParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ExceptionParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -479,12 +477,12 @@ impl<'a, 'b, PC: PreprocContext> ExceptionParser<'a, 'b, PC> {
     }
 }
 
-pub(crate) struct ConvOperatorDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct ConvOperatorDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ConvOperatorDeclaratorParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

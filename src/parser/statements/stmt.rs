@@ -10,8 +10,7 @@ use super::{
     DoStmtParser, For, ForRange, ForRes, ForStmtParser, Goto, GotoStmtParser, If, IfStmtParser,
     Return, ReturnStmtParser, Switch, SwitchStmtParser, Try, TryStmtParser, While, WhileStmtParser,
 };
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::Context;
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
@@ -125,12 +124,12 @@ macro_rules! check_semicolon_or_not {
     };
 }
 
-pub struct StatementParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct StatementParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> StatementParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -223,7 +222,7 @@ impl<'a, 'b, PC: PreprocContext> StatementParser<'a, 'b, PC> {
                 let (tok, name) = qp.parse(None, Some(id), context);
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                let (tok, stmt) = if TypeDeclaratorParser::<PC>::is_decl_part(&tok) {
+                let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
                     let dp = DeclarationParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
                     let (tok, decl) = dp.parse(Some(tok), Some(hint), context);
@@ -267,7 +266,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::context::TypeToFix;
     use crate::parser::declarations::*;
     use crate::parser::expressions::*;

@@ -5,9 +5,7 @@
 
 use termcolor::StandardStreamLock;
 
-use crate::dump_str;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
 use crate::parser::Context;
 
@@ -214,12 +212,12 @@ impl Dump for Bool {
     }
 }
 
-pub(crate) struct StringLiteralParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct StringLiteralParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> StringLiteralParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> StringLiteralParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

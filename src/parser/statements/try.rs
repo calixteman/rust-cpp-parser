@@ -7,9 +7,7 @@ use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
-use crate::dump_obj;
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
@@ -29,12 +27,12 @@ impl Dump for Try {
     }
 }
 
-pub struct TryStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct TryStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> TryStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> TryStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

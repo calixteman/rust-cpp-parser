@@ -6,7 +6,7 @@
 use super::context::Context;
 use super::declarations::{DeclarationListParser, Declarations};
 use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{Lexer, TLexer, Token};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {

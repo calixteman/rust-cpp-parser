@@ -6,13 +6,10 @@
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
-use crate::parser::expressions::{ExprNode, ExpressionParser};
-
-use crate::dump_obj;
 use crate::parser::dump::Dump;
+use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,12 +25,12 @@ impl Dump for Switch {
     }
 }
 
-pub struct SwitchStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct SwitchStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> SwitchStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> SwitchStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -82,12 +79,12 @@ impl Dump for Case {
     }
 }
 
-pub struct CaseStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct CaseStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> CaseStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> CaseStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -125,12 +122,12 @@ impl Dump for Default {
     }
 }
 
-pub struct DefaultStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct DefaultStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DefaultStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DefaultStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

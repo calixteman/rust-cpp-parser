@@ -6,9 +6,7 @@
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
-use crate::dump_obj;
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -31,12 +29,12 @@ impl Dump for If {
     }
 }
 
-pub struct IfStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct IfStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> IfStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> IfStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

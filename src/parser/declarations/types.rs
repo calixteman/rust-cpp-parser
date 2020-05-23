@@ -12,9 +12,7 @@ use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
 use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
 use super::r#enum::EnumParser;
 use super::specifier::Specifier;
-use crate::dump_obj;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::dump::Dump;
@@ -131,12 +129,12 @@ pub(crate) enum DeclHint {
     Type(Type),
 }
 
-pub struct DeclSpecifierParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct DeclSpecifierParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -290,12 +288,12 @@ impl<'a, 'b, PC: PreprocContext> DeclSpecifierParser<'a, 'b, PC> {
     }
 }
 
-pub struct NoPtrDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct NoPtrDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -393,12 +391,12 @@ impl<'a, 'b, PC: PreprocContext> NoPtrDeclaratorParser<'a, 'b, PC> {
     }
 }
 
-pub struct TypeDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct TypeDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> TypeDeclaratorParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -518,12 +516,12 @@ impl Dump for DeclOrExpr {
     }
 }
 
-pub(crate) struct DeclOrExprParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct DeclOrExprParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -543,7 +541,7 @@ impl<'a, 'b, PC: PreprocContext> DeclOrExprParser<'a, 'b, PC> {
                     (tok, true)
                 } else {
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    let is_decl_part = TypeDeclaratorParser::<PC>::is_decl_part(&tok);
+                    let is_decl_part = TypeDeclaratorParser::<L>::is_decl_part(&tok);
                     (Some(tok), is_decl_part)
                 };
 
@@ -588,7 +586,7 @@ mod tests {
 
     use super::super::function::*;
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::array::*;
     use crate::parser::attributes::Attribute;
     use crate::parser::declarations::class::{self, *};

@@ -9,13 +9,11 @@ use termcolor::StandardStreamLock;
 use super::super::types::CVQualifier;
 use super::specifier::Specifier;
 use super::types::{NoPtrDeclaratorParser, TypeDeclarator};
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
 use crate::parser::types::{BaseType, Type};
 use crate::parser::Context;
-use crate::{dump_obj, dump_str, dump_vec};
 
 bitflags! {
     pub struct MSModifier: u8 {
@@ -138,12 +136,12 @@ impl Dump for Pointers {
     }
 }
 
-pub struct PointerDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct PointerDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> PointerDeclaratorParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -196,12 +194,12 @@ impl<'a, 'b, PC: PreprocContext> PointerDeclaratorParser<'a, 'b, PC> {
     }
 }
 
-pub struct ParenPointerDeclaratorParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ParenPointerDeclaratorParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ParenPointerDeclaratorParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ParenPointerDeclaratorParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

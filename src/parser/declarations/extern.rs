@@ -9,8 +9,8 @@ use termcolor::StandardStreamLock;
 use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
+
 use crate::parser::dump::Dump;
 use crate::parser::Context;
 
@@ -27,12 +27,12 @@ impl Dump for Extern {
     }
 }
 
-pub struct ExternParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct ExternParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ExternParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ExternParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -97,7 +97,7 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::declarations::{types, *};
     use crate::parser::names::*;
     use crate::parser::types::*;

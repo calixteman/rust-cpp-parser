@@ -3,12 +3,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::Token;
 use bitflags::bitflags;
-
-use crate::parser::dump::Dump;
-use crate::{bitflags_to_str, dump_str};
 use termcolor::StandardStreamLock;
+
+use crate::lexer::Token;
+use crate::parser::dump::Dump;
 
 bitflags! {
     pub struct CVQualifier: u8 {

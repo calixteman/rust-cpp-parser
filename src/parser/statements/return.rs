@@ -3,15 +3,12 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use termcolor::StandardStreamLock;
-
-use crate::dump_obj;
-use crate::lexer::lexer::{Lexer, Token};
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
+use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Return {
@@ -25,12 +22,12 @@ impl Dump for Return {
     }
 }
 
-pub struct ReturnStmtParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct ReturnStmtParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> ReturnStmtParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> ReturnStmtParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

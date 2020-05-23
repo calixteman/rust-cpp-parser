@@ -8,13 +8,10 @@ use termcolor::StandardStreamLock;
 
 use super::bitfield::BitFieldDeclaratorParser;
 use super::{StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, UsingParser};
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
-
 use crate::parser::dump::Dump;
 use crate::parser::Context;
-use crate::{dump_str, dump_vec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Member {
@@ -76,12 +73,12 @@ pub(super) enum MemberRes {
     Decl(Member),
 }
 
-pub struct MemberParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct MemberParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> MemberParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -151,12 +148,12 @@ impl<'a, 'b, PC: PreprocContext> MemberParser<'a, 'b, PC> {
     }
 }
 
-struct PPPParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+struct PPPParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
-    fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> PPPParser<'a, L> {
+    fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -188,7 +185,7 @@ impl<'a, 'b, PC: PreprocContext> PPPParser<'a, 'b, PC> {
 mod tests {
 
     use super::*;
-    use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::declarations::{Identifier, Specifier};
     use crate::parser::expressions::*;
     use crate::parser::initializer::Initializer;

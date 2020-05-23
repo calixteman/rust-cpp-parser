@@ -12,8 +12,8 @@ use super::{
     StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, UsingNS, UsingParser,
 };
 use crate::check_semicolon;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
 use crate::parser::Context;
@@ -79,12 +79,12 @@ impl Declaration {
     }
 }
 
-pub(crate) struct DeclarationParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct DeclarationParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DeclarationParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 
@@ -162,12 +162,12 @@ impl<'a, 'b, PC: PreprocContext> DeclarationParser<'a, 'b, PC> {
     }
 }
 
-pub struct DeclarationListParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct DeclarationListParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> DeclarationListParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> DeclarationListParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L) -> Self {
         Self { lexer }
     }
 

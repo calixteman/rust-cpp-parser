@@ -3,17 +3,16 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+
+use crate::lexer::{TLexer, Token};
 use crate::parser::expressions::{ExpressionParser, ExprNode, Parameters, ParametersParser};
 
-
-pub struct TypeOrExprParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub struct TypeOrExprParser<'a, L: TLexer> {
+    lexer: &'a mut L,
 }
 
-impl<'a, 'b, PC: PreprocContext> TypeOrExprParser<'a, 'b, PC> {
-    pub(super) fn new(lexer: &'b mut Lexer<'a, PC>) -> Self {
+impl<'a, L: TLexer> TypeOrExprParser<'a, L> {
+    pub(super) fn new(lexer: &'a mut L) -> Self {
         Self {
             lexer,
         }

@@ -8,8 +8,8 @@ use std::rc::Rc;
 use super::expr::{CallExpr, ExprNode, ExpressionParser, LastKind};
 use super::operator::Operator;
 use super::params::ParametersParser;
-use crate::lexer::lexer::Token;
-use crate::lexer::preprocessor::context::PreprocContext;
+use crate::lexer::{TLexer, Token};
+
 use crate::parser::context::{Context, TypeToFix};
 use crate::parser::declarations::{
     DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
@@ -46,7 +46,7 @@ impl CastType {
     }
 }
 
-impl<'a, 'b, PC: PreprocContext> ExpressionParser<'a, 'b, PC> {
+impl<'a, L: TLexer> ExpressionParser<'a, L> {
     fn handle_paren_after_type(&mut self, ctyp: CastType, context: &mut Context) -> Option<Token> {
         // (T (...: we may have a function/array pointer
         let pdp = PointerDeclaratorParser::new(self.lexer);

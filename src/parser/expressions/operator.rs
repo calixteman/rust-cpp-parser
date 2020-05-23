@@ -3,11 +3,10 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use crate::parser::dump::Dump;
-use crate::{dump_fields, dump_start};
 use termcolor::StandardStreamLock;
 
 use super::ExprNode;
+use crate::parser::dump::Dump;
 
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub enum Operator {

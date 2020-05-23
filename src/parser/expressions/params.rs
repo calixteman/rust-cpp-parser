@@ -5,9 +5,7 @@
 
 use termcolor::StandardStreamLock;
 
-use crate::dump_vec;
-use crate::lexer::preprocessor::context::PreprocContext;
-use crate::lexer::{Lexer, Token};
+use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
@@ -20,13 +18,13 @@ impl Dump for Parameters {
     }
 }
 
-pub(crate) struct ParametersParser<'a, 'b, PC: PreprocContext> {
-    lexer: &'b mut Lexer<'a, PC>,
+pub(crate) struct ParametersParser<'a, L: TLexer> {
+    lexer: &'a mut L,
     term: Token,
 }
 
-impl<'a, 'b, PC: PreprocContext> ParametersParser<'a, 'b, PC> {
-    pub(crate) fn new(lexer: &'b mut Lexer<'a, PC>, term: Token) -> Self {
+impl<'a, L: TLexer> ParametersParser<'a, L> {
+    pub(crate) fn new(lexer: &'a mut L, term: Token) -> Self {
         Self { lexer, term }
     }
 
