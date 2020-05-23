@@ -13,6 +13,7 @@ use super::buffer::{Buffer, BufferData};
 use super::errors::LexerError;
 use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
+use super::saved::SavedLexer;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
 use crate::args;
@@ -504,12 +505,30 @@ impl Token {
     }
 }
 
+pub trait TLexer {
+    fn next_useful(&mut self) -> Token;
+}
+
 pub struct Lexer<'a, PC: PreprocContext> {
     pub(crate) buf: Buffer<'a>,
     pub(crate) context: PC,
     pub(crate) comment: Option<&'a [u8]>,
     pub(crate) start: Location,
     pub(crate) errors: Vec<LexerError>,
+}
+
+impl<'a, PC: PreprocContext> TLexer for Lexer<'a, PC> {
+    fn next_useful(&mut self) -> Token {
+        loop {
+            let tok = self.next_token();
+            match tok {
+                Token::Comment | Token::Eol => {}
+                _ => {
+                    return tok;
+                }
+            }
+        }
+    }
 }
 
 macro_rules! get_operator {
@@ -983,11 +1002,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         self.get_preproc_keyword(true)
     }
 
-    pub(crate) fn steal_until(&mut self, term: Token) -> (Token, Vec<Token>) {
+    pub(crate) fn save_until(&mut self, term: Token) -> (Token, SavedLexer) {
         let mut level = 0;
+
+        // TODO: tune the capacity
         let mut stole = Vec::with_capacity(64);
         loop {
             let tok = self.next_useful();
+            if (tok == term && level == 0) || tok == Token::Eof {
+                return (tok, SavedLexer::new(stole));
+            }
+
             match tok {
                 Token::LeftParen | Token::LeftBrack | Token::LeftBrace | Token::DoubleLeftBrack => {
                     level += 1;
@@ -1001,23 +1026,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 _ => {}
             }
 
-            if (tok == term && level == 0) || tok == Token::Eof {
-                return (tok, stole);
-            }
-
             stole.push(tok);
-        }
-    }
-
-    pub(crate) fn next_useful(&mut self) -> Token {
-        loop {
-            let tok = self.next_token();
-            match tok {
-                Token::Comment | Token::Eol => {}
-                _ => {
-                    return tok;
-                }
-            }
         }
     }
 
