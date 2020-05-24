@@ -10,7 +10,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Do {
@@ -39,8 +39,10 @@ impl<'a, L: TLexer> DoStmtParser<'a, L> {
         attributes: Option<Attributes>,
         context: &mut Context,
     ) -> (Option<Token>, Option<Do>) {
+        context.set_current(None, ScopeKind::DoBlock);
         let sp = StatementParser::new(self.lexer);
         let (tok, body) = sp.parse(None, context);
+        context.pop();
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::While {

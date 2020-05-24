@@ -825,11 +825,31 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
+
+        let x = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: Identifier {
+                identifier: Some(mk_id!("x")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+        context.add_type_decl(Rc::clone(&x));
+
         let stmt = parser.parse(None, &mut context).1.unwrap();
 
         let expected = Statement::Switch(Box::new(Switch {
             attributes: None,
-            condition: ExprNode::Variable(Box::new(mk_var!("x"))),
+            condition: DeclOrExpr::Expr(ExprNode::Variable(Box::new(Variable {
+                name: mk_id!("x"),
+                decl: VarDecl::Direct(x),
+            }))),
             cases: Statement::Compound(Box::new(Compound {
                 attributes: None,
                 stmts: vec![
@@ -871,14 +891,14 @@ mod tests {
 
         let expected = Statement::While(Box::new(While {
             attributes: None,
-            condition: ExprNode::Integer(Box::new(literals::Integer {
+            condition: DeclOrExpr::Expr(ExprNode::Integer(Box::new(literals::Integer {
                 value: IntLiteral::Int(0),
-            })),
+            }))),
             body: Statement::While(Box::new(While {
                 attributes: None,
-                condition: ExprNode::Integer(Box::new(literals::Integer {
+                condition: DeclOrExpr::Expr(ExprNode::Integer(Box::new(literals::Integer {
                     value: IntLiteral::Int(0),
-                })),
+                }))),
                 body: Statement::Do(Box::new(Do {
                     attributes: None,
                     body: Statement::Empty,

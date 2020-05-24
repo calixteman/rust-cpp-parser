@@ -3,19 +3,21 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::{Statement, StatementParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
+use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Switch {
     pub attributes: Option<Attributes>,
-    pub condition: ExprNode,
+    pub condition: DeclOrExpr,
     pub cases: Statement,
 }
 
@@ -44,17 +46,25 @@ impl<'a, L: TLexer> SwitchStmtParser<'a, L> {
             unreachable!("Invalid token in switch statements: {:?}", tok);
         }
 
-        let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, condition) = ep.parse(None, context);
+        context.set_current(None, ScopeKind::SwitchBlock);
+
+        let dep = DeclOrExprParser::new(self.lexer);
+        let (tok, condition) = dep.parse(None, context);
+
+        if let Some(DeclOrExpr::Decl(typ)) = condition.as_ref() {
+            context.add_type_decl(Rc::clone(typ));
+        }
 
         if let Some(tok) = tok {
             if tok != Token::RightParen {
+                context.pop();
                 unreachable!("Invalid token in switch statements: {:?}", tok);
             }
         }
 
         let sp = StatementParser::new(self.lexer);
         let (tok, cases) = sp.parse(None, context);
+        context.pop();
 
         (
             tok,

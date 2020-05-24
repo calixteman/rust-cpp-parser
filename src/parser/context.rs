@@ -80,6 +80,9 @@ pub enum ScopeKind {
     Block,
     CatchBlock,
     ForBlock,
+    WhileBlock,
+    DoBlock,
+    SwitchBlock,
 }
 
 #[derive(Clone, Debug)]
