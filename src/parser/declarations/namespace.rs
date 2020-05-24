@@ -11,6 +11,7 @@ use super::{
 };
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::Context;
 
@@ -82,7 +83,7 @@ impl<'a, L: TLexer> NsNamesParser<'a, L> {
         Self { lexer }
     }
 
-    fn parse(self, _context: &mut Context) -> (Option<Token>, NsNames) {
+    fn parse(self, _context: &mut Context) -> Result<(Option<Token>, NsNames), ParserError> {
         let mut tok = self.lexer.next_useful();
         let mut names = Vec::new();
         let mut inline = false;
@@ -105,7 +106,7 @@ impl<'a, L: TLexer> NsNamesParser<'a, L> {
                             name: "".to_string(),
                         });
                     }
-                    return (Some(tok), names);
+                    return Ok((Some(tok), names));
                 }
             }
             tok = self.lexer.next_useful();
@@ -126,7 +127,7 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declaration>) {
+    ) -> Result<(Option<Token>, Option<Declaration>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let inline = if tok == Token::Inline {
@@ -134,21 +135,21 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
             if tok != Token::Namespace {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let hint = DeclHint::Specifier(Specifier::INLINE);
-                let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
+                let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context)?;
                 let typ = typ.unwrap();
                 context.add_type_decl(Rc::clone(&typ));
 
-                return (tok, Some(Declaration::Type(typ)));
+                return Ok((tok, Some(Declaration::Type(typ))));
             }
             true
         } else if tok != Token::Namespace {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         } else {
             false
         };
 
         let np = NsNamesParser::new(self.lexer);
-        let (tok, mut name) = np.parse(context);
+        let (tok, mut name) = np.parse(context)?;
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if inline {
@@ -161,7 +162,7 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
                 context.set_current_ns(&name);
 
                 let dlp = DeclarationListParser::new(self.lexer);
-                let (tok, body) = dlp.parse(None, context);
+                let (tok, body) = dlp.parse(None, context)?;
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
                 if tok == Token::RightBrace {
@@ -173,14 +174,17 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
                     if name_len != 0 {
                         context.pop_n(name_len);
                     }
-                    (None, Some(Declaration::Namespace(ns)))
+                    Ok((None, Some(Declaration::Namespace(ns))))
                 } else {
-                    unreachable!("Invalid token in namespace definition: {:?}", tok);
+                    Err(ParserError::InvalidTokenInNs {
+                        sp: self.lexer.span(),
+                        tok,
+                    })
                 }
             }
             Token::Equal => {
                 let qp = QualifiedParser::new(self.lexer);
-                let (tok, alias) = qp.parse(None, None, context);
+                let (tok, alias) = qp.parse(None, None, context)?;
 
                 let mut s = String::new();
                 std::mem::swap(&mut s, &mut name[0].name);
@@ -189,11 +193,12 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
                     name: s,
                     alias: alias.unwrap(),
                 };
-                (tok, Some(Declaration::NamespaceAlias(ns)))
+                Ok((tok, Some(Declaration::NamespaceAlias(ns))))
             }
-            _ => {
-                unreachable!("Invalid token in namespace definition: {:?}", tok);
-            }
+            _ => Err(ParserError::InvalidTokenInNs {
+                sp: self.lexer.span(),
+                tok,
+            }),
         }
     }
 }
@@ -213,7 +218,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"A");
         let p = NsNamesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ns) = p.parse(&mut context);
+        let (_, ns) = p.parse(&mut context).unwrap();
 
         assert_eq!(
             ns,
@@ -229,7 +234,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"A::inline B::C::inline D::E");
         let p = NsNamesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ns) = p.parse(&mut context);
+        let (_, ns) = p.parse(&mut context).unwrap();
 
         assert_eq!(
             ns,
@@ -272,7 +277,7 @@ namespace A {
         );
         let p = DeclarationParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ns) = p.parse(None, None, &mut context);
+        let (_, ns) = p.parse(None, None, &mut context).unwrap();
         let ns = ns.unwrap();
 
         assert_eq!(
@@ -361,7 +366,7 @@ namespace A {
         let mut l = Lexer::<DefaultContext>::new(b"namespace A = B::C::D::E;");
         let p = DeclarationParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ns) = p.parse(None, None, &mut context);
+        let (_, ns) = p.parse(None, None, &mut context).unwrap();
         let ns = ns.unwrap();
 
         assert_eq!(

@@ -11,6 +11,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,17 +40,20 @@ impl<'a, L: TLexer> WhileStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<While>) {
+    ) -> Result<(Option<Token>, Option<While>), ParserError> {
         let tok = self.lexer.next_useful();
 
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in while statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInWhile {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         context.set_current(None, ScopeKind::WhileBlock);
 
         let dep = DeclOrExprParser::new(self.lexer);
-        let (tok, condition) = dep.parse(None, context);
+        let (tok, condition) = dep.parse(None, context)?;
 
         if let Some(DeclOrExpr::Decl(typ)) = condition.as_ref() {
             context.add_type_decl(Rc::clone(typ));
@@ -58,20 +62,23 @@ impl<'a, L: TLexer> WhileStmtParser<'a, L> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
             context.pop();
-            unreachable!("Invalid token in if statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInWhile {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None, context);
+        let (tok, body) = sp.parse(None, context)?;
         context.pop();
 
-        (
+        Ok((
             tok,
             Some(While {
                 attributes,
                 condition: condition.unwrap(),
                 body: body.unwrap(),
             }),
-        )
+        ))
     }
 }

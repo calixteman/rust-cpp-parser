@@ -9,6 +9,7 @@ use super::{Statement, StatementParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::{Context, ScopeKind};
 
@@ -38,43 +39,53 @@ impl<'a, L: TLexer> DoStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Do>) {
+    ) -> Result<(Option<Token>, Option<Do>), ParserError> {
         context.set_current(None, ScopeKind::DoBlock);
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None, context);
+        let (tok, body) = sp.parse(None, context)?;
         context.pop();
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::While {
-            unreachable!("While expected after body in do statement");
+            return Err(ParserError::InvalidTokenInDo {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in do statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInDo {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, condition) = ep.parse(None, context);
+        let (tok, condition) = ep.parse(None, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
-            unreachable!("Invalid token in do statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInDo {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let tok = self.lexer.next_useful();
         match tok {
-            Token::SemiColon => (
+            Token::SemiColon => Ok((
                 None,
                 Some(Do {
                     attributes,
                     body: body.unwrap(),
                     condition: condition.unwrap(),
                 }),
-            ),
-            _ => {
-                unreachable!("Invalid token in return statements: {:?}", tok);
-            }
+            )),
+            _ => Err(ParserError::InvalidTokenInDo {
+                sp: self.lexer.span(),
+                tok,
+            }),
         }
     }
 }

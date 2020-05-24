@@ -8,6 +8,7 @@ use termcolor::StandardStreamLock;
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::literals::StringLiteralParser;
 use crate::parser::Context;
 
@@ -36,15 +37,18 @@ impl<'a, L: TLexer> AsmParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Asm>) {
+    ) -> Result<(Option<Token>, Option<Asm>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Asm {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in asm declaration: {:?}", tok);
+            return Err(ParserError::InvalidTokenInAsm {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let tok = self.lexer.next_useful();
@@ -52,22 +56,28 @@ impl<'a, L: TLexer> AsmParser<'a, L> {
         if let Some(code) = tok.get_string() {
             // TODO: add an asm lexer & parser
             let slp = StringLiteralParser::new(self.lexer);
-            let (tok, code) = slp.parse(&code, context);
+            let (tok, code) = slp.parse(&code, context)?;
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
-                unreachable!("Invalid token in asm declaration: {:?}", tok);
+                return Err(ParserError::InvalidTokenInAsm {
+                    sp: self.lexer.span(),
+                    tok,
+                });
             }
 
-            (
+            Ok((
                 None,
                 Some(Asm {
                     attributes: None,
                     code,
                 }),
-            )
+            ))
         } else {
-            unreachable!("Invalid token in asm declaration");
+            Err(ParserError::InvalidTokenInAsm {
+                sp: self.lexer.span(),
+                tok: Token::None,
+            })
         }
     }
 }
@@ -97,7 +107,7 @@ asm(R"(
         );
         let p = AsmParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         let code = r#"
 .globl func

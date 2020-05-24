@@ -7,6 +7,7 @@ use termcolor::StandardStreamLock;
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
 
@@ -33,7 +34,7 @@ impl<'a, L: TLexer> ParametersParser<'a, L> {
         tok: Option<Token>,
         first: Option<ExprNode>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Parameters>) {
+    ) -> Result<(Option<Token>, Option<Parameters>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let (mut tok, mut params) = if let Some(first) = first {
             let tok = if tok == Token::Comma {
@@ -47,12 +48,12 @@ impl<'a, L: TLexer> ParametersParser<'a, L> {
         };
 
         if tok == self.term {
-            return (None, Some(params));
+            return Ok((None, Some(params)));
         }
 
         loop {
             let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-            let (tk, expr) = ep.parse(Some(tok), context);
+            let (tk, expr) = ep.parse(Some(tok), context)?;
 
             params.push(expr.unwrap());
 
@@ -62,9 +63,12 @@ impl<'a, L: TLexer> ParametersParser<'a, L> {
                 Token::Comma => {}
                 _ => {
                     if tk == self.term {
-                        return (None, Some(params));
+                        return Ok((None, Some(params)));
                     } else {
-                        unreachable!("Invalid token in params: {:?}", tk);
+                        return Err(ParserError::InvalidTokenInParamList {
+                            sp: self.lexer.span(),
+                            tok: tk,
+                        });
                     }
                 }
             }

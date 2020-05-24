@@ -11,6 +11,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,24 +41,33 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Try>) {
+    ) -> Result<(Option<Token>, Option<Try>), ParserError> {
         let sp = StatementParser::new(self.lexer);
-        let (tok, body) = sp.parse(None, context);
+        let (tok, body) = sp.parse(None, context)?;
 
         let body = if let Some(body) = body {
             body
         } else {
-            unreachable!("Invalid token in try: {:?}", tok);
+            return Err(ParserError::InvalidTokenInTry {
+                sp: self.lexer.span(),
+                tok: tok.unwrap(),
+            });
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Catch {
-            unreachable!("Catch expected after body in try statement");
+            return Err(ParserError::InvalidTokenInTry {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in catch clause: {:?}", tok);
+            return Err(ParserError::InvalidTokenInTry {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let tok = self.lexer.next_useful();
@@ -65,18 +75,24 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
             (None, None)
         } else {
             let tp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, typ) = tp.parse(Some(tok), None, false, context);
+            let (tok, typ) = tp.parse(Some(tok), None, false, context)?;
 
             if typ.is_some() {
                 (tok, typ)
             } else {
-                unreachable!("Invalid token in catch clause: {:?}", tok);
+                return Err(ParserError::InvalidTokenInTry {
+                    sp: self.lexer.span(),
+                    tok: tok.unwrap(),
+                });
             }
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
-            unreachable!("Invalid token in catch clause: {:?}", tok);
+            return Err(ParserError::InvalidTokenInTry {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         // Exception handler
@@ -89,7 +105,7 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
         };
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, handler) = sp.parse(None, context);
+        let (tok, handler) = sp.parse(None, context)?;
 
         if clause.is_some() {
             context.pop();
@@ -98,10 +114,13 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
         let handler = if let Some(handler) = handler {
             handler
         } else {
-            unreachable!("Invalid token in try handler: {:?}", tok);
+            return Err(ParserError::InvalidTokenInTry {
+                sp: self.lexer.span(),
+                tok: tok.unwrap(),
+            });
         };
 
-        (
+        Ok((
             tok,
             Some(Try {
                 attributes,
@@ -109,6 +128,6 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
                 clause,
                 handler: Box::new(handler),
             }),
-        )
+        ))
     }
 }

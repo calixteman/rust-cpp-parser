@@ -7,7 +7,7 @@ use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::Location;
 use crate::lexer::source::FileId;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Span {
     pub file: Option<FileId>,
     pub start: Location,

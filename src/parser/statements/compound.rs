@@ -9,6 +9,7 @@ use super::{Statement, StatementParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -47,7 +48,7 @@ impl<'a, L: TLexer> CompoundStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Compound>) {
+    ) -> Result<(Option<Token>, Option<Compound>), ParserError> {
         let mut stmts = Vec::new();
         let mut tok = self.lexer.next_useful();
         context.set_current(None, ScopeKind::Block);
@@ -55,11 +56,11 @@ impl<'a, L: TLexer> CompoundStmtParser<'a, L> {
         loop {
             if tok == Token::RightBrace || tok == Token::Eof {
                 context.pop();
-                return (None, Some(Compound { attributes, stmts }));
+                return Ok((None, Some(Compound { attributes, stmts })));
             }
 
             let sp = StatementParser::new(self.lexer);
-            let (tk, stmt) = sp.parse(Some(tok), context);
+            let (tk, stmt) = sp.parse(Some(tok), context)?;
 
             if let Some(stmt) = stmt {
                 stmts.push(stmt);

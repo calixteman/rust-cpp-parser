@@ -7,6 +7,7 @@ use termcolor::StandardStreamLock;
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -231,7 +232,11 @@ impl<'a, L: TLexer> StringLiteralParser<'a, L> {
         res
     }
 
-    pub(crate) fn parse(self, first: &str, _context: &mut Context) -> (Option<Token>, String) {
+    pub(crate) fn parse(
+        self,
+        first: &str,
+        _context: &mut Context,
+    ) -> Result<(Option<Token>, String), ParserError> {
         let mut strings = Vec::with_capacity(32); // TODO: put a good value here if it's useful
         let mut lens = 0;
 
@@ -270,6 +275,6 @@ impl<'a, L: TLexer> StringLiteralParser<'a, L> {
             }
         };
 
-        (Some(tok), Self::concat(first, lens, strings))
+        Ok((Some(tok), Self::concat(first, lens, strings)))
     }
 }

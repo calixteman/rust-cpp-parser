@@ -13,6 +13,7 @@ use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, ParametersParser};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
@@ -174,10 +175,10 @@ impl<'a, L: TLexer> CtorInitializersParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<CtorInitializers>) {
+    ) -> Result<(Option<Token>, Option<CtorInitializers>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Colon {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let mut inits = Vec::new();
@@ -185,28 +186,32 @@ impl<'a, L: TLexer> CtorInitializersParser<'a, L> {
 
         loop {
             let qp = QualifiedParser::new(self.lexer);
-            let (tk, name) = qp.parse(tok, None, context);
+            let (tk, name) = qp.parse(tok, None, context)?;
 
             let name = if let Some(name) = name {
                 name
             } else {
-                unreachable!("Invalid ctor initializer: {:?}", tk);
+                return Err(ParserError::InvalidCtorInit {
+                    sp: self.lexer.span(),
+                });
             };
 
             let ip = InitializerParser::new(self.lexer);
-            let (tk, init) = ip.parse(tk, context);
+            let (tk, init) = ip.parse(tk, context)?;
 
             let init = if let Some(init) = init {
                 init
             } else {
-                unreachable!("Invalid ctor initializer: {:?}", tk);
+                return Err(ParserError::InvalidCtorInit {
+                    sp: self.lexer.span(),
+                });
             };
 
             inits.push(CtorInit { name, init });
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             if tk != Token::Comma {
-                return (Some(tk), Some(inits));
+                return Ok((Some(tk), Some(inits)));
             }
             tok = Some(tk);
         }
@@ -268,12 +273,12 @@ impl<'a, L: TLexer> ParameterListParser<'a, L> {
         tok: Option<Token>,
         skip_lparen: bool,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Vec<Parameter>>) {
+    ) -> Result<(Option<Token>, Option<Vec<Parameter>>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut tok = if skip_lparen {
             Some(tok)
         } else if tok != Token::LeftParen {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         } else {
             None
         };
@@ -282,14 +287,14 @@ impl<'a, L: TLexer> ParameterListParser<'a, L> {
 
         loop {
             let ap = AttributesParser::new(self.lexer);
-            let (tk, attributes) = ap.parse(tok, context);
+            let (tk, attributes) = ap.parse(tok, context)?;
 
             let dp = TypeDeclaratorParser::new(self.lexer);
-            let (tk, decl) = dp.parse(tk, None, true, context);
+            let (tk, decl) = dp.parse(tk, None, true, context)?;
             let decl = if let Some(decl) = decl {
                 decl
             } else {
-                return (None, Some(params));
+                return Ok((None, Some(params)));
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
@@ -299,10 +304,13 @@ impl<'a, L: TLexer> ParameterListParser<'a, L> {
                 }
                 Token::RightParen => {
                     params.push(Parameter { attributes, decl });
-                    return (None, Some(params));
+                    return Ok((None, Some(params)));
                 }
                 _ => {
-                    unreachable!("Parameter list: {:?}", tk);
+                    return Err(ParserError::InvalidTokenInParamList {
+                        sp: self.lexer.span(),
+                        tok: tk,
+                    });
                 }
             }
             tok = None;
@@ -325,13 +333,13 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
         skip_lparen: bool,
         name: Option<&Qualified>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Function>, Option<TypeToFix>) {
+    ) -> Result<(Option<Token>, Option<Function>, Option<TypeToFix>), ParserError> {
         let plp = ParameterListParser::new(self.lexer);
-        let (tok, params) = plp.parse(tok, skip_lparen, context);
+        let (tok, params) = plp.parse(tok, skip_lparen, context)?;
         let params = if let Some(params) = params {
             params
         } else {
-            return (tok, None, None);
+            return Ok((tok, None, None));
         };
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -351,16 +359,16 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
         };
 
         let ep = ExceptionParser::new(self.lexer);
-        let (tok, except) = ep.parse(tok, context);
+        let (tok, except) = ep.parse(tok, context)?;
 
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok, context);
+        let (tok, attributes) = ap.parse(tok, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, trailing) = if tok == Token::Arrow {
             let tdp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, decl) = tdp.parse(None, None, false, context);
+            let (tok, decl) = tdp.parse(None, None, false, context)?;
             (tok, decl.map(|d| Rc::try_unwrap(d).unwrap().typ))
         } else {
             (Some(tok), None)
@@ -374,7 +382,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
 
         let (tok, requires) = if tok == Token::Requires {
             let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-            let (tok, e) = ep.parse(None, context);
+            let (tok, e) = ep.parse(None, context)?;
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             (tok, e)
         } else {
@@ -388,7 +396,10 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
                 Token::Delete => (self.lexer.next_useful(), FunStatus::Delete),
                 Token::LiteralInt(0) => (self.lexer.next_useful(), FunStatus::Pure),
                 _ => {
-                    unreachable!("Invalid token in function declaration: {:?}", tok);
+                    return Err(ParserError::InvalidTokenInFuncDecl {
+                        sp: self.lexer.span(),
+                        tok,
+                    });
                 }
             }
         } else {
@@ -396,7 +407,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
         };
 
         let cip = CtorInitializersParser::new(self.lexer);
-        let (tok, ctor_init) = cip.parse(Some(tok), context);
+        let (tok, ctor_init) = cip.parse(Some(tok), context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
@@ -406,7 +417,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
                 context.add_type_decl(Rc::clone(&param.decl));
             }
             let cp = CompoundStmtParser::new(self.lexer);
-            let (tok, body) = cp.parse(None, context);
+            let (tok, body) = cp.parse(None, context)?;
             let to_fix = context.pop_n(name.map_or(1, |n| n.len()));
             (tok, body, to_fix)
         } else {
@@ -428,7 +439,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
             body,
         };
 
-        (tok, Some(fun), to_fix)
+        Ok((tok, Some(fun), to_fix))
     }
 }
 
@@ -445,7 +456,7 @@ impl<'a, L: TLexer> ExceptionParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Exception>) {
+    ) -> Result<(Option<Token>, Option<Exception>), ParserError> {
         // noexcept
         // noexcept(expression)
         // throw()                    (removed in C++20)
@@ -457,23 +468,26 @@ impl<'a, L: TLexer> ExceptionParser<'a, L> {
                 let tok = self.lexer.next_useful();
                 if tok == Token::LeftParen {
                     let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-                    let (tok, exp) = ep.parse(None, context);
-                    (tok, Some(Exception::Noexcept(exp)))
+                    let (tok, exp) = ep.parse(None, context)?;
+                    Ok((tok, Some(Exception::Noexcept(exp))))
                 } else {
-                    (Some(tok), Some(Exception::Noexcept(None)))
+                    Ok((Some(tok), Some(Exception::Noexcept(None))))
                 }
             }
             Token::Throw => {
                 let tok = self.lexer.next_useful();
                 if tok == Token::LeftParen {
                     let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                    let (tok, params) = pp.parse(None, None, context);
-                    (tok, Some(Exception::Throw(params)))
+                    let (tok, params) = pp.parse(None, None, context)?;
+                    Ok((tok, Some(Exception::Throw(params))))
                 } else {
-                    unreachable!("throw must be followed by a (");
+                    return Err(ParserError::InvalidTokenInThrow {
+                        sp: self.lexer.span(),
+                        tok,
+                    });
                 }
             }
-            _ => (Some(tok), None),
+            _ => Ok((Some(tok), None)),
         }
     }
 }
@@ -493,10 +507,10 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
         name: Option<Qualified>,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>) {
+    ) -> Result<(Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>), ParserError> {
         let (tok, name) = if name.is_none() {
             let op = OperatorParser::new(self.lexer);
-            let (tok, op) = op.parse(tok, context);
+            let (tok, op) = op.parse(tok, context)?;
 
             if let Some(op) = op {
                 (
@@ -506,7 +520,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     }),
                 )
             } else {
-                return (tok, None, None);
+                return Ok((tok, None, None));
             }
         } else {
             (tok, name)
@@ -514,10 +528,10 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
 
         // attributes
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok, context);
+        let (tok, attributes) = ap.parse(tok, context)?;
 
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function, to_fix) = fp.parse(tok, false, name.as_ref(), context);
+        let (tok, function, to_fix) = fp.parse(tok, false, name.as_ref(), context)?;
 
         if let Some(function) = function {
             let typ = Type {
@@ -525,7 +539,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                 cv: CVQualifier::empty(),
                 pointers: None,
             };
-            (
+            Ok((
                 tok,
                 Some(TypeDeclarator {
                     typ,
@@ -538,9 +552,12 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     bitfield_size: None,
                 }),
                 to_fix,
-            )
+            ))
         } else {
-            unreachable!("Invalid token in operator name: {:?}", tok);
+            Err(ParserError::InvalidTokenInOp {
+                sp: self.lexer.span(),
+                tok: tok.unwrap(),
+            })
         }
     }
 }

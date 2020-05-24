@@ -7,6 +7,7 @@ use super::context::Context;
 use super::declarations::{DeclarationListParser, Declarations};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, TLexer, Token};
+use crate::parser::errors::ParserError;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
@@ -28,17 +29,20 @@ impl<'a, PC: PreprocContext> UnitParser<'a, PC> {
         }
     }
 
-    pub fn parse(&mut self) -> Unit {
+    pub fn parse(&mut self) -> Result<Unit, ParserError> {
         let dlp = DeclarationListParser::new(&mut self.lexer);
-        let (tok, decls) = dlp.parse(None, &mut self.context);
+        let (tok, decls) = dlp.parse(None, &mut self.context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Eof {
-            unreachable!("Invalid token in unit: {:?}")
+            return Err(ParserError::InvalidTokenInUnit {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
-        Unit {
+        Ok(Unit {
             decls: decls.unwrap(),
-        }
+        })
     }
 }

@@ -11,6 +11,7 @@ use super::{StaticAssert, StaticAssertParser, UsingAlias, UsingDecl, UsingEnum, 
 use crate::lexer::{TLexer, Token};
 use crate::parser::declarations::{Declaration, TypeDeclarator, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,29 +87,29 @@ impl<'a, L: TLexer> MemberParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<MemberRes>) {
+    ) -> Result<(Option<Token>, Option<MemberRes>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::SemiColon {
-            return (None, Some(MemberRes::Decl(Member::Empty)));
+            return Ok((None, Some(MemberRes::Decl(Member::Empty))));
         }
         let tok = Some(tok);
 
         let pppp = PPPParser::new(self.lexer);
-        let (tok, vis) = pppp.parse(tok, context);
+        let (tok, vis) = pppp.parse(tok, context)?;
 
         if let Some(vis) = vis {
-            return (tok, Some(MemberRes::Vis(vis)));
+            return Ok((tok, Some(MemberRes::Vis(vis))));
         }
 
         let sap = StaticAssertParser::new(self.lexer);
-        let (tok, sa) = sap.parse(tok, context);
+        let (tok, sa) = sap.parse(tok, context)?;
 
         if let Some(sa) = sa {
-            return (tok, Some(MemberRes::Decl(Member::StaticAssert(sa))));
+            return Ok((tok, Some(MemberRes::Decl(Member::StaticAssert(sa)))));
         }
 
         let up = UsingParser::new(self.lexer);
-        let (tok, using) = up.parse(tok, context);
+        let (tok, using) = up.parse(tok, context)?;
 
         if let Some(using) = using {
             let using = match using {
@@ -116,27 +117,30 @@ impl<'a, L: TLexer> MemberParser<'a, L> {
                 Declaration::UsingEnum(d) => Member::UsingEnum(d),
                 Declaration::UsingAlias(d) => Member::UsingAlias(d),
                 _ => {
-                    unreachable!("Invalid using in class declaration: {:?}", tok);
+                    return Err(ParserError::InvalidTokenInClass {
+                        sp: self.lexer.span(),
+                        tok: tok.unwrap(),
+                    });
                 }
             };
 
-            return (tok, Some(MemberRes::Decl(using)));
+            return Ok((tok, Some(MemberRes::Decl(using))));
         }
 
         let tdp = TypeDeclaratorParser::new(self.lexer);
-        let (tok, typ) = tdp.parse(tok, None, true, context);
+        let (tok, typ) = tdp.parse(tok, None, true, context)?;
 
         let mut typ = if let Some(typ) = typ {
             typ
         } else {
-            return (tok, None);
+            return Ok((tok, None));
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let tok = if tok == Token::Colon {
             // we've a bitfield
             let bfdp = BitFieldDeclaratorParser::new(self.lexer);
-            let tok = bfdp.parse(None, Rc::get_mut(&mut typ).unwrap(), context);
+            let tok = bfdp.parse(None, Rc::get_mut(&mut typ).unwrap(), context)?;
             tok
         } else {
             Some(tok)
@@ -144,7 +148,7 @@ impl<'a, L: TLexer> MemberParser<'a, L> {
 
         context.add_type_decl(Rc::clone(&typ));
 
-        (tok, Some(MemberRes::Decl(Member::Type(typ))))
+        Ok((tok, Some(MemberRes::Decl(Member::Type(typ)))))
     }
 }
 
@@ -161,23 +165,26 @@ impl<'a, L: TLexer> PPPParser<'a, L> {
         self,
         tok: Option<Token>,
         _context: &mut Context,
-    ) -> (Option<Token>, Option<Visibility>) {
+    ) -> Result<(Option<Token>, Option<Visibility>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let visibility = match tok {
             Token::Public => Visibility::Public,
             Token::Protected => Visibility::Protected,
             Token::Private => Visibility::Private,
             _ => {
-                return (Some(tok), None);
+                return Ok((Some(tok), None));
             }
         };
 
         let tok = self.lexer.next_useful();
         if tok != Token::Colon {
-            unreachable!("Invalid token {:?}", tok);
+            return Err(ParserError::InvalidTokenInClass {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
-        (None, Some(visibility))
+        Ok((None, Some(visibility)))
     }
 }
 
@@ -199,7 +206,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"public:");
         let p = MemberParser::new(&mut l);
         let mut context = Context::default();
-        let (_, m) = p.parse(None, &mut context);
+        let (_, m) = p.parse(None, &mut context).unwrap();
         let v = if let MemberRes::Vis(v) = m.unwrap() {
             v
         } else {
@@ -215,7 +222,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4");
         let p = MemberParser::new(&mut l);
         let mut context = Context::default();
-        let (_, m) = p.parse(None, &mut context);
+        let (_, m) = p.parse(None, &mut context).unwrap();
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {
@@ -249,7 +256,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 = 1");
         let p = MemberParser::new(&mut l);
         let mut context = Context::default();
-        let (_, m) = p.parse(None, &mut context);
+        let (_, m) = p.parse(None, &mut context).unwrap();
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {
@@ -285,7 +292,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int x : 4 {1}");
         let p = MemberParser::new(&mut l);
         let mut context = Context::default();
-        let (_, m) = p.parse(None, &mut context);
+        let (_, m) = p.parse(None, &mut context).unwrap();
         let d = if let MemberRes::Decl(d) = m.unwrap() {
             d
         } else {

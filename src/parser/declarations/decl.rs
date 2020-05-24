@@ -16,8 +16,8 @@ use crate::check_semicolon;
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
-use crate::{dump_str, dump_vec};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Declaration {
@@ -93,63 +93,63 @@ impl<'a, L: TLexer> DeclarationParser<'a, L> {
         tok: Option<Token>,
         hint: Option<DeclHint>, // TODO: remove hint
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declaration>) {
+    ) -> Result<(Option<Token>, Option<Declaration>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::SemiColon {
-            return (None, Some(Declaration::Empty));
+            return Ok((None, Some(Declaration::Empty)));
         }
         let tok = Some(tok);
 
         let ep = ExternParser::new(self.lexer);
-        let (tok, decl) = ep.parse(tok, context);
+        let (tok, decl) = ep.parse(tok, context)?;
 
         if decl.is_some() {
-            return (tok, decl);
+            return Ok((tok, decl));
         }
 
         let np = NamespaceParser::new(self.lexer);
-        let (tok, decl) = np.parse(tok, context);
+        let (tok, decl) = np.parse(tok, context)?;
 
         if decl.is_some() {
-            return (tok, decl);
+            return Ok((tok, decl));
         }
 
         let sap = StaticAssertParser::new(self.lexer);
-        let (tok, sa) = sap.parse(tok, context);
+        let (tok, sa) = sap.parse(tok, context)?;
 
         if let Some(sa) = sa {
-            return (tok, Some(Declaration::StaticAssert(sa)));
+            return Ok((tok, Some(Declaration::StaticAssert(sa))));
         }
 
         let ap = AttributesParser::new(self.lexer);
-        let (tok, mut attrs) = ap.parse(tok, context);
+        let (tok, mut attrs) = ap.parse(tok, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::SemiColon {
-            return (None, Some(Declaration::Attributes(attrs.unwrap())));
+            return Ok((None, Some(Declaration::Attributes(attrs.unwrap()))));
         }
         let tok = Some(tok);
 
         let ap = AsmParser::new(self.lexer);
-        let (tok, asm) = ap.parse(tok, context);
+        let (tok, asm) = ap.parse(tok, context)?;
 
         if let Some(mut asm) = asm {
             asm.attributes = attrs;
-            return (tok, Some(Declaration::Asm(asm)));
+            return Ok((tok, Some(Declaration::Asm(asm))));
         }
 
         let up = UsingParser::new(self.lexer);
-        let (tok, using) = up.parse(tok, context);
+        let (tok, using) = up.parse(tok, context)?;
 
         if let Some(mut using) = using {
             if let Declaration::UsingNS(ref mut u) = using {
                 std::mem::swap(&mut u.attributes, &mut attrs);
             }
-            return (tok, Some(using));
+            return Ok((tok, Some(using)));
         }
 
         let tdp = TypeDeclaratorParser::new(self.lexer);
-        let (tok, decl) = tdp.parse(tok, hint, true, context);
+        let (tok, decl) = tdp.parse(tok, hint, true, context)?;
 
         let decl = if let Some(decl) = decl {
             context.add_type_decl(Rc::clone(&decl));
@@ -158,7 +158,7 @@ impl<'a, L: TLexer> DeclarationParser<'a, L> {
             None
         };
 
-        (tok, decl)
+        Ok((tok, decl))
     }
 }
 
@@ -175,13 +175,13 @@ impl<'a, L: TLexer> DeclarationListParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declarations>) {
+    ) -> Result<(Option<Token>, Option<Declarations>), ParserError> {
         let mut tok = tok;
         let mut list = Vec::new();
 
         loop {
             let dp = DeclarationParser::new(self.lexer);
-            let (tk, decl) = dp.parse(tok, None, context);
+            let (tk, decl) = dp.parse(tok, None, context)?;
 
             tok = if let Some(decl) = decl {
                 let tk = if decl.has_semicolon() {
@@ -193,7 +193,7 @@ impl<'a, L: TLexer> DeclarationListParser<'a, L> {
                 list.push(decl);
                 tk
             } else {
-                return (tk, Some(list));
+                return Ok((tk, Some(list)));
             };
         }
     }

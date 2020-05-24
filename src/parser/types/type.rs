@@ -63,6 +63,23 @@ pub enum BaseType {
     Array(Box<Array>),
 }
 
+impl ToString for BaseType {
+    fn to_string(&self) -> String {
+        use BaseType::*;
+
+        match self {
+            None => "<none>".to_string(),
+            Auto => "auto".to_string(),
+            Primitive(p) => p.to_str().to_string(),
+            UD(ud) => ud.name.to_string(),
+            Enum(_) => "enum".to_string(),
+            Class(_) => "class".to_string(),
+            Function(_) => "function".to_string(),
+            Array(_) => "array".to_string(),
+        }
+    }
+}
+
 impl Dump for BaseType {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
         macro_rules! dump {

@@ -12,6 +12,7 @@ use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::names::{Qualified, QualifiedParser};
 
 bitflags! {
@@ -156,10 +157,14 @@ impl<'a, L: TLexer> DerivedParser<'a, L> {
         Self { lexer }
     }
 
-    fn parse(self, tok: Option<Token>, context: &mut Context) -> (Option<Token>, Option<Derived>) {
+    fn parse(
+        self,
+        tok: Option<Token>,
+        context: &mut Context,
+    ) -> Result<(Option<Token>, Option<Derived>), ParserError> {
         // optional: attributes
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok, context);
+        let (tok, attributes) = ap.parse(tok, context)?;
 
         // access-specifier | virtual-specifier
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -170,22 +175,22 @@ impl<'a, L: TLexer> DerivedParser<'a, L> {
 
         // class or decltype
         let qp = QualifiedParser::new(self.lexer);
-        let (tok, name) = qp.parse(Some(tok), None, context);
+        let (tok, name) = qp.parse(Some(tok), None, context)?;
 
         let name = if let Some(name) = name {
             name
         } else {
-            return (tok, None);
+            return Ok((tok, None));
         };
 
-        (
+        Ok((
             tok,
             Some(Derived {
                 attributes,
                 name,
                 specifier,
             }),
-        )
+        ))
     }
 }
 
@@ -202,18 +207,18 @@ impl<'a, L: TLexer> BaseClauseParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Vec<Derived>>) {
+    ) -> Result<(Option<Token>, Option<Vec<Derived>>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok != Token::Colon {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let mut bases = Vec::new();
 
         let tok = loop {
             let dp = DerivedParser::new(self.lexer);
-            let (tok, derived) = dp.parse(None, context);
+            let (tok, derived) = dp.parse(None, context)?;
 
             if let Some(derived) = derived {
                 bases.push(derived);
@@ -227,11 +232,11 @@ impl<'a, L: TLexer> BaseClauseParser<'a, L> {
             }
         };
 
-        if bases.is_empty() {
+        Ok(if bases.is_empty() {
             (tok, None)
         } else {
             (tok, Some(bases))
-        }
+        })
     }
 }
 
@@ -248,22 +253,22 @@ impl<'a, L: TLexer> ClassParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Class>, Option<TypeToFix>) {
+    ) -> Result<(Option<Token>, Option<Class>, Option<TypeToFix>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let kind = if let Some(kind) = Kind::from_tok(&tok) {
             kind
         } else {
-            return (Some(tok), None, None);
+            return Ok((Some(tok), None, None));
         };
 
         // optional: attributes
         // TODO: alignas
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(None, context);
+        let (tok, attributes) = ap.parse(None, context)?;
 
         // optional: name
         let qp = QualifiedParser::new(self.lexer);
-        let (tok, name) = qp.parse(tok, None, context);
+        let (tok, name) = qp.parse(tok, None, context)?;
 
         // optional: final
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -275,13 +280,13 @@ impl<'a, L: TLexer> ClassParser<'a, L> {
 
         // optional: base-clause
         let bcp = BaseClauseParser::new(self.lexer);
-        let (tok, bases) = bcp.parse(tok, context);
+        let (tok, bases) = bcp.parse(tok, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let (tok, body, to_fix) = if tok == Token::LeftBrace {
             context.set_current(name.as_ref(), ScopeKind::Class);
             let cbp = ClassBodyParser::new(self.lexer);
-            let (tok, body) = cbp.parse(kind.clone(), context);
+            let (tok, body) = cbp.parse(kind.clone(), context)?;
             let to_fix = context.pop_n(name.as_ref().map_or(1, |n| n.len()));
             (tok, Some(body), to_fix)
         } else {
@@ -297,7 +302,7 @@ impl<'a, L: TLexer> ClassParser<'a, L> {
             body,
         };
 
-        (tok, Some(class), to_fix)
+        Ok((tok, Some(class), to_fix))
     }
 }
 
@@ -310,7 +315,11 @@ impl<'a, L: TLexer> ClassBodyParser<'a, L> {
         Self { lexer }
     }
 
-    pub(crate) fn parse(self, kind: Kind, context: &mut Context) -> (Option<Token>, ClassBody) {
+    pub(crate) fn parse(
+        self,
+        kind: Kind,
+        context: &mut Context,
+    ) -> Result<(Option<Token>, ClassBody), ParserError> {
         let mut body = ClassBody {
             public: Vec::new(),
             protected: Vec::new(),
@@ -326,7 +335,7 @@ impl<'a, L: TLexer> ClassBodyParser<'a, L> {
 
         loop {
             let mp = MemberParser::new(self.lexer);
-            let (tk, memb) = mp.parse(tok, context);
+            let (tk, memb) = mp.parse(tok, context)?;
 
             let tk = if let Some(memb) = memb {
                 match memb {
@@ -362,7 +371,7 @@ impl<'a, L: TLexer> ClassBodyParser<'a, L> {
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             tok = if tk == Token::RightBrace {
-                return (None, body);
+                return Ok((None, body));
             } else {
                 Some(tk)
             };
@@ -412,7 +421,7 @@ public:
         );
         let p = ClassParser::new(&mut l);
         let mut context = Context::default();
-        let (_, c, _) = p.parse(None, &mut context);
+        let (_, c, _) = p.parse(None, &mut context).unwrap();
         let c = c.unwrap();
 
         let x = Rc::new(TypeDeclarator {

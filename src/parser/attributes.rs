@@ -8,8 +8,8 @@ use termcolor::StandardStreamLock;
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
-use crate::{dump_fields, dump_start};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute {
@@ -66,7 +66,7 @@ impl<'a, L: TLexer> UsingParser<'a, L> {
         Self { lexer }
     }
 
-    fn parse(self, _context: &mut Context) -> (Option<Token>, Option<String>) {
+    fn parse(self, _context: &mut Context) -> Result<(Option<Token>, Option<String>), ParserError> {
         let tok = self.lexer.next_useful();
         if tok == Token::Using {
             let tok = self.lexer.next_useful();
@@ -75,17 +75,23 @@ impl<'a, L: TLexer> UsingParser<'a, L> {
                 let tok = self.lexer.next_useful();
                 match tok {
                     Token::Colon => {
-                        return (None, ns);
+                        return Ok((None, ns));
                     }
                     _ => {
-                        unreachable!("Invalid token in attributes: {:?}", tok);
+                        return Err(ParserError::InvalidTokenInAttrs {
+                            sp: self.lexer.span(),
+                            tok,
+                        });
                     }
                 }
             } else {
-                unreachable!("Invalid token in attributes: {:?}", tok);
+                return Err(ParserError::InvalidTokenInAttrs {
+                    sp: self.lexer.span(),
+                    tok,
+                });
             }
         }
-        (Some(tok), None)
+        Ok((Some(tok), None))
     }
 }
 
@@ -102,10 +108,10 @@ impl<'a, L: TLexer> ArgumentParser<'a, L> {
         self,
         tok: Option<Token>,
         _context: &mut Context,
-    ) -> (Option<Token>, Option<AttributeArg>) {
+    ) -> Result<(Option<Token>, Option<AttributeArg>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftParen {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let mut arg = AttributeArg::default();
@@ -122,9 +128,12 @@ impl<'a, L: TLexer> ArgumentParser<'a, L> {
                 Token::RightParen => {
                     if paren_count == 1 {
                         if brack_count != 0 || brace_count != 0 {
-                            unreachable!("Unbalanced attribute");
+                            return Err(ParserError::UnbalancedAttr {
+                                sp: self.lexer.span(),
+                                tok,
+                            });
                         } else {
-                            return (None, Some(arg));
+                            return Ok((None, Some(arg)));
                         }
                     } else {
                         paren_count -= 1;
@@ -135,7 +144,10 @@ impl<'a, L: TLexer> ArgumentParser<'a, L> {
                 }
                 Token::RightBrack => {
                     if brack_count == 0 {
-                        unreachable!("Unbalanced attribute");
+                        return Err(ParserError::UnbalancedAttr {
+                            sp: self.lexer.span(),
+                            tok,
+                        });
                     } else {
                         brack_count -= 1;
                     }
@@ -145,13 +157,18 @@ impl<'a, L: TLexer> ArgumentParser<'a, L> {
                 }
                 Token::RightBrace => {
                     if brace_count == 0 {
-                        unreachable!("Unbalanced attribute");
+                        return Err(ParserError::UnbalancedAttr {
+                            sp: self.lexer.span(),
+                            tok,
+                        });
                     } else {
                         brace_count -= 1;
                     }
                 }
                 Token::Eof => {
-                    unreachable!("Wrong attribute");
+                    return Err(ParserError::UnexpectedEof {
+                        sp: self.lexer.span(),
+                    });
                 }
                 t => {
                     arg.tokens.push(t);
@@ -174,7 +191,7 @@ impl<'a, L: TLexer> NameParser<'a, L> {
         self,
         tok: Token,
         _context: &mut Context,
-    ) -> (Option<Token>, (Option<String>, String)) {
+    ) -> Result<(Option<Token>, (Option<String>, String)), ParserError> {
         match tok {
             Token::Identifier(id) => {
                 let tk = self.lexer.next_useful();
@@ -182,17 +199,21 @@ impl<'a, L: TLexer> NameParser<'a, L> {
                     let ns = Some(id);
                     let tk = self.lexer.next_useful();
                     if let Token::Identifier(id) = tk {
-                        (None, (ns, id))
+                        Ok((None, (ns, id)))
                     } else {
-                        unreachable!("Invalid token in attributes: {:?}", tk);
+                        Err(ParserError::InvalidTokenInAttrs {
+                            sp: self.lexer.span(),
+                            tok: tk,
+                        })
                     }
                 } else {
-                    (Some(tk), (None, id))
+                    Ok((Some(tk), (None, id)))
                 }
             }
-            _ => {
-                unreachable!("Invalid token in attributes: {:?}", tok);
-            }
+            _ => Err(ParserError::InvalidTokenInAttrs {
+                sp: self.lexer.span(),
+                tok,
+            }),
         }
     }
 }
@@ -211,7 +232,7 @@ impl<'a, L: TLexer> AttributeParser<'a, L> {
         attributes: &mut Attributes,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, bool) {
+    ) -> Result<(Option<Token>, bool), ParserError> {
         // [[ attribute-list ]]
         // [[ using attribute-namespace : attribute-list ]]
         //
@@ -223,21 +244,21 @@ impl<'a, L: TLexer> AttributeParser<'a, L> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::DoubleLeftBrack {
-            return (Some(tok), false);
+            return Ok((Some(tok), false));
         }
 
         let up = UsingParser::new(self.lexer);
-        let (tok, default_ns) = up.parse(context);
+        let (tok, default_ns) = up.parse(context)?;
         let has_using = default_ns.is_some();
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         loop {
             let np = NameParser::new(self.lexer);
-            let (tk, (namespace, id)) = np.parse(tok, context);
+            let (tk, (namespace, id)) = np.parse(tok, context)?;
 
             let ap = ArgumentParser::new(self.lexer);
-            let (tk, arg) = ap.parse(tk, context);
+            let (tk, arg) = ap.parse(tk, context)?;
 
             attributes.push(Attribute {
                 namespace: namespace.or_else(|| default_ns.clone()),
@@ -250,10 +271,13 @@ impl<'a, L: TLexer> AttributeParser<'a, L> {
             match tok {
                 Token::Comma => {}
                 Token::DoubleRightBrack => {
-                    return (None, true);
+                    return Ok((None, true));
                 }
                 _ => {
-                    unreachable!("Invalid token in attributes: {:?}", tok);
+                    return Err(ParserError::InvalidTokenInAttrs {
+                        sp: self.lexer.span(),
+                        tok,
+                    });
                 }
             }
 
@@ -275,14 +299,14 @@ impl<'a, L: TLexer> AttributesParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Attributes>) {
+    ) -> Result<(Option<Token>, Option<Attributes>), ParserError> {
         let mut attributes = Vec::new();
         let mut tok = tok;
         let mut has_attributes = false;
 
         loop {
             let ap = AttributeParser::new(self.lexer);
-            let (tk, has_attr) = ap.parse(&mut attributes, tok, context);
+            let (tk, has_attr) = ap.parse(&mut attributes, tok, context)?;
             tok = tk;
             has_attributes |= has_attr;
 
@@ -291,11 +315,11 @@ impl<'a, L: TLexer> AttributesParser<'a, L> {
             }
         }
 
-        if has_attributes {
+        Ok(if has_attributes {
             (tok, Some(attributes))
         } else {
             (tok, None)
-        }
+        })
     }
 }
 
@@ -311,7 +335,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"[[noreturn]]");
         let p = AttributesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, a) = p.parse(None, &mut context);
+        let (_, a) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             a.unwrap(),
@@ -329,7 +353,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"[[gnu::unused]]");
         let p = AttributesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, a) = p.parse(None, &mut context);
+        let (_, a) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             a.unwrap(),
@@ -347,7 +371,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"[[deprecated(\"because\")]]");
         let p = AttributesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, a) = p.parse(None, &mut context);
+        let (_, a) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             a.unwrap(),
@@ -367,7 +391,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"[[using CC: opt(1), debug]]");
         let p = AttributesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, a) = p.parse(None, &mut context);
+        let (_, a) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             a.unwrap(),
@@ -395,7 +419,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"[[A]] [[B]] [[C]]");
         let p = AttributesParser::new(&mut l);
         let mut context = Context::default();
-        let (_, a) = p.parse(None, &mut context);
+        let (_, a) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             a.unwrap(),

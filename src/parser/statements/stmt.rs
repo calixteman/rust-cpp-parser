@@ -16,6 +16,7 @@ use crate::parser::context::Context;
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
 use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::names::QualifiedParser;
 
@@ -97,7 +98,10 @@ macro_rules! check_semicolon {
     ( $self:expr, $tok:expr ) => {
         let tok = $tok.unwrap_or_else(|| $self.lexer.next_useful());
         if tok != Token::SemiColon {
-            unreachable!("Invalid token in statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInStmt {
+                sp: $self.lexer.span(),
+                tok,
+            });
         }
     };
 }
@@ -137,124 +141,124 @@ impl<'a, L: TLexer> StatementParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Statement>) {
+    ) -> Result<(Option<Token>, Option<Statement>), ParserError> {
         let ap = AttributesParser::new(self.lexer);
-        let (tok, attributes) = ap.parse(tok, context);
+        let (tok, attributes) = ap.parse(tok, context)?;
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         match tok {
             Token::Return => {
                 let rp = ReturnStmtParser::new(self.lexer);
-                let (tok, ret) = rp.parse(attributes, context);
+                let (tok, ret) = rp.parse(attributes, context)?;
                 check_semicolon!(self, tok);
-                (None, Some(Statement::Return(Box::new(ret.unwrap()))))
+                Ok((None, Some(Statement::Return(Box::new(ret.unwrap())))))
             }
             Token::LeftBrace => {
                 let cp = CompoundStmtParser::new(self.lexer);
-                let (_, compound) = cp.parse(attributes, context);
-                (None, Some(Statement::Compound(Box::new(compound.unwrap()))))
+                let (_, compound) = cp.parse(attributes, context)?;
+                Ok((None, Some(Statement::Compound(Box::new(compound.unwrap())))))
             }
             Token::If => {
                 let ip = IfStmtParser::new(self.lexer);
-                let (tok, ifs) = ip.parse(attributes, context);
-                (tok, Some(Statement::If(Box::new(ifs.unwrap()))))
+                let (tok, ifs) = ip.parse(attributes, context)?;
+                Ok((tok, Some(Statement::If(Box::new(ifs.unwrap())))))
             }
             Token::Switch => {
                 let sp = SwitchStmtParser::new(self.lexer);
-                let (tok, switch) = sp.parse(attributes, context);
-                (tok, Some(Statement::Switch(Box::new(switch.unwrap()))))
+                let (tok, switch) = sp.parse(attributes, context)?;
+                Ok((tok, Some(Statement::Switch(Box::new(switch.unwrap())))))
             }
             Token::While => {
                 let wp = WhileStmtParser::new(self.lexer);
-                let (tok, wh) = wp.parse(attributes, context);
-                (tok, Some(Statement::While(Box::new(wh.unwrap()))))
+                let (tok, wh) = wp.parse(attributes, context)?;
+                Ok((tok, Some(Statement::While(Box::new(wh.unwrap())))))
             }
             Token::Do => {
                 let dp = DoStmtParser::new(self.lexer);
-                let (tok, d) = dp.parse(attributes, context);
-                (tok, Some(Statement::Do(Box::new(d.unwrap()))))
+                let (tok, d) = dp.parse(attributes, context)?;
+                Ok((tok, Some(Statement::Do(Box::new(d.unwrap())))))
             }
             Token::For => {
                 let fp = ForStmtParser::new(self.lexer);
-                let (tok, f) = fp.parse(attributes, context);
+                let (tok, f) = fp.parse(attributes, context)?;
 
-                match f.unwrap() {
+                Ok(match f.unwrap() {
                     ForRes::Normal(f) => (tok, Some(Statement::For(Box::new(f)))),
                     ForRes::Range(f) => (tok, Some(Statement::ForRange(Box::new(f)))),
-                }
+                })
             }
             Token::Break => {
                 check_semicolon!(self, None);
-                (None, Some(Statement::Break(Box::new(Break { attributes }))))
+                Ok((None, Some(Statement::Break(Box::new(Break { attributes })))))
             }
             Token::Continue => {
                 check_semicolon!(self, None);
-                (
+                Ok((
                     None,
                     Some(Statement::Continue(Box::new(Continue { attributes }))),
-                )
+                ))
             }
             Token::Goto => {
                 let gp = GotoStmtParser::new(self.lexer);
-                let (tok, goto) = gp.parse(attributes, context);
+                let (tok, goto) = gp.parse(attributes, context)?;
                 check_semicolon!(self, tok);
-                (None, Some(Statement::Goto(Box::new(goto.unwrap()))))
+                Ok((None, Some(Statement::Goto(Box::new(goto.unwrap())))))
             }
             Token::Try => {
                 let tp = TryStmtParser::new(self.lexer);
-                let (tok, t) = tp.parse(attributes, context);
+                let (tok, t) = tp.parse(attributes, context)?;
 
-                (tok, Some(Statement::Try(Box::new(t.unwrap()))))
+                Ok((tok, Some(Statement::Try(Box::new(t.unwrap())))))
             }
             Token::Case => {
                 let cp = CaseStmtParser::new(self.lexer);
-                let (tok, case) = cp.parse(attributes, context);
-                (tok, Some(Statement::Case(Box::new(case.unwrap()))))
+                let (tok, case) = cp.parse(attributes, context)?;
+                Ok((tok, Some(Statement::Case(Box::new(case.unwrap())))))
             }
             Token::Default => {
                 let dp = DefaultStmtParser::new(self.lexer);
-                let (tok, default) = dp.parse(attributes, context);
-                (tok, Some(Statement::Default(Box::new(default.unwrap()))))
+                let (tok, default) = dp.parse(attributes, context)?;
+                Ok((tok, Some(Statement::Default(Box::new(default.unwrap())))))
             }
-            Token::SemiColon => (None, Some(Statement::Empty)),
+            Token::SemiColon => Ok((None, Some(Statement::Empty))),
             Token::Identifier(id) => {
                 let qp = QualifiedParser::new(self.lexer);
-                let (tok, name) = qp.parse(None, Some(id), context);
+                let (tok, name) = qp.parse(None, Some(id), context)?;
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
                 let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
                     let dp = DeclarationParser::new(self.lexer);
                     let hint = DeclHint::Name(name);
-                    let (tok, decl) = dp.parse(Some(tok), Some(hint), context);
+                    let (tok, decl) = dp.parse(Some(tok), Some(hint), context)?;
 
                     (tok, Some(Statement::Declaration(Box::new(decl.unwrap()))))
                 } else {
                     let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                    let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context);
+                    let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context)?;
 
                     (tok, Some(Statement::Expression(Box::new(expr.unwrap()))))
                 };
                 check_semicolon!(self, tok);
-                (None, stmt)
+                Ok((None, stmt))
             }
             _ => {
                 let dp = DeclarationParser::new(self.lexer);
-                let (tok, decl) = dp.parse(Some(tok), None, context);
+                let (tok, decl) = dp.parse(Some(tok), None, context)?;
                 let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
 
                 if decl.is_some() {
-                    return (tok, decl);
+                    return Ok((tok, decl));
                 }
 
                 let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                let (tok, expr) = ep.parse(tok, context);
+                let (tok, expr) = ep.parse(tok, context)?;
 
                 if let Some(expr) = expr {
                     check_semicolon!(self, tok);
-                    return (None, Some(Statement::Expression(Box::new(expr))));
+                    return Ok((None, Some(Statement::Expression(Box::new(expr)))));
                 }
 
-                (tok, None)
+                Ok((tok, None))
             }
         }
     }
@@ -287,7 +291,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Compound(Box::new(Compound {
             attributes: None,
@@ -318,7 +322,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         assert_eq!(
             stmt,
@@ -383,7 +387,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"{{ ; {  ;;}} ;;}");
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Compound(Box::new(Compound {
             attributes: None,
@@ -418,7 +422,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::If(Box::new(If {
             attributes: None,
@@ -465,7 +469,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Try(Box::new(Try {
             attributes: None,
@@ -517,7 +521,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Try(Box::new(Try {
             attributes: None,
@@ -569,7 +573,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Try(Box::new(Try {
             attributes: None,
@@ -596,7 +600,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::For(Box::new(For {
             attributes: None,
@@ -621,7 +625,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
         let i = Rc::new(TypeDeclarator {
             typ: Type {
                 base: BaseType::Primitive(Primitive::Int),
@@ -677,7 +681,7 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::ForRange(Box::new(ForRange {
             attributes: None,
@@ -764,7 +768,7 @@ mod tests {
 
         context.add_type_decl(Rc::clone(&t));
 
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::ForRange(Box::new(ForRange {
             attributes: None,
@@ -842,7 +846,7 @@ mod tests {
         });
         context.add_type_decl(Rc::clone(&x));
 
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::Switch(Box::new(Switch {
             attributes: None,
@@ -887,7 +891,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"while (0) while(0) do ; while(0);");
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
-        let stmt = parser.parse(None, &mut context).1.unwrap();
+        let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = Statement::While(Box::new(While {
             attributes: None,

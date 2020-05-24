@@ -9,6 +9,7 @@ use super::dtor::{Destructor, DtorParser};
 use super::operator::{Operator, OperatorParser};
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{Parameters, ParametersParser};
 use crate::parser::Context;
 
@@ -131,7 +132,7 @@ impl<'a, L: TLexer> QualifiedParser<'a, L> {
         tok: Option<Token>,
         first: Option<String>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Qualified>) {
+    ) -> Result<(Option<Token>, Option<Qualified>), ParserError> {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut names = Vec::new();
         let mut wait_id = if let Some(val) = first {
@@ -172,32 +173,32 @@ impl<'a, L: TLexer> QualifiedParser<'a, L> {
                     wait_id = false;
                 }
                 Token::Identifier(_) if !wait_id => {
-                    return (Some(tok), Some(Qualified { names }));
+                    return Ok((Some(tok), Some(Qualified { names })));
                 }
                 Token::Operator => {
                     let op = OperatorParser::new(self.lexer);
-                    let (tok, operator) = op.parse(Some(tok), context);
+                    let (tok, operator) = op.parse(Some(tok), context)?;
 
                     names.push(Name::Operator(Box::new(operator.unwrap())));
 
-                    return (tok, Some(Qualified { names }));
+                    return Ok((tok, Some(Qualified { names })));
                 }
                 Token::Tilde => {
                     if wait_id {
                         let dp = DtorParser::new(self.lexer);
-                        let (tok, dtor) = dp.parse(Some(tok), context);
+                        let (tok, dtor) = dp.parse(Some(tok), context)?;
 
                         names.push(Name::Destructor(dtor.unwrap()));
-                        return (tok, Some(Qualified { names }));
+                        return Ok((tok, Some(Qualified { names })));
                     } else {
-                        return (Some(tok), Some(Qualified { names }));
+                        return Ok((Some(tok), Some(Qualified { names })));
                     }
                 }
                 _ => {
                     if names.is_empty() {
-                        return (Some(tok), None);
+                        return Ok((Some(tok), None));
                     } else {
-                        return (Some(tok), Some(Qualified { names }));
+                        return Ok((Some(tok), Some(Qualified { names })));
                     }
                 }
             }
@@ -218,7 +219,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"abc");
         let p = QualifiedParser::new(&mut l);
         let mut context = Context::default();
-        let (_, q) = p.parse(None, None, &mut context);
+        let (_, q) = p.parse(None, None, &mut context).unwrap();
 
         assert_eq!(q.unwrap(), mk_id!("abc"));
     }
@@ -228,7 +229,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg");
         let p = QualifiedParser::new(&mut l);
         let mut context = Context::default();
-        let (_, q) = p.parse(None, None, &mut context);
+        let (_, q) = p.parse(None, None, &mut context).unwrap();
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg"));
     }
@@ -238,7 +239,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"abc::defg::hijkl");
         let p = QualifiedParser::new(&mut l);
         let mut context = Context::default();
-        let (_, q) = p.parse(None, None, &mut context);
+        let (_, q) = p.parse(None, None, &mut context).unwrap();
 
         assert_eq!(q.unwrap(), mk_id!("abc", "defg", "hijkl"));
     }

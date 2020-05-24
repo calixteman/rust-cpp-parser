@@ -3,12 +3,14 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
-use termcolor::StandardStreamLock;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Return {
@@ -35,16 +37,16 @@ impl<'a, L: TLexer> ReturnStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Return>) {
+    ) -> Result<(Option<Token>, Option<Return>), ParserError> {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-        let (tok, expr) = ep.parse(None, context);
+        let (tok, expr) = ep.parse(None, context)?;
 
-        (
+        Ok((
             tok,
             Some(Return {
                 attributes,
                 val: expr,
             }),
-        )
+        ))
     }
 }

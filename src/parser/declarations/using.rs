@@ -11,6 +11,7 @@ use super::types::{TypeDeclarator, TypeDeclaratorParser};
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::Context;
 
@@ -114,38 +115,44 @@ impl<'a, L: TLexer> UsingParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declaration>) {
+    ) -> Result<(Option<Token>, Option<Declaration>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Using {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let tok = self.lexer.next_useful();
         if tok == Token::Enum {
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, name) = qp.parse(None, None, context);
+            let (tok, name) = qp.parse(None, None, context)?;
 
             if let Some(name) = name {
-                return (tok, Some(Declaration::UsingEnum(UsingEnum { name })));
+                return Ok((tok, Some(Declaration::UsingEnum(UsingEnum { name }))));
             } else {
-                unreachable!("Invalid token in using enum declaration: {:?}", tok)
+                return Err(ParserError::InvalidTokenInUsingEnum {
+                    sp: self.lexer.span(),
+                    tok: tok.unwrap(),
+                });
             };
         }
 
         if tok == Token::Namespace {
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, name) = qp.parse(None, None, context);
+            let (tok, name) = qp.parse(None, None, context)?;
 
             if let Some(name) = name {
-                return (
+                return Ok((
                     tok,
                     Some(Declaration::UsingNS(UsingNS {
                         name,
                         attributes: None,
                     })),
-                );
+                ));
             } else {
-                unreachable!("Invalid token in using enum declaration: {:?}", tok)
+                return Err(ParserError::InvalidTokenInUsingEnum {
+                    sp: self.lexer.span(),
+                    tok: tok.unwrap(),
+                });
             };
         }
 
@@ -160,12 +167,15 @@ impl<'a, L: TLexer> UsingParser<'a, L> {
             };
 
             let qp = QualifiedParser::new(self.lexer);
-            let (tk, name) = qp.parse(Some(tk), None, context);
+            let (tk, name) = qp.parse(Some(tk), None, context)?;
 
             let name = if let Some(name) = name {
                 name
             } else {
-                unreachable!("Invalid token in using declaration: {:?}", tk)
+                return Err(ParserError::InvalidTokenInUsing {
+                    sp: self.lexer.span(),
+                    tok: tk.unwrap(),
+                });
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
@@ -176,65 +186,68 @@ impl<'a, L: TLexer> UsingParser<'a, L> {
                 }
                 Token::Ellipsis => {
                     names.push(Name { name, typename });
-                    return (
+                    return Ok((
                         None,
                         Some(Declaration::UsingDecl(UsingDecl {
                             names,
                             ellipsis: true,
                         })),
-                    );
+                    ));
                 }
                 Token::DoubleLeftBrack => {
                     let ap = AttributesParser::new(self.lexer);
-                    let (tok, attrs) = ap.parse(Some(tk), context);
+                    let (tok, attrs) = ap.parse(Some(tk), context)?;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
                     if tok != Token::Equal {
-                        unreachable!("Invalid token in alias declaration: {:?}", tok)
+                        return Err(ParserError::InvalidTokenInAlias {
+                            sp: self.lexer.span(),
+                            tok,
+                        });
                     }
 
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None, false, context);
+                    let (tok, typ) = tdp.parse(None, None, false, context)?;
                     let name = name.get_first_name();
                     let typ = typ.unwrap();
 
                     context.add_alias(&name, Rc::clone(&typ));
 
-                    return (
+                    return Ok((
                         tok,
                         Some(Declaration::UsingAlias(UsingAlias {
                             name,
                             typ,
                             attributes: attrs,
                         })),
-                    );
+                    ));
                 }
                 Token::Equal => {
                     let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, typ) = tdp.parse(None, None, false, context);
+                    let (tok, typ) = tdp.parse(None, None, false, context)?;
                     let name = name.get_first_name();
                     let typ = typ.unwrap();
 
                     context.add_alias(&name, Rc::clone(&typ));
 
-                    return (
+                    return Ok((
                         tok,
                         Some(Declaration::UsingAlias(UsingAlias {
                             name,
                             typ,
                             attributes: None,
                         })),
-                    );
+                    ));
                 }
                 _ => {
                     names.push(Name { name, typename });
-                    return (
+                    return Ok((
                         Some(tk),
                         Some(Declaration::UsingDecl(UsingDecl {
                             names,
                             ellipsis: false,
                         })),
-                    );
+                    ));
                 }
             }
         }
@@ -254,7 +267,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -273,7 +286,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using typename A::B");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -292,7 +305,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B, typename C, D::E");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -321,7 +334,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using A::B...");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -340,7 +353,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using enum A::B");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -355,7 +368,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"using namespace A::B");
         let p = UsingParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),

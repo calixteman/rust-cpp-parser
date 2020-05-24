@@ -8,6 +8,7 @@ use termcolor::StandardStreamLock;
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
 
@@ -51,32 +52,33 @@ impl<'a, L: TLexer> GotoStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Goto>) {
+    ) -> Result<(Option<Token>, Option<Goto>), ParserError> {
         let tok = self.lexer.next_useful();
 
         match tok {
-            Token::Identifier(id) => (
+            Token::Identifier(id) => Ok((
                 None,
                 Some(Goto {
                     attributes,
                     label: Label::Id(id),
                 }),
-            ),
+            )),
             Token::Star => {
                 let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                let (tok, expr) = ep.parse(Some(tok), context);
+                let (tok, expr) = ep.parse(Some(tok), context)?;
 
-                (
+                Ok((
                     tok,
                     Some(Goto {
                         attributes,
                         label: Label::Expr(expr.unwrap()),
                     }),
-                )
+                ))
             }
-            _ => {
-                unreachable!("Invalid token in goto statements: {:?}", tok);
-            }
+            _ => Err(ParserError::InvalidTokenInGoto {
+                sp: self.lexer.span(),
+                tok,
+            }),
         }
     }
 }

@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use crate::errors::Span;
 use crate::lexer::{TLexer, Token};
 
 #[derive(Clone, Debug)]
@@ -19,6 +20,10 @@ impl TLexer for SavedLexer {
         } else {
             Token::Eof
         }
+    }
+
+    fn span(&self) -> Span {
+        Span::default()
     }
 }
 
@@ -53,6 +58,14 @@ impl<'l1, 'l2> TLexer for CombinedLexers<'l1, 'l2> {
         };
         eprintln!("TOK: {:?}", tok);
         tok
+    }
+
+    fn span(&self) -> Span {
+        if self.state {
+            Span::default()
+        } else {
+            self.second.span()
+        }
     }
 }
 

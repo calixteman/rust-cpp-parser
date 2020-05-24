@@ -7,6 +7,7 @@ use termcolor::StandardStreamLock;
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::literals::StringLiteralParser;
 use crate::parser::Context;
@@ -47,42 +48,53 @@ impl<'a, L: TLexer> StaticAssertParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<StaticAssert>) {
+    ) -> Result<(Option<Token>, Option<StaticAssert>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::StaticAssert && tok != Token::CStaticAssert {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let cpp = tok == Token::StaticAssert;
 
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in static_assert: {:?}", tok);
+            return Err(ParserError::InvalidTokenInStaticAssert {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-        let (tok, expr) = ep.parse(None, context);
+        let (tok, expr) = ep.parse(None, context)?;
 
         let condition = if let Some(cond) = expr {
             cond
         } else {
-            unreachable!("Invalid token in static_assert: {:?}", tok)
+            return Err(ParserError::InvalidTokenInStaticAssert {
+                sp: self.lexer.span(),
+                tok: tok.unwrap(),
+            });
         };
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         match tok {
             Token::RightParen => {
-                return (
+                return Ok((
                     None,
                     Some(StaticAssert {
                         condition,
                         string: None,
                         cpp,
                     }),
-                )
+                ))
             }
             Token::Comma => {}
-            _ => unreachable!("Invalid token in static_assert: {:?}", tok),
+            _ => {
+                return Err(ParserError::InvalidTokenInStaticAssert {
+                    sp: self.lexer.span(),
+                    tok,
+                });
+            }
         }
 
         let tok = self.lexer.next_useful();
@@ -91,25 +103,30 @@ impl<'a, L: TLexer> StaticAssertParser<'a, L> {
         let string = if let Some(string) = string {
             string
         } else {
-            unreachable!("Invalid second argument in static_assert")
+            return Err(ParserError::InvalidArgInStaticAssert {
+                sp: self.lexer.span(),
+            });
         };
 
         let slp = StringLiteralParser::new(self.lexer);
-        let (tok, string) = slp.parse(&string, context);
+        let (tok, string) = slp.parse(&string, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
-            unreachable!("Invalid token in static_assert: {:?}", tok)
+            return Err(ParserError::InvalidTokenInStaticAssert {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
-        (
+        Ok((
             None,
             Some(StaticAssert {
                 condition,
                 string: Some(string),
                 cpp,
             }),
-        )
+        ))
     }
 }
 
@@ -128,7 +145,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"static_assert(a != b)");
         let p = StaticAssertParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),
@@ -149,7 +166,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"_Static_assert(a != b, \"an assertion\")");
         let p = StaticAssertParser::new(&mut l);
         let mut context = Context::default();
-        let (_, u) = p.parse(None, &mut context);
+        let (_, u) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(
             u.unwrap(),

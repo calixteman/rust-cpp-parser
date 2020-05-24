@@ -5,6 +5,7 @@
 
 use super::TypeDeclarator;
 use crate::lexer::{TLexer, Token};
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::Operator;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::initializer::Initializer;
@@ -24,14 +25,16 @@ impl<'a, L: TLexer> BitFieldDeclaratorParser<'a, L> {
         tok: Option<Token>,
         typ: &mut TypeDeclarator,
         context: &mut Context,
-    ) -> Option<Token> {
+    ) -> Result<Option<Token>, ParserError> {
         let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-        let (tok, size) = ep.parse(tok, context);
+        let (tok, size) = ep.parse(tok, context)?;
 
         let size = if let Some(size) = size {
             size
         } else {
-            unreachable!("Invalid bitfield size");
+            return Err(ParserError::InvalidBitfieldSize {
+                sp: self.lexer.span(),
+            });
         };
 
         let (size, init) = match size {
@@ -49,6 +52,6 @@ impl<'a, L: TLexer> BitFieldDeclaratorParser<'a, L> {
         typ.init = init;
         typ.bitfield_size = Some(size);
 
-        tok
+        Ok(tok)
     }
 }

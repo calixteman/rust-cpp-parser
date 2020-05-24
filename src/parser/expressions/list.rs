@@ -4,6 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::{TLexer, Token};
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{Parameters, ParametersParser};
 use crate::parser::Context;
 
@@ -22,11 +23,11 @@ impl<'a, L: TLexer> ListInitializationParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<ListInitialization>) {
+    ) -> Result<(Option<Token>, Option<ListInitialization>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         if tok != Token::LeftBrace {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let pp = ParametersParser::new(self.lexer, Token::RightBrace);

@@ -4,6 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use crate::lexer::{TLexer, Token};
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq, Hash)]
@@ -24,17 +25,20 @@ impl<'a, L: TLexer> DtorParser<'a, L> {
         self,
         tok: Option<Token>,
         _context: &mut Context,
-    ) -> (Option<Token>, Option<Destructor>) {
+    ) -> Result<(Option<Token>, Option<Destructor>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Tilde {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let tok = self.lexer.next_useful();
         if let Token::Identifier(name) = tok {
-            (None, Some(Destructor { name }))
+            Ok((None, Some(Destructor { name })))
         } else {
-            unreachable!("Invalid token in dtor name: {:?}", tok)
+            Err(ParserError::InvalidTokenInDtor {
+                sp: self.lexer.span(),
+                tok,
+            })
         }
     }
 }

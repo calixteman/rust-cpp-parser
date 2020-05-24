@@ -19,6 +19,7 @@ use crate::lexer::{
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser, VarDecl, Variable};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Qualified, QualifiedParser};
@@ -154,15 +155,18 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
         tok: Option<Token>,
         hint: Option<DeclHint>,
         context: &mut Context,
-    ) -> (
-        Option<Token>,
+    ) -> Result<
         (
-            Specifier,
-            Option<Type>,
-            Option<Qualified>,
-            Option<TypeToFix>,
+            Option<Token>,
+            (
+                Specifier,
+                Option<Type>,
+                Option<Qualified>,
+                Option<TypeToFix>,
+            ),
         ),
-    ) {
+        ParserError,
+    > {
         let (mut typ, mut spec, mut ty_modif) = if let Some(hint) = hint {
             match hint {
                 DeclHint::Name(id) => (
@@ -209,7 +213,7 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
             if ty_modif.is_empty() && typ.is_none() {
                 // enum
                 let ep = EnumParser::new(self.lexer);
-                let (tk, en, tf) = ep.parse(Some(tok), context);
+                let (tk, en, tf) = ep.parse(Some(tok), context)?;
 
                 if let Some(en) = en {
                     typ = Some(BaseType::Enum(Box::new(en)));
@@ -220,7 +224,7 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
 
                 // class
                 let cp = ClassParser::new(self.lexer);
-                let (tk, cl, tf) = cp.parse(tk, context);
+                let (tk, cl, tf) = cp.parse(tk, context)?;
 
                 if let Some(cl) = cl {
                     typ = Some(BaseType::Class(Box::new(cl)));
@@ -233,17 +237,20 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
                 let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
                 if let Token::Identifier(id) = tk {
                     let qp = QualifiedParser::new(self.lexer);
-                    let (tk, name) = qp.parse(None, Some(id), context);
+                    let (tk, name) = qp.parse(None, Some(id), context)?;
                     let name = name.unwrap();
                     if name.is_conv_op() {
-                        return (tk, (spec, None, Some(name), to_fix));
+                        return Ok((tk, (spec, None, Some(name), to_fix)));
                     }
 
                     let ud_typ = if let Some(res) = context.search(Some(&name)) {
                         match res {
                             SearchResult::Type(ty) => UDType::Direct(ty),
                             SearchResult::Var(_) | SearchResult::IncompleteVar(_) => {
-                                unreachable!("Invalid type: {:?}", name.to_string())
+                                return Err(ParserError::InvalidVarInDecl {
+                                    sp: self.lexer.span(),
+                                    name: name.to_string(),
+                                });
                             }
                             SearchResult::IncompleteType(ty) => UDType::Indirect(ty),
                         }
@@ -292,7 +299,7 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
                 (spec, typ, None, to_fix)
             };
 
-            return (Some(tok), spec_ty);
+            return Ok((Some(tok), spec_ty));
         }
     }
 }
@@ -314,15 +321,15 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
         is_fun_arg: bool,
         init: bool,
         context: &mut Context,
-    ) -> (Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>) {
+    ) -> Result<(Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>), ParserError> {
         let (tok, identifier) = if !is_fun_arg {
             // declarator-id
             let qp = QualifiedParser::new(self.lexer);
-            let (tok, identifier) = qp.parse(tok, None, context);
+            let (tok, identifier) = qp.parse(tok, None, context)?;
 
             // attributes
             let ap = AttributesParser::new(self.lexer);
-            let (tok, attributes) = ap.parse(tok, context);
+            let (tok, attributes) = ap.parse(tok, context)?;
 
             (
                 tok,
@@ -344,7 +351,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
         // function
         let fp = FunctionParser::new(self.lexer);
         let (tok, function, to_fix) =
-            fp.parse(tok, is_fun_arg, identifier.identifier.as_ref(), context);
+            fp.parse(tok, is_fun_arg, identifier.identifier.as_ref(), context)?;
 
         if let Some(mut function) = function {
             function.return_type = Some(typ);
@@ -353,7 +360,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                 cv: CVQualifier::empty(),
                 pointers: None,
             };
-            return (
+            return Ok((
                 tok,
                 Some(TypeDeclarator {
                     typ,
@@ -363,12 +370,12 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                     bitfield_size: None,
                 }),
                 to_fix,
-            );
+            ));
         }
 
         // array
         let ap = ArrayParser::new(self.lexer);
-        let (tok, array) = ap.parse(tok, context);
+        let (tok, array) = ap.parse(tok, context)?;
 
         let typ = if let Some(mut array) = array {
             array.base = Some(typ);
@@ -384,12 +391,12 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
         // initializer
         let (tok, init) = if init {
             let ip = InitializerParser::new(self.lexer);
-            ip.parse(tok, context)
+            ip.parse(tok, context)?
         } else {
             (tok, None)
         };
 
-        (
+        Ok((
             tok,
             Some(TypeDeclarator {
                 typ,
@@ -399,7 +406,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                 bitfield_size: None,
             }),
             None,
-        )
+        ))
     }
 }
 
@@ -418,16 +425,16 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         hint: Option<DeclHint>,
         init: bool,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Rc<TypeDeclarator>>) {
+    ) -> Result<(Option<Token>, Option<Rc<TypeDeclarator>>), ParserError> {
         let dsp = DeclSpecifierParser::new(self.lexer);
-        let (tok, (spec, typ, op, to_fix)) = dsp.parse(tok, hint, context);
+        let (tok, (spec, typ, op, to_fix)) = dsp.parse(tok, hint, context)?;
 
         let typ = if let Some(typ) = typ {
             typ
         } else {
             // conversion operator
             let codp = ConvOperatorDeclaratorParser::new(self.lexer);
-            let (tok, conv, to_fix) = codp.parse(spec, op, tok, context);
+            let (tok, conv, to_fix) = codp.parse(spec, op, tok, context)?;
             let conv = if let Some(conv) = conv {
                 let conv = Rc::new(conv);
                 if let Some(to_fix) = to_fix {
@@ -438,18 +445,18 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
                 None
             };
 
-            return (tok, conv);
+            return Ok((tok, conv));
         };
 
         let mut typ = typ;
 
         let ppdp = ParenPointerDeclaratorParser::new(self.lexer);
-        let (tok, (paren_decl, is_func_param)) = ppdp.parse(tok, context);
+        let (tok, (paren_decl, is_func_param)) = ppdp.parse(tok, context)?;
 
         let tok = if !is_func_param {
             // Pointer: *, &, &&
             let pdp = PointerDeclaratorParser::new(self.lexer);
-            let (tok, ptrs) = pdp.parse(tok, None, context);
+            let (tok, ptrs) = pdp.parse(tok, None, context)?;
 
             typ.pointers = ptrs;
             tok
@@ -462,7 +469,7 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         // int (*f) (int) == A * f avec A = int () (int)
 
         let npdp = NoPtrDeclaratorParser::new(self.lexer);
-        let (tok, decl, tf) = npdp.parse(tok, typ, spec, is_func_param, init, context);
+        let (tok, decl, tf) = npdp.parse(tok, typ, spec, is_func_param, init, context)?;
         let mut decl = decl.unwrap();
         let to_fix = if to_fix.is_none() { tf } else { to_fix };
 
@@ -506,7 +513,7 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
             to_fix.fix(Rc::clone(&decl));
         }
 
-        (tok, Some(decl))
+        Ok((tok, Some(decl)))
     }
 
     pub(crate) fn is_decl_part(tok: &Token) -> bool {
@@ -551,12 +558,12 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<DeclOrExpr>) {
+    ) -> Result<(Option<Token>, Option<DeclOrExpr>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let (typ, var, tok) = match tok {
             Token::Identifier(id) => {
                 let qp = QualifiedParser::new(self.lexer);
-                let (tok, name) = qp.parse(None, Some(id), context);
+                let (tok, name) = qp.parse(None, Some(id), context)?;
 
                 if let Some(res) = context.search(name.as_ref()) {
                     match res {
@@ -594,7 +601,10 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
                         ),
                     }
                 } else {
-                    unreachable!("Unknown name: {:?}", name);
+                    return Err(ParserError::UnknownId {
+                        sp: self.lexer.span(),
+                        name: name.unwrap().to_string(),
+                    });
                 }
             }
             _ => {
@@ -612,9 +622,9 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
                     } else {
                         let tdp = TypeDeclaratorParser::new(self.lexer);
                         let (tok, typ) =
-                            tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), true, context);
+                            tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), true, context)?;
 
-                        return (tok, Some(DeclOrExpr::Decl(typ.unwrap())));
+                        return Ok((tok, Some(DeclOrExpr::Decl(typ.unwrap()))));
                     }
                 } else {
                     (None, None, Some(tok))
@@ -645,9 +655,9 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
                         Some(DeclHint::Type(typ)),
                         true,
                         context,
-                    );
+                    )?;
 
-                    (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
+                    Ok((tok, Some(DeclOrExpr::Decl(typ.unwrap()))))
                 } else {
                     // finally we've an explicit type conversion
                     let mut ep = ExpressionParser::new(&mut combined, Token::Eof);
@@ -657,37 +667,37 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
                         pointers: None,
                     })));
 
-                    let (tok, expr) = ep.parse(Some(Token::LeftParen), context);
-                    (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+                    let (tok, expr) = ep.parse(Some(Token::LeftParen), context)?;
+                    Ok((tok, Some(DeclOrExpr::Expr(expr.unwrap()))))
                 }
             } else {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
-                let (tok, typ) = tdp.parse(Some(tok), Some(DeclHint::Type(typ)), true, context);
+                let (tok, typ) = tdp.parse(Some(tok), Some(DeclHint::Type(typ)), true, context)?;
 
-                (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
+                Ok((tok, Some(DeclOrExpr::Decl(typ.unwrap()))))
             }
         } else if let Some(var) = var {
             let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
             ep.push_operand(var);
-            let (tok, expr) = ep.parse(tok, context);
+            let (tok, expr) = ep.parse(tok, context)?;
 
-            (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+            Ok((tok, Some(DeclOrExpr::Expr(expr.unwrap()))))
         } else {
             let tp = TypeDeclaratorParser::new(self.lexer);
-            let (tok, typ) = tp.parse(tok, None, true, context);
+            let (tok, typ) = tp.parse(tok, None, true, context)?;
 
             if let Some(typ) = typ {
-                return (tok, Some(DeclOrExpr::Decl(typ)));
+                return Ok((tok, Some(DeclOrExpr::Decl(typ))));
             }
 
             let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-            let (tok, expr) = ep.parse(tok, context);
+            let (tok, expr) = ep.parse(tok, context)?;
 
             if let Some(expr) = expr {
-                return (tok, Some(DeclOrExpr::Expr(expr)));
+                return Ok((tok, Some(DeclOrExpr::Expr(expr))));
             }
 
-            (tok, None)
+            Ok((tok, None))
         }
     }
 }
@@ -769,7 +779,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context).unwrap();
 
             let ty = match ty.as_ref().unwrap().base() {
                 BaseType::Primitive(ty) => ty,
@@ -792,7 +802,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context).unwrap();
             let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_const(), "{}", buf);
@@ -818,7 +828,7 @@ mod tests {
             let mut l = Lexer::<DefaultContext>::new(buf.as_bytes());
             let p = DeclSpecifierParser::new(&mut l);
             let mut context = Context::default();
-            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context);
+            let (_, (_, ty, _, _)) = p.parse(None, None, &mut context).unwrap();
             let ty = &ty.as_ref().unwrap();
 
             assert!(ty.is_volatile(), "{}", buf);
@@ -837,7 +847,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int * x = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -869,7 +879,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int (*x) = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -901,7 +911,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"volatile A::B::C * x = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -936,7 +946,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"const int x{314}");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -967,7 +977,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"signed short volatile int * const x = NULL");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1001,7 +1011,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"char ** x");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1041,7 +1051,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"char ** const * x");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1087,7 +1097,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"A::B ** const * x");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1136,7 +1146,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int & x");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1168,7 +1178,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int && x");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1200,7 +1210,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int &&");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1232,7 +1242,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"char **");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1272,7 +1282,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int (*foo[2]) [3]");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1328,7 +1338,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int *()");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1377,7 +1387,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int foo(int x)");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1437,7 +1447,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int (**) (int x)");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1510,7 +1520,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"double ** foo(int x)");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1583,7 +1593,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int foo::bar(int x, const double * const y)");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1667,7 +1677,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int foo(int x = 123)");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1733,7 +1743,7 @@ mod tests {
         );
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1817,7 +1827,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"int foo[123]");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1856,7 +1866,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"typedef enum A { a } B");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1893,7 +1903,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"typedef struct { int a; } A");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -1944,7 +1954,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"A B::operator+()");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -2000,7 +2010,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"operator A()");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -2051,7 +2061,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"A::operator B()");
         let p = TypeDeclaratorParser::new(&mut l);
         let mut context = Context::default();
-        let (_, decl) = p.parse(None, None, true, &mut context);
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -2107,7 +2117,7 @@ mod tests {
         let mut context = Context::default();
         let t = add_t_type(&mut context);
 
-        let (_, decl) = p.parse(None, &mut context);
+        let (_, decl) = p.parse(None, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -2149,7 +2159,7 @@ mod tests {
         let mut context = Context::default();
         let t = add_t_type(&mut context);
 
-        let (_, decl) = p.parse(None, &mut context);
+        let (_, decl) = p.parse(None, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(
@@ -2181,7 +2191,7 @@ mod tests {
         let mut context = Context::default();
         let t = add_t_type(&mut context);
 
-        let (_, decl) = p.parse(None, &mut context);
+        let (_, decl) = p.parse(None, &mut context).unwrap();
         let decl = decl.unwrap();
 
         assert_eq!(

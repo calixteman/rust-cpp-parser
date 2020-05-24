@@ -10,8 +10,8 @@ use super::{
     DeclHint, Declaration, DeclarationListParser, Declarations, Specifier, TypeDeclaratorParser,
 };
 use crate::lexer::lexer::{TLexer, Token};
-
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,10 +40,10 @@ impl<'a, L: TLexer> ExternParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Declaration>) {
+    ) -> Result<(Option<Token>, Option<Declaration>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Extern {
-            return (Some(tok), None);
+            return Ok((Some(tok), None));
         }
 
         let tok = self.lexer.next_useful();
@@ -53,40 +53,43 @@ impl<'a, L: TLexer> ExternParser<'a, L> {
             let has_brace = tok == Token::LeftBrace;
             let dlp = DeclarationListParser::new(self.lexer);
 
-            let (tok, list) = dlp.parse(None, context);
+            let (tok, list) = dlp.parse(None, context)?;
 
             if has_brace {
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
                 if tok == Token::RightBrace {
-                    (
+                    Ok((
                         None,
                         Some(Declaration::Extern(Extern {
                             language,
                             decls: list.unwrap(),
                             multiple: true,
                         })),
-                    )
+                    ))
                 } else {
-                    unreachable!("Invalid token {:?}", tok);
+                    Err(ParserError::InvalidTokenInExtern {
+                        sp: self.lexer.span(),
+                        tok,
+                    })
                 }
             } else {
-                (
+                Ok((
                     tok,
                     Some(Declaration::Extern(Extern {
                         language,
                         decls: list.unwrap(),
                         multiple: false,
                     })),
-                )
+                ))
             }
         } else {
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let hint = DeclHint::Specifier(Specifier::EXTERN);
-            let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context);
+            let (tok, typ) = tdp.parse(Some(tok), Some(hint), true, context)?;
             let typ = typ.unwrap();
             context.add_type_decl(Rc::clone(&typ));
 
-            (tok, Some(Declaration::Type(typ)))
+            Ok((tok, Some(Declaration::Type(typ))))
         }
     }
 }
@@ -114,7 +117,7 @@ extern "C" {
         );
         let p = ExternParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ext) = p.parse(None, &mut context);
+        let (_, ext) = p.parse(None, &mut context).unwrap();
 
         let ext = ext.unwrap();
 
@@ -183,7 +186,7 @@ extern double sqrt(double);
         );
         let p = ExternParser::new(&mut l);
         let mut context = Context::default();
-        let (_, ext) = p.parse(None, &mut context);
+        let (_, ext) = p.parse(None, &mut context).unwrap();
 
         let ext = ext.unwrap();
 

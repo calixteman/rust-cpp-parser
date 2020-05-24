@@ -470,7 +470,7 @@ pub enum Token {
     MSUnaligned,
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Default)]
 pub struct Location {
     pub pos: usize,
     pub line: u32,
@@ -536,6 +536,8 @@ pub trait TLexer {
             stole.push(tok);
         }
     }
+
+    fn span(&self) -> Span;
 }
 
 pub struct Lexer<'a, PC: PreprocContext> {
@@ -556,6 +558,14 @@ impl<'a, PC: PreprocContext> TLexer for Lexer<'a, PC> {
                     return tok;
                 }
             }
+        }
+    }
+
+    fn span(&self) -> Span {
+        Span {
+            file: self.buf.get_source_id(),
+            start: self.start,
+            end: self.location(),
         }
     }
 }
@@ -1036,14 +1046,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             pos: self.buf.pos(),
             line: self.buf.get_line(),
             column: self.buf.get_column(),
-        }
-    }
-
-    pub(super) fn span(&self) -> Span {
-        Span {
-            file: self.buf.get_source_id(),
-            start: self.start,
-            end: self.location(),
         }
     }
 

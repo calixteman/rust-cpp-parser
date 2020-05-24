@@ -10,7 +10,7 @@ use super::context::{IfKind, IfState, PreprocContext};
 use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
 use crate::lexer::buffer::FileInfo;
 use crate::lexer::errors::LexerError;
-use crate::lexer::lexer::{Lexer, Token};
+use crate::lexer::lexer::{Lexer, TLexer, Token};
 use crate::lexer::string::StringType;
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]

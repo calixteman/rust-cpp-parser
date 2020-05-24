@@ -5,6 +5,7 @@
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::types::Type;
 use crate::parser::Context;
@@ -36,7 +37,7 @@ impl<'a, L: TLexer> ArrayParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Array>) {
+    ) -> Result<(Option<Token>, Option<Array>), ParserError> {
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut dimensions = Vec::new();
 
@@ -46,22 +47,25 @@ impl<'a, L: TLexer> ArrayParser<'a, L> {
             }
 
             let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
-            let (tk, size) = ep.parse(None, context);
+            let (tk, size) = ep.parse(None, context)?;
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
             if tk != Token::RightBrack {
-                unreachable!("Invalid array size delimiter: {:?}", tk);
+                return Err(ParserError::InvalidTokenInArraySize {
+                    sp: self.lexer.span(),
+                    tok,
+                });
             }
 
             let ap = AttributesParser::new(self.lexer);
-            let (tk, attributes) = ap.parse(None, context);
+            let (tk, attributes) = ap.parse(None, context)?;
 
             tok = tk.unwrap_or_else(|| self.lexer.next_useful());
 
             dimensions.push(Dimension { size, attributes });
         }
 
-        if dimensions.is_empty() {
+        Ok(if dimensions.is_empty() {
             (Some(tok), None)
         } else {
             (
@@ -71,6 +75,6 @@ impl<'a, L: TLexer> ArrayParser<'a, L> {
                     dimensions,
                 }),
             )
-        }
+        })
     }
 }

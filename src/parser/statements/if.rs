@@ -9,6 +9,7 @@ use super::{Statement, StatementParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::Context;
 
@@ -42,7 +43,7 @@ impl<'a, L: TLexer> IfStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<If>) {
+    ) -> Result<(Option<Token>, Option<If>), ParserError> {
         let mut tok = self.lexer.next_useful();
         let constexpr = if tok == Token::Constexpr {
             tok = self.lexer.next_useful();
@@ -52,30 +53,36 @@ impl<'a, L: TLexer> IfStmtParser<'a, L> {
         };
 
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in if statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInIf {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let mut ep = ExpressionParser::new(self.lexer, Token::RightParen);
-        let (tok, condition) = ep.parse(None, context);
+        let (tok, condition) = ep.parse(None, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
-            unreachable!("Invalid token in if statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInIf {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, then) = sp.parse(None, context);
+        let (tok, then) = sp.parse(None, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         let (tok, r#else) = if tok == Token::Else {
             let sp = StatementParser::new(self.lexer);
-            sp.parse(None, context)
+            sp.parse(None, context)?
         } else {
             (Some(tok), None)
         };
 
-        (
+        Ok((
             tok,
             Some(If {
                 attributes,
@@ -84,6 +91,6 @@ impl<'a, L: TLexer> IfStmtParser<'a, L> {
                 then: then.unwrap(),
                 r#else,
             }),
-        )
+        ))
     }
 }

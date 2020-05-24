@@ -7,6 +7,7 @@ use termcolor::StandardStreamLock;
 
 use crate::lexer::{TLexer, Token};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{
     ExprNode, ExpressionParser, ListInitialization, ListInitializationParser, Parameters,
     ParametersParser,
@@ -49,26 +50,26 @@ impl<'a, L: TLexer> InitializerParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Initializer>) {
+    ) -> Result<(Option<Token>, Option<Initializer>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
         match tok {
             Token::Equal => {
                 let mut ep = ExpressionParser::new(self.lexer, Token::Comma);
-                let (tok, expr) = ep.parse(None, context);
-                (tok, Some(Initializer::Equal(expr.unwrap())))
+                let (tok, expr) = ep.parse(None, context)?;
+                Ok((tok, Some(Initializer::Equal(expr.unwrap()))))
             }
             Token::LeftParen => {
                 let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                let (tok, params) = pp.parse(None, None, context);
-                (tok, Some(Initializer::Paren(params.unwrap())))
+                let (tok, params) = pp.parse(None, None, context)?;
+                Ok((tok, Some(Initializer::Paren(params.unwrap()))))
             }
             Token::LeftBrace => {
                 let lip = ListInitializationParser::new(self.lexer);
-                let (tok, params) = lip.parse(Some(tok), context);
-                (tok, Some(Initializer::Brace(params.unwrap())))
+                let (tok, params) = lip.parse(Some(tok), context)?;
+                Ok((tok, Some(Initializer::Brace(params.unwrap()))))
             }
-            _ => (Some(tok), None),
+            _ => Ok((Some(tok), None)),
         }
     }
 }

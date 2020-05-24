@@ -13,6 +13,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::declarations::{DeclSpecifierParser, TypeDeclarator};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::literals::{
     Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
     StringLiteralParser,
@@ -288,20 +289,27 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         self.term == tok || (tok == Token::RightParen && !self.is_nested())
     }
 
-    fn handle_id(&mut self, id: String, context: &mut Context) -> Token {
+    fn handle_id(&mut self, id: String, context: &mut Context) -> Result<Token, ParserError> {
         let qp = QualifiedParser::new(self.lexer);
-        let (tk, qual) = qp.parse(None, Some(id), context);
+        let (tk, qual) = qp.parse(None, Some(id), context)?;
 
-        self.handle_qual(qual, context);
-        tk.unwrap_or_else(|| self.lexer.next_useful())
+        self.handle_qual(qual, context)?;
+        Ok(tk.unwrap_or_else(|| self.lexer.next_useful()))
     }
 
-    fn handle_qual(&mut self, qual: Option<Qualified>, context: &mut Context) {
+    fn handle_qual(
+        &mut self,
+        qual: Option<Qualified>,
+        context: &mut Context,
+    ) -> Result<(), ParserError> {
         let decl = if let Some(res) = context.search(qual.as_ref()) {
             match res {
                 SearchResult::Var(var) => VarDecl::Direct(var),
                 SearchResult::Type(_) | SearchResult::IncompleteType(_) => {
-                    unreachable!("Invalid type in expression")
+                    return Err(ParserError::InvalidTypeInExpr {
+                        sp: self.lexer.span(),
+                        name: qual.unwrap().to_string(),
+                    });
                 }
                 SearchResult::IncompleteVar(var) => {
                     // Can happen with self referring functions
@@ -317,6 +325,8 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
             decl,
         })));
         self.last = LastKind::Operand;
+
+        Ok(())
     }
 
     pub(crate) fn parse_with_id(
@@ -324,8 +334,8 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         tok: Option<Token>,
         name: Qualified,
         context: &mut Context,
-    ) -> (Option<Token>, Option<ExprNode>) {
-        self.handle_qual(Some(name), context);
+    ) -> Result<(Option<Token>, Option<ExprNode>), ParserError> {
+        self.handle_qual(Some(name), context)?;
         self.parse(tok, context)
     }
 
@@ -333,11 +343,11 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         &mut self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<ExprNode>) {
+    ) -> Result<(Option<Token>, Option<ExprNode>), ParserError> {
         macro_rules! str_literal {
             ($s: expr, $name: ident) => {{
                 let slp = StringLiteralParser::new(self.lexer);
-                let (tk, x) = slp.parse(&$s, context);
+                let (tk, x) = slp.parse(&$s, context)?;
                 self.operands.push(ExprNode::Str(Box::new(Str {
                     value: StrLiteral::$name(x),
                 })));
@@ -349,7 +359,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         macro_rules! str_literal_ud {
             ($x: expr, $name: ident) => {{
                 let slp = StringLiteralParser::new(self.lexer);
-                let (tk, mut s) = slp.parse(&$x.0, context);
+                let (tk, mut s) = slp.parse(&$x.0, context)?;
                 std::mem::swap(&mut $x.0, &mut s);
                 self.operands.push(ExprNode::Str(Box::new(Str {
                     value: StrLiteral::$name($x),
@@ -363,7 +373,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
 
         loop {
             if tok == self.term && self.level == 0 {
-                return (Some(tok), self.get_node());
+                return Ok((Some(tok), self.get_node()));
             }
 
             match tok {
@@ -411,7 +421,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     let tk = self.lexer.next_useful();
                     if tk == Token::LeftParen {
                         let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (_, params) = pp.parse(None, None, context);
+                        let (_, params) = pp.parse(None, None, context)?;
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
                             op: Operator::Sizeof,
                             arg: params.unwrap().pop().unwrap(),
@@ -432,7 +442,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 }
                 Token::NotKw => {
                     if self.last == LastKind::Operand {
-                        tok = self.handle_id("not".to_string(), context);
+                        tok = self.handle_id("not".to_string(), context)?;
                         continue;
                     } else {
                         self.push_operator(Operator::Not);
@@ -443,7 +453,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 }
                 Token::Compl => {
                     if self.last == LastKind::Operand {
-                        tok = self.handle_id("compl".to_string(), context);
+                        tok = self.handle_id("compl".to_string(), context)?;
                         continue;
                     } else {
                         self.push_operator(Operator::BitNeg);
@@ -472,8 +482,8 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.flush_with_op(Operator::Subscript);
                         let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
-                        let (tk, expr) = ep.parse(None, context);
-                        if tk.map_or(true, |t| t == Token::RightBrack) {
+                        let (tk, expr) = ep.parse(None, context)?;
+                        if tk.as_ref().map_or(true, |t| *t == Token::RightBrack) {
                             let array = self.operands.pop().unwrap();
                             self.operands.push(ExprNode::BinaryOp(Box::new(BinaryOp {
                                 op: Operator::Subscript,
@@ -481,7 +491,10 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                                 arg2: expr.unwrap(),
                             })));
                         } else {
-                            unreachable!("Wrong token in array dimension");
+                            return Err(ParserError::InvalidTokenInArraySize {
+                                sp: self.lexer.span(),
+                                tok: tk.unwrap(),
+                            });
                         }
                     } else {
                         // TODO: lambda: https://en.cppreference.com/w/cpp/language/lambda
@@ -496,7 +509,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         let tok = Token::Greater;
                         // TODO: fix token location in lexer
                         //tok.start.column += 1;
-                        return (Some(tok), self.get_node());
+                        return Ok((Some(tok), self.get_node()));
                     } else {
                         self.push_operator(Operator::RShift);
                     }
@@ -509,7 +522,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 }
                 Token::Greater => {
                     if self.is_terminal(Token::Greater) {
-                        return (Some(tok), self.operands.pop());
+                        return Ok((Some(tok), self.operands.pop()));
                     } else {
                         self.push_operator(Operator::Gt);
                     }
@@ -522,7 +535,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         let tok = Token::Equal;
                         // TODO: fix token location in lexer
                         //tok.start.column += 1;
-                        return (Some(tok), self.get_node());
+                        return Ok((Some(tok), self.get_node()));
                     } else {
                         self.push_operator(Operator::Geq);
                     }
@@ -537,7 +550,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Neq);
                     } else {
-                        tok = self.handle_id("not_eq".to_string(), context);
+                        tok = self.handle_id("not_eq".to_string(), context)?;
                         continue;
                     }
                 }
@@ -552,7 +565,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::BitAnd);
                     } else {
-                        tok = self.handle_id("bitand".to_string(), context);
+                        tok = self.handle_id("bitand".to_string(), context)?;
                         continue;
                     }
                 }
@@ -563,7 +576,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::BitXor);
                     } else {
-                        tok = self.handle_id("xor".to_string(), context);
+                        tok = self.handle_id("xor".to_string(), context)?;
                         continue;
                     }
                 }
@@ -574,7 +587,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::BitOr);
                     } else {
-                        tok = self.handle_id("bitor".to_string(), context);
+                        tok = self.handle_id("bitor".to_string(), context)?;
                         continue;
                     }
                 }
@@ -589,7 +602,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::And);
                     } else {
-                        tok = self.handle_id("and".to_string(), context);
+                        tok = self.handle_id("and".to_string(), context)?;
                         continue;
                     }
                 }
@@ -600,17 +613,20 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::Or);
                     } else {
-                        tok = self.handle_id("or".to_string(), context);
+                        tok = self.handle_id("or".to_string(), context)?;
                         continue;
                     }
                 }
                 Token::Question => {
                     let mut ep = ExpressionParser::new(self.lexer, Token::Colon);
-                    let (tok, expr) = ep.parse(None, context);
+                    let (tok, expr) = ep.parse(None, context)?;
                     let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
                     if tok != Token::Colon {
-                        unreachable!("Wrong token conditional operator: {:?}", tok);
+                        return Err(ParserError::InvalidTokenInConditional {
+                            sp: self.lexer.span(),
+                            tok,
+                        });
                     }
 
                     let left = expr.unwrap();
@@ -623,7 +639,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         // We've a call
                         self.flush_with_op(Operator::Call);
                         let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (_, params) = pp.parse(None, None, context);
+                        let (_, params) = pp.parse(None, None, context)?;
                         let callee = self.operands.pop().unwrap();
                         self.operands.push(ExprNode::CallExpr(Box::new(CallExpr {
                             callee,
@@ -631,14 +647,14 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         })));
                         self.last = LastKind::Operand;
                     } else {
-                        let tk = self.parse_left_paren(context);
+                        let tk = self.parse_left_paren(context)?;
                         tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                         continue;
                     }
                 }
                 Token::LeftBrace => {
                     let lip = ListInitializationParser::new(self.lexer);
-                    let (_, list) = lip.parse(Some(tok), context);
+                    let (_, list) = lip.parse(Some(tok), context)?;
                     if self.last == LastKind::Operand {
                         // We've an initialization
                         self.flush_with_op(Operator::Call);
@@ -659,7 +675,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 }
                 Token::RightParen => {
                     if self.level == 0 {
-                        return (Some(tok), self.get_node());
+                        return Ok((Some(tok), self.get_node()));
                     }
                     self.level -= 1;
                     self.flush_until_paren();
@@ -695,7 +711,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::AndAssign);
                     } else {
-                        tok = self.handle_id("and_eq".to_string(), context);
+                        tok = self.handle_id("and_eq".to_string(), context)?;
                         continue;
                     }
                 }
@@ -706,7 +722,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::XorAssign);
                     } else {
-                        tok = self.handle_id("xor_eq".to_string(), context);
+                        tok = self.handle_id("xor_eq".to_string(), context)?;
                         continue;
                     }
                 }
@@ -717,28 +733,28 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     if self.last == LastKind::Operand {
                         self.push_operator(Operator::OrAssign);
                     } else {
-                        tok = self.handle_id("or_eq".to_string(), context);
+                        tok = self.handle_id("or_eq".to_string(), context)?;
                         continue;
                     }
                 }
                 Token::Final => {
-                    tok = self.handle_id("final".to_string(), context);
+                    tok = self.handle_id("final".to_string(), context)?;
                     continue;
                 }
                 Token::Import => {
-                    tok = self.handle_id("import".to_string(), context);
+                    tok = self.handle_id("import".to_string(), context)?;
                     continue;
                 }
                 Token::Module => {
-                    tok = self.handle_id("module".to_string(), context);
+                    tok = self.handle_id("module".to_string(), context)?;
                     continue;
                 }
                 Token::Override => {
-                    tok = self.handle_id("override".to_string(), context);
+                    tok = self.handle_id("override".to_string(), context)?;
                     continue;
                 }
                 Token::Identifier(id) => {
-                    tok = self.handle_id(id, context);
+                    tok = self.handle_id(id, context)?;
                     continue;
                 }
                 Token::LiteralChar(x) => {
@@ -961,7 +977,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 }
                 _ => {
                     let dsp = DeclSpecifierParser::new(self.lexer);
-                    let (tk, (_, typ, _, _)) = dsp.parse(Some(tok), None, context);
+                    let (tk, (_, typ, _, _)) = dsp.parse(Some(tok), None, context)?;
 
                     if let Some(typ) = typ {
                         self.operands.push(ExprNode::Type(Box::new(typ)));
@@ -969,7 +985,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         tok = tk.unwrap_or_else(|| self.lexer.next_useful());
                         continue;
                     } else {
-                        return (tk, self.get_node());
+                        return Ok((tk, self.get_node()));
                     }
                 }
             }
@@ -992,7 +1008,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a + b + c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
@@ -1012,7 +1028,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a = b = c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Assign,
@@ -1032,7 +1048,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a + b * c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
@@ -1052,7 +1068,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a * b + c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
@@ -1072,7 +1088,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"foo::bar(a, b)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(CallExpr {
             callee: ExprNode::Variable(Box::new(mk_var!("foo", "bar"))),
@@ -1090,7 +1106,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"sizeof(A)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(UnaryOp {
             op: Operator::Sizeof,
@@ -1105,7 +1121,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"abc[x]");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Subscript,
@@ -1121,7 +1137,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a->b(c) + d");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
@@ -1144,7 +1160,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"++a++");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(UnaryOp {
             op: Operator::PreInc,
@@ -1162,7 +1178,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"*p++");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(UnaryOp {
             op: Operator::Indirection,
@@ -1180,7 +1196,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a ? b : c");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(Conditional {
             condition: ExprNode::Variable(Box::new(mk_var!("a"))),
@@ -1196,7 +1212,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"a ? (void)b,c : d");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(Conditional {
             condition: ExprNode::Variable(Box::new(mk_var!("a"))),
@@ -1225,7 +1241,7 @@ mod tests {
             Lexer::<DefaultContext>::new(b"\"abcde\"   \"fghijkl\" L\"mn\" R\"(opqrs)\"");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(Str {
             value: StrLiteral::Str("abcdefghijklmnopqrs".to_string())
@@ -1241,7 +1257,7 @@ mod tests {
         );
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        let node = parser.parse(None, &mut context).1.unwrap();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(Str {
             value: StrLiteral::StrUD(Box::new((

@@ -12,6 +12,7 @@ use super::types::{NoPtrDeclaratorParser, TypeDeclarator};
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::types::{BaseType, Type};
 use crate::parser::Context;
 
@@ -150,7 +151,7 @@ impl<'a, L: TLexer> PointerDeclaratorParser<'a, L> {
         tok: Option<Token>,
         hint: Option<PtrKind>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Pointers>) {
+    ) -> Result<(Option<Token>, Option<Pointers>), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         let mut ptrs = Vec::new();
         let mut kind = if let Some(hint) = hint {
@@ -160,13 +161,13 @@ impl<'a, L: TLexer> PointerDeclaratorParser<'a, L> {
             if let Some(kind) = kind {
                 kind
             } else {
-                return (Some(tok), None);
+                return Ok((Some(tok), None));
             }
         };
 
         let tok = loop {
             let ap = AttributesParser::new(self.lexer);
-            let (tok, attributes) = ap.parse(None, context);
+            let (tok, attributes) = ap.parse(None, context)?;
             let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
             let mut cv = CVQualifier::empty();
@@ -190,7 +191,7 @@ impl<'a, L: TLexer> PointerDeclaratorParser<'a, L> {
             };
         };
 
-        (Some(tok), Some(ptrs))
+        Ok((Some(tok), Some(ptrs)))
     }
 }
 
@@ -207,17 +208,17 @@ impl<'a, L: TLexer> ParenPointerDeclaratorParser<'a, L> {
         self,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, (Option<TypeDeclarator>, bool)) {
+    ) -> Result<(Option<Token>, (Option<TypeDeclarator>, bool)), ParserError> {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::LeftParen {
-            return (Some(tok), (None, false));
+            return Ok((Some(tok), (None, false)));
         }
 
         // The previous token was a parenthesis
         // so we can have some params (function type, e.g. int * (int, int)))
         // or a function/array pointer
         let pdp = PointerDeclaratorParser::new(self.lexer);
-        let (tok, pointers) = pdp.parse(None, None, context);
+        let (tok, pointers) = pdp.parse(None, None, context)?;
 
         if pointers.is_some() {
             let npdp = NoPtrDeclaratorParser::new(self.lexer);
@@ -226,17 +227,20 @@ impl<'a, L: TLexer> ParenPointerDeclaratorParser<'a, L> {
                 cv: CVQualifier::empty(),
                 pointers,
             };
-            let (tok, decl, _) = npdp.parse(tok, typ, Specifier::empty(), false, false, context);
+            let (tok, decl, _) = npdp.parse(tok, typ, Specifier::empty(), false, false, context)?;
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
-                unreachable!("Invalid token in function pointer: {:?}", tok);
+                return Err(ParserError::InvalidTokenInPointer {
+                    sp: self.lexer.span(),
+                    tok,
+                });
             }
 
-            (None, (decl, false))
+            Ok((None, (decl, false)))
         } else {
             // we've function params
-            (tok, (None, true))
+            Ok((tok, (None, true)))
         }
     }
 }

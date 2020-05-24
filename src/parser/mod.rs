@@ -38,6 +38,8 @@ pub use self::context::*;
 pub mod unit;
 pub use self::unit::*;
 
+pub mod errors;
+
 /*
 pub mod parser;
 pub use self::parser::*;

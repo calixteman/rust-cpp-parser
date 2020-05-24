@@ -11,6 +11,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser};
 use crate::parser::dump::Dump;
+use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::{Context, ScopeKind};
 
@@ -40,16 +41,19 @@ impl<'a, L: TLexer> SwitchStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Switch>) {
+    ) -> Result<(Option<Token>, Option<Switch>), ParserError> {
         let tok = self.lexer.next_useful();
         if tok != Token::LeftParen {
-            unreachable!("Invalid token in switch statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInSwitch {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
         context.set_current(None, ScopeKind::SwitchBlock);
 
         let dep = DeclOrExprParser::new(self.lexer);
-        let (tok, condition) = dep.parse(None, context);
+        let (tok, condition) = dep.parse(None, context)?;
 
         if let Some(DeclOrExpr::Decl(typ)) = condition.as_ref() {
             context.add_type_decl(Rc::clone(typ));
@@ -58,22 +62,25 @@ impl<'a, L: TLexer> SwitchStmtParser<'a, L> {
         if let Some(tok) = tok {
             if tok != Token::RightParen {
                 context.pop();
-                unreachable!("Invalid token in switch statements: {:?}", tok);
+                return Err(ParserError::InvalidTokenInSwitch {
+                    sp: self.lexer.span(),
+                    tok,
+                });
             }
         }
 
         let sp = StatementParser::new(self.lexer);
-        let (tok, cases) = sp.parse(None, context);
+        let (tok, cases) = sp.parse(None, context)?;
         context.pop();
 
-        (
+        Ok((
             tok,
             Some(Switch {
                 attributes,
                 condition: condition.unwrap(),
                 cases: cases.unwrap(),
             }),
-        )
+        ))
     }
 }
 
@@ -102,22 +109,25 @@ impl<'a, L: TLexer> CaseStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Case>) {
+    ) -> Result<(Option<Token>, Option<Case>), ParserError> {
         let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-        let (tok, value) = ep.parse(None, context);
+        let (tok, value) = ep.parse(None, context)?;
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::Colon {
-            unreachable!("Invalid token in case statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInSwitch {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
-        (
+        Ok((
             None,
             Some(Case {
                 attributes,
                 value: value.unwrap(),
             }),
-        )
+        ))
     }
 }
 
@@ -145,12 +155,15 @@ impl<'a, L: TLexer> DefaultStmtParser<'a, L> {
         self,
         attributes: Option<Attributes>,
         _context: &mut Context,
-    ) -> (Option<Token>, Option<Default>) {
+    ) -> Result<(Option<Token>, Option<Default>), ParserError> {
         let tok = self.lexer.next_useful();
         if tok != Token::Colon {
-            unreachable!("Invalid token in case statements: {:?}", tok);
+            return Err(ParserError::InvalidTokenInSwitch {
+                sp: self.lexer.span(),
+                tok,
+            });
         }
 
-        (None, Some(Default { attributes }))
+        Ok((None, Some(Default { attributes })))
     }
 }

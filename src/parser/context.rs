@@ -365,7 +365,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"typedef int x;");
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("x"))).is_some());
@@ -376,7 +376,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"namespace A { namespace B { typedef int C; } }");
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("A", "B", "C"))).is_some());
@@ -388,7 +388,7 @@ mod tests {
             Lexer::<DefaultContext>::new(b"namespace A { inline namespace B { typedef int C; } }");
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("A", "C"))).is_some());
@@ -399,7 +399,7 @@ mod tests {
         let mut l = Lexer::<DefaultContext>::new(b"namespace A::inline B::C { typedef int D; } }");
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("A", "C", "D"))).is_some());
@@ -421,7 +421,7 @@ namespace A::C {
         );
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("A", "B"))).is_some());
@@ -444,7 +444,7 @@ struct A {
         );
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        p.parse(None, &mut context);
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("A", "B", "x"))).is_none());
@@ -495,7 +495,7 @@ unsigned factorial(unsigned n) {
         );
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        let (_, d) = p.parse(None, &mut context);
+        let (_, d) = p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("factorial"))).is_some());

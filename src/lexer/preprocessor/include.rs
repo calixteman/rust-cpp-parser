@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::lexer::buffer::BufferData;
 use crate::lexer::errors::LexerError;
-use crate::lexer::lexer::Lexer;
+use crate::lexer::lexer::{Lexer, TLexer};
 use crate::lexer::preprocessor::PreprocContext;
 use crate::lexer::source::{FileId, SourceMutex};
 
