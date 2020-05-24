@@ -370,7 +370,7 @@ impl<'a, L: TLexer> ClassBodyParser<'a, L> {
             };
 
             let tk = tk.unwrap_or_else(|| self.lexer.next_useful());
-            tok = if tk == Token::RightBrace {
+            tok = if tk == Token::RightBrace || tk == Token::Eof {
                 return Ok((None, body));
             } else {
                 Some(tk)
