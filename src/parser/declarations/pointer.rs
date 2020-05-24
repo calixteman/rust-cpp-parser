@@ -220,13 +220,13 @@ impl<'a, L: TLexer> ParenPointerDeclaratorParser<'a, L> {
         let (tok, pointers) = pdp.parse(None, None, context);
 
         if pointers.is_some() {
-            let npp = NoPtrDeclaratorParser::new(self.lexer);
+            let npdp = NoPtrDeclaratorParser::new(self.lexer);
             let typ = Type {
                 base: BaseType::None,
                 cv: CVQualifier::empty(),
                 pointers,
             };
-            let (tok, decl) = npp.parse(tok, typ, Specifier::empty(), false, false, context);
+            let (tok, decl, _) = npdp.parse(tok, typ, Specifier::empty(), false, false, context);
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {

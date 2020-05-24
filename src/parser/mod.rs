@@ -16,6 +16,7 @@ pub use self::types::*;
 pub mod declarations;
 pub use self::declarations::*;
 
+#[macro_use]
 pub mod expressions;
 pub use self::expressions::*;
 

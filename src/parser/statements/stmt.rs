@@ -295,8 +295,8 @@ mod tests {
                 attributes: None,
                 val: Some(node!(BinaryOp {
                     op: Operator::Add,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 })),
             }))],
         }));
@@ -327,7 +327,7 @@ mod tests {
                 stmts: vec![
                     Statement::Expression(Box::new(node!(BinaryOp {
                         op: Operator::Assign,
-                        arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
+                        arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
                         arg2: ExprNode::Integer(Box::new(literals::Integer {
                             value: IntLiteral::Int(1)
                         })),
@@ -425,8 +425,8 @@ mod tests {
             constexpr: true,
             condition: node!(BinaryOp {
                 op: Operator::Neq,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
             }),
             then: Statement::Compound(Box::new(Compound {
                 attributes: None,
@@ -434,8 +434,8 @@ mod tests {
                     attributes: None,
                     val: Some(node!(BinaryOp {
                         op: Operator::Add,
-                        arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                        arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                        arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                        arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                     })),
                 }))],
             })),
@@ -443,8 +443,8 @@ mod tests {
                 attributes: None,
                 val: Some(node!(BinaryOp {
                     op: Operator::Mod,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 })),
             }))),
         }));
@@ -622,35 +622,42 @@ mod tests {
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
         let stmt = parser.parse(None, &mut context).1.unwrap();
+        let i = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: Identifier {
+                identifier: Some(mk_id!("i")),
+                attributes: None,
+            },
+            init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
+                literals::Integer {
+                    value: IntLiteral::Int(0),
+                },
+            )))),
+            bitfield_size: None,
+        });
 
         let expected = Statement::For(Box::new(For {
             attributes: None,
-            init: Some(DeclOrExpr::Decl(Rc::new(TypeDeclarator {
-                typ: Type {
-                    base: BaseType::Primitive(Primitive::Int),
-                    cv: CVQualifier::empty(),
-                    pointers: None,
-                },
-                specifier: Specifier::empty(),
-                identifier: Identifier {
-                    identifier: Some(mk_id!("i")),
-                    attributes: None,
-                },
-                init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
-                    literals::Integer {
-                        value: IntLiteral::Int(0),
-                    },
-                )))),
-                bitfield_size: None,
-            }))),
+            init: Some(DeclOrExpr::Decl(Rc::clone(&i))),
             condition: Some(node!(BinaryOp {
                 op: Operator::Leq,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("i"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("N"))),
+                arg1: ExprNode::Variable(Box::new(Variable {
+                    name: mk_id!("i"),
+                    decl: VarDecl::Direct(Rc::clone(&i)),
+                })),
+                arg2: ExprNode::Variable(Box::new(mk_var!("N"))),
             })),
             iteration: Some(node!(UnaryOp {
                 op: Operator::PostInc,
-                arg: ExprNode::Qualified(Box::new(mk_id!("i"))),
+                arg: ExprNode::Variable(Box::new(Variable {
+                    name: mk_id!("i"),
+                    decl: VarDecl::Direct(Rc::clone(&i)),
+                })),
             })),
             body: Statement::Compound(Box::new(Compound {
                 attributes: None,
@@ -697,8 +704,8 @@ mod tests {
             expr: node!(CallExpr {
                 callee: node!(BinaryOp {
                     op: Operator::Dot,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("y"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("items"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("y"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("items"))),
                 }),
                 params: vec![]
             }),
@@ -720,30 +727,48 @@ mod tests {
         );
         let parser = StatementParser::new(&mut lexer);
         let mut context = Context::default();
+        let t = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::TYPEDEF,
+            identifier: Identifier {
+                identifier: Some(mk_id!("T")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+        let thing = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::UD(Box::new(UserDefined {
+                    name: mk_id!("T"),
+                    typ: UDType::Direct(Rc::clone(&t)),
+                })),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: Identifier {
+                identifier: Some(mk_id!("thing")),
+                attributes: None,
+            },
+            init: Some(Initializer::Equal(node!(CallExpr {
+                callee: ExprNode::Variable(Box::new(mk_var!("foo"))),
+                params: vec![]
+            }))),
+            bitfield_size: None,
+        });
+
+        context.add_type_decl(Rc::clone(&t));
+
         let stmt = parser.parse(None, &mut context).1.unwrap();
 
         let expected = Statement::ForRange(Box::new(ForRange {
             attributes: None,
-            init: Some(DeclOrExpr::Decl(Rc::new(TypeDeclarator {
-                typ: Type {
-                    base: BaseType::UD(Box::new(UserDefined {
-                        name: mk_id!("T"),
-                        typ: UDType::Indirect(TypeToFix::default()),
-                    })),
-                    cv: CVQualifier::empty(),
-                    pointers: None,
-                },
-                specifier: Specifier::empty(),
-                identifier: Identifier {
-                    identifier: Some(mk_id!("thing")),
-                    attributes: None,
-                },
-                init: Some(Initializer::Equal(node!(CallExpr {
-                    callee: ExprNode::Qualified(Box::new(mk_id!("foo"))),
-                    params: vec![]
-                }))),
-                bitfield_size: None,
-            }))),
+            init: Some(DeclOrExpr::Decl(Rc::clone(&thing))),
             decl: Rc::new(TypeDeclarator {
                 typ: Type {
                     base: BaseType::Auto,
@@ -766,8 +791,11 @@ mod tests {
             expr: node!(CallExpr {
                 callee: node!(BinaryOp {
                     op: Operator::Dot,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("thing"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("items"))),
+                    arg1: ExprNode::Variable(Box::new(Variable {
+                        name: mk_id!("thing"),
+                        decl: VarDecl::Direct(Rc::clone(&thing)),
+                    })),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("items"))),
                 }),
                 params: vec![]
             }),
@@ -801,7 +829,7 @@ mod tests {
 
         let expected = Statement::Switch(Box::new(Switch {
             attributes: None,
-            condition: ExprNode::Qualified(Box::new(mk_id!("x"))),
+            condition: ExprNode::Variable(Box::new(mk_var!("x"))),
             cases: Statement::Compound(Box::new(Compound {
                 attributes: None,
                 stmts: vec![

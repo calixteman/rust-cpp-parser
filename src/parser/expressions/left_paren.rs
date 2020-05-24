@@ -5,12 +5,11 @@
 
 use std::rc::Rc;
 
-use super::expr::{CallExpr, ExprNode, ExpressionParser, LastKind};
+use super::expr::{CallExpr, ExprNode, ExpressionParser, LastKind, VarDecl, Variable};
 use super::operator::Operator;
 use super::params::ParametersParser;
 use crate::lexer::{TLexer, Token};
-
-use crate::parser::context::{Context, TypeToFix};
+use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::declarations::{
     DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
     Specifier, TypeDeclarator, TypeDeclaratorParser,
@@ -19,14 +18,18 @@ use crate::parser::name::{Qualified, QualifiedParser};
 use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type, UDType, UserDefined};
 
 enum CastType {
-    Qual(Qualified),
+    UD(BaseType),
     Prim(Primitive),
 }
 
 impl CastType {
     fn node(self) -> ExprNode {
         match self {
-            CastType::Qual(q) => ExprNode::Qualified(Box::new(q)),
+            CastType::UD(ud) => ExprNode::Type(Box::new(Type {
+                base: ud,
+                cv: CVQualifier::empty(),
+                pointers: None,
+            })),
             CastType::Prim(p) => ExprNode::Type(Box::new(Type {
                 base: BaseType::Primitive(p),
                 cv: CVQualifier::empty(),
@@ -37,10 +40,7 @@ impl CastType {
 
     fn typ(self) -> BaseType {
         match self {
-            CastType::Qual(name) => BaseType::UD(Box::new(UserDefined {
-                name,
-                typ: UDType::Indirect(TypeToFix::default()),
-            })),
+            CastType::UD(ud) => ud,
             CastType::Prim(p) => BaseType::Primitive(p),
         }
     }
@@ -109,7 +109,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
             cv: CVQualifier::empty(),
             pointers: None,
         };
-        let (tok, decl) = npdp.parse(None, typ, Specifier::empty(), false, false, context);
+        let (tok, decl, _) = npdp.parse(None, typ, Specifier::empty(), false, false, context);
         let mut typ = decl.unwrap().typ;
         typ.pointers = Some(pointers);
 
@@ -125,7 +125,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
     pub(super) fn parse_left_paren(&mut self, context: &mut Context) -> Option<Token> {
         let tok = self.lexer.next_useful();
         if CVQualifier::is_cv(&tok) || TypeDeclarator::is_type_part(&tok) {
-            // (const ...
+            // (const ... => cast-operation
             let tdp = TypeDeclaratorParser::new(self.lexer);
             let (tok, decl) = tdp.parse(Some(tok), None, false, context);
 
@@ -141,13 +141,13 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         }
 
         if Modifier::is_primitive_part(&tok) {
-            // (int...
+            // (int ...
             let mut modif = Modifier::empty();
             modif.from_tok(&tok);
 
             let tok = self.lexer.next_useful();
             if tok == Token::LeftParen {
-                // (int(...: not a cast
+                // (int(**)) or (int(123)...
                 self.handle_paren_after_type(CastType::Prim(modif.to_primitive()), context);
                 return None;
             }
@@ -167,197 +167,95 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         }
 
         // TODO: handle case where id is final, override, ...
-        if let Token::Identifier(id) = tok {
-            let qp = QualifiedParser::new(self.lexer);
-            let (tok, qual) = qp.parse(None, Some(id), context);
-            let qual = qual.unwrap();
+        match tok {
+            Token::Identifier(id) => {
+                let qp = QualifiedParser::new(self.lexer);
+                let (tok, qual) = qp.parse(None, Some(id), context);
+                let qual = qual.unwrap();
 
-            // If id correspond to a type then we must have it the context
-
-            let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-            if let Some(kind) = PtrKind::from_tok(&tok) {
-                // (T *...)
-                let tok = self.lexer.next_useful();
-                if CVQualifier::is_cv(&tok) || PtrKind::is_ptr(&tok) {
-                    // (T * const... or (T **... => we've a type !
-                    let pdp = PointerDeclaratorParser::new(self.lexer);
-                    let (tok, pointers) = pdp.parse(Some(tok), Some(kind), context);
-
-                    let typ = Type {
-                        base: BaseType::UD(Box::new(UserDefined {
-                            name: qual,
-                            typ: UDType::Indirect(TypeToFix::default()),
-                        })),
-                        cv: CVQualifier::empty(),
-                        pointers,
+                if let Some(res) = context.search(Some(&qual)) {
+                    let (typ, var) = match res {
+                        SearchResult::Var(var) => (
+                            None,
+                            Some(ExprNode::Variable(Box::new(Variable {
+                                name: qual,
+                                decl: VarDecl::Direct(var),
+                            }))),
+                        ),
+                        SearchResult::IncompleteVar(var) => (
+                            None,
+                            Some(ExprNode::Variable(Box::new(Variable {
+                                name: qual,
+                                decl: VarDecl::Indirect(var),
+                            }))),
+                        ),
+                        SearchResult::Type(typ) => (
+                            Some(BaseType::UD(Box::new(UserDefined {
+                                name: qual,
+                                typ: UDType::Direct(typ),
+                            }))),
+                            None,
+                        ),
+                        SearchResult::IncompleteType(typ) => (
+                            Some(BaseType::UD(Box::new(UserDefined {
+                                name: qual,
+                                typ: UDType::Indirect(typ),
+                            }))),
+                            None,
+                        ),
                     };
 
-                    let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) = tdp.parse(tok, Some(DeclHint::Type(typ)), false, context);
+                    if let Some(typ) = typ {
+                        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                        if tok == Token::LeftParen {
+                            self.handle_paren_after_type(CastType::UD(typ), context);
+                            return None;
+                        }
 
-                    let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
-                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    if tok == Token::RightParen {
+                        let tdp = TypeDeclaratorParser::new(self.lexer);
+                        let (tok, decl) =
+                            tdp.parse(Some(tok), Some(DeclHint::Type(typ)), false, context);
+
+                        let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
                         self.operands.push(ExprNode::Type(Box::new(typ)));
-                        self.push_operator(Operator::Cast);
-                    }
-                    return None;
-                } else if tok == Token::RightParen {
-                    // (T *)
-                    let typ = Type {
-                        base: BaseType::UD(Box::new(UserDefined {
-                            name: qual,
-                            typ: UDType::Indirect(TypeToFix::default()),
-                        })),
-                        cv: CVQualifier::empty(),
-                        pointers: Some(vec![Pointer {
-                            kind,
-                            attributes: None,
-                            cv: CVQualifier::empty(),
-                            ms: MSModifier::empty(),
-                        }]),
-                    };
 
-                    self.operands.push(ExprNode::Type(Box::new(typ)));
-                    self.push_operator(Operator::Cast);
-                    return None;
-                } else if CVQualifier::is_cv(&tok) {
-                    // (T const...
-                    let tdp = TypeDeclaratorParser::new(self.lexer);
-                    let (tok, decl) =
-                        tdp.parse(Some(tok), Some(DeclHint::Name(Some(qual))), false, context);
+                        let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                        if tok != Token::RightParen {
+                            unreachable!("Invalid cast");
+                        }
 
-                    let typ = Rc::try_unwrap(decl.unwrap()).unwrap().typ;
-                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    if tok == Token::RightParen {
-                        self.operands.push(ExprNode::Type(Box::new(typ)));
+                        // We've a cast for sure
                         self.push_operator(Operator::Cast);
+                        self.last = LastKind::Operator;
+                        return None;
+                    } else {
+                        let var = var.unwrap();
+                        self.operators.push(Operator::Parenthesis);
+                        self.level += 1;
+                        self.operands.push(var);
+                        self.last = LastKind::Operand;
+                        return tok;
                     }
-                    return None;
                 } else {
-                    // Not a pointer => bin operation: mul, bitand, and
+                    // TODO: so the id doesn't exist => error
                     self.operators.push(Operator::Parenthesis);
                     self.level += 1;
-                    self.operands.push(ExprNode::Qualified(Box::new(qual)));
+                    self.operands.push(ExprNode::Variable(Box::new(Variable {
+                        name: qual,
+                        decl: VarDecl::Indirect(TypeToFix::default()),
+                    })));
+                    self.last = LastKind::Operand;
 
-                    let op = match kind {
-                        PtrKind::Pointer => Operator::Mul,
-                        PtrKind::Reference => Operator::BitAnd,
-                        PtrKind::RValue => Operator::And,
-                    };
-                    self.operators.push(op);
-                    self.last = LastKind::Operator;
-                    return Some(tok);
+                    return tok;
                 }
-            } else if tok == Token::LeftParen {
-                // (T (...: we may have a function/array pointer
-                return self.handle_paren_after_type(CastType::Qual(qual), context);
-            } else if tok == Token::RightParen {
-                // (T)
-                let tok = self.lexer.next_useful();
-
-                // Problematic operators are: ++, --, +, -, &, &&, *, function call
-                // we've something like (T) - a * 3....
-                // so here return FakeCast(T, -a * 3 ...)
-                // once T is known then transform the node according to operator precedence
-                // here if T is a type node will become Cast(T, -a * 3)
-                // else Sub(T, a * 3)
-                // I don't know if it's correct... check that
-                let tok = match tok {
-                    Token::Plus
-                    | Token::Minus
-                    | Token::And
-                    | Token::AndAnd
-                    | Token::Star
-                    | Token::LeftParen
-                    | Token::PlusPlus
-                    | Token::MinusMinus => {
-                        // record token and parse again when we've enough info
-                        // to guess if the name is a type or not
-                        None
-                    }
-                    Token::Identifier(_)
-                    | Token::Not
-                    | Token::LiteralChar(_)
-                    | Token::LiteralLChar(_)
-                    | Token::LiteralUUChar(_)
-                    | Token::LiteralUChar(_)
-                    | Token::LiteralU8Char(_)
-                    | Token::LiteralCharUD(_)
-                    | Token::LiteralLCharUD(_)
-                    | Token::LiteralUUCharUD(_)
-                    | Token::LiteralUCharUD(_)
-                    | Token::LiteralU8CharUD(_)
-                    | Token::LiteralDouble(_)
-                    | Token::LiteralLongDouble(_)
-                    | Token::LiteralFloat(_)
-                    | Token::LiteralFloatUD(_)
-                    | Token::LiteralInt(_)
-                    | Token::LiteralUInt(_)
-                    | Token::LiteralLong(_)
-                    | Token::LiteralLongLong(_)
-                    | Token::LiteralULong(_)
-                    | Token::LiteralULongLong(_)
-                    | Token::LiteralIntUD(_)
-                    | Token::LiteralString(_)
-                    | Token::LiteralLString(_)
-                    | Token::LiteralUString(_)
-                    | Token::LiteralUUString(_)
-                    | Token::LiteralU8String(_)
-                    | Token::LiteralRString(_)
-                    | Token::LiteralLRString(_)
-                    | Token::LiteralURString(_)
-                    | Token::LiteralUURString(_)
-                    | Token::LiteralU8RString(_)
-                    | Token::LiteralStringUD(_)
-                    | Token::LiteralLStringUD(_)
-                    | Token::LiteralUStringUD(_)
-                    | Token::LiteralUUStringUD(_)
-                    | Token::LiteralU8StringUD(_)
-                    | Token::LiteralRStringUD(_)
-                    | Token::LiteralLRStringUD(_)
-                    | Token::LiteralURStringUD(_)
-                    | Token::LiteralUURStringUD(_)
-                    | Token::LiteralU8RStringUD(_)
-                    | Token::Tilde
-                    | Token::NotKw
-                    | Token::This
-                    | Token::True
-                    | Token::False => {
-                        let typ = Type {
-                            base: BaseType::UD(Box::new(UserDefined {
-                                name: qual,
-                                typ: UDType::Indirect(TypeToFix::default()),
-                            })),
-                            cv: CVQualifier::empty(),
-                            pointers: None,
-                        };
-
-                        self.operands.push(ExprNode::Type(Box::new(typ)));
-                        self.push_operator(Operator::Cast);
-                        Some(tok)
-                    }
-                    _ => {
-                        self.operands.push(ExprNode::Qualified(Box::new(qual)));
-                        self.last = LastKind::Operand;
-                        Some(tok)
-                    }
-                };
-                return tok;
-            } else {
+            }
+            tok => {
                 self.operators.push(Operator::Parenthesis);
-                self.level += 1;
-                self.operands.push(ExprNode::Qualified(Box::new(qual)));
-                self.last = LastKind::Operand;
+                self.last = LastKind::Operator;
 
-                return Some(tok);
+                Some(tok)
             }
         }
-
-        self.operators.push(Operator::Parenthesis);
-        self.last = LastKind::Operator;
-
-        Some(tok)
     }
 }
 
@@ -389,7 +287,7 @@ mod tests {
                 cv: CVQualifier::empty(),
                 pointers: None,
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -409,7 +307,7 @@ mod tests {
                 cv: CVQualifier::empty(),
                 pointers: None,
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -434,7 +332,7 @@ mod tests {
                     ms: MSModifier::empty(),
                 }]),
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -445,6 +343,22 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T *)a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
+        let t = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::TYPEDEF,
+            identifier: Identifier {
+                identifier: Some(mk_id!("T")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+        context.add_type_decl(Rc::clone(&t));
+
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
@@ -452,7 +366,7 @@ mod tests {
             arg1: ExprNode::Type(Box::new(Type {
                 base: BaseType::UD(Box::new(UserDefined {
                     name: mk_id!("T"),
-                    typ: UDType::Indirect(TypeToFix::default())
+                    typ: UDType::Direct(Rc::clone(&t))
                 })),
                 cv: CVQualifier::empty(),
                 pointers: Some(vec![Pointer {
@@ -462,7 +376,7 @@ mod tests {
                     ms: MSModifier::empty(),
                 }]),
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -520,7 +434,7 @@ mod tests {
                     ms: MSModifier::empty(),
                 }]),
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -531,6 +445,22 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"(T (*) (int))a");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
+        let t = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::TYPEDEF,
+            identifier: Identifier {
+                identifier: Some(mk_id!("T")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+        context.add_type_decl(Rc::clone(&t));
+
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(BinaryOp {
@@ -540,7 +470,7 @@ mod tests {
                     return_type: Some(Type {
                         base: BaseType::UD(Box::new(UserDefined {
                             name: mk_id!("T"),
-                            typ: UDType::Indirect(TypeToFix::default())
+                            typ: UDType::Direct(Rc::clone(&t))
                         })),
                         cv: CVQualifier::empty(),
                         pointers: None,
@@ -581,7 +511,7 @@ mod tests {
                     ms: MSModifier::empty(),
                 }]),
             })),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);
@@ -600,7 +530,7 @@ mod tests {
                 cv: CVQualifier::empty(),
                 pointers: None,
             })),
-            params: vec![ExprNode::Qualified(Box::new(mk_id!("a"))),],
+            params: vec![ExprNode::Variable(Box::new(mk_var!("a"))),],
         });
 
         assert_eq!(node, expected);
@@ -614,8 +544,8 @@ mod tests {
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
-            callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
-            params: vec![ExprNode::Qualified(Box::new(mk_id!("a"))),],
+            callee: ExprNode::Variable(Box::new(mk_var!("T"))),
+            params: vec![ExprNode::Variable(Box::new(mk_var!("a"))),],
         });
 
         assert_eq!(node, expected);
@@ -629,10 +559,10 @@ mod tests {
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
-            callee: ExprNode::Qualified(Box::new(mk_id!("T"))),
+            callee: ExprNode::Variable(Box::new(mk_var!("T"))),
             params: vec![node!(UnaryOp {
                 op: Operator::Indirection,
-                arg: ExprNode::Qualified(Box::new(mk_id!("a"))),
+                arg: ExprNode::Variable(Box::new(mk_var!("a"))),
             })],
         });
 
@@ -654,7 +584,7 @@ mod tests {
             })),
             params: vec![node!(UnaryOp {
                 op: Operator::AddressOf,
-                arg: ExprNode::Qualified(Box::new(mk_id!("a"))),
+                arg: ExprNode::Variable(Box::new(mk_var!("a"))),
             })],
         });
 
@@ -670,8 +600,8 @@ mod tests {
 
         let expected = node!(BinaryOp {
             op: Operator::Mul,
-            arg1: ExprNode::Qualified(Box::new(mk_id!("T"))),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg1: ExprNode::Variable(Box::new(mk_var!("T"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("a"))),
         });
 
         assert_eq!(node, expected);

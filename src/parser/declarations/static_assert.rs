@@ -118,6 +118,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
+    use crate::mk_var;
     use crate::parser::expressions::*;
     use crate::parser::names::Qualified;
     use pretty_assertions::assert_eq;
@@ -134,8 +135,8 @@ mod tests {
             StaticAssert {
                 condition: node!(BinaryOp {
                     op: Operator::Neq,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 }),
                 string: None,
                 cpp: true,
@@ -155,8 +156,8 @@ mod tests {
             StaticAssert {
                 condition: node!(BinaryOp {
                     op: Operator::Neq,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 }),
                 string: Some("an assertion".to_string()),
                 cpp: false,

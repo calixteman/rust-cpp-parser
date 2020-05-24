@@ -5,8 +5,8 @@
 
 use crate::lexer::{TLexer, Token};
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SavedLexer {
+#[derive(Clone, Debug)]
+pub struct SavedLexer {
     toks: Vec<Token>,
     pos: usize,
 }
@@ -23,8 +23,46 @@ impl TLexer for SavedLexer {
 }
 
 impl SavedLexer {
-    pub(crate) fn new(toks: Vec<Token>) -> Self {
+    pub fn new(toks: Vec<Token>) -> Self {
         Self { toks, pos: 0 }
+    }
+
+    pub fn push(&mut self, tok: Token) {
+        self.toks.push(tok);
+    }
+}
+
+pub struct CombinedLexers<'l1, 'l2> {
+    first: &'l1 mut dyn TLexer,
+    second: &'l2 mut dyn TLexer,
+    state: bool,
+}
+
+impl<'l1, 'l2> TLexer for CombinedLexers<'l1, 'l2> {
+    fn next_useful(&mut self) -> Token {
+        let tok = if self.state {
+            let tok = self.first.next_useful();
+            if tok == Token::Eof {
+                self.state = false;
+                self.second.next_useful()
+            } else {
+                tok
+            }
+        } else {
+            self.second.next_useful()
+        };
+        eprintln!("TOK: {:?}", tok);
+        tok
+    }
+}
+
+impl<'l1, 'l2> CombinedLexers<'l1, 'l2> {
+    pub fn new(first: &'l1 mut dyn TLexer, second: &'l2 mut dyn TLexer) -> Self {
+        Self {
+            first,
+            second,
+            state: true,
+        }
     }
 }
 
@@ -55,6 +93,7 @@ mod tests {
                 Token::LiteralInt(4),
                 Token::Minus,
                 Token::LiteralInt(5),
+                Token::RightParen,
                 Token::RightParen
             ]
         );

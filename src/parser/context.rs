@@ -27,7 +27,19 @@ impl Dump for TypeToFix {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
         let ttf = self.0.borrow();
         if let Some(ty) = ttf.as_ref() {
-            ty.get_names().typ.dump(name, prefix, last, stdout);
+            if let Some(r) = ty.get_repr() {
+                dump_str!(
+                    name,
+                    format!("self-{} \u{2b6f}", r),
+                    Cyan,
+                    prefix,
+                    last,
+                    stdout
+                )
+            } else {
+                let x: Option<bool> = None;
+                x.dump(name, prefix, last, stdout);
+            }
         } else {
             ttf.dump(name, prefix, last, stdout);
         }
@@ -59,12 +71,15 @@ pub(crate) enum Kind {
     Var(Rc<TypeDeclarator>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ScopeKind {
     Ns,
     Class,
     Enum,
+    Function,
     Block,
+    CatchBlock,
+    ForBlock,
 }
 
 #[derive(Clone, Debug)]
@@ -103,7 +118,8 @@ pub struct Context {
 pub enum SearchResult {
     Type(Rc<TypeDeclarator>),
     Var(Rc<TypeDeclarator>),
-    Incomplete(TypeToFix),
+    IncompleteType(TypeToFix),
+    IncompleteVar(TypeToFix),
 }
 
 impl SearchResult {
@@ -170,12 +186,11 @@ impl Search for Rc<RefCell<Scope>> {
                         inc
                     };
 
-                    /*Some(match sc.kind {
-                            ScopeKind::Class => SearchResult::Inc(Incomplete::Class(inc)),
-                            ScopeKind::Enum => SearchResult::Inc(Incomplete::Enum(inc)),
-                            _ => unreachable!("Can refer only to a class or an enum"),
-                    })*/
-                    Some(SearchResult::Incomplete(inc))
+                    if sc.kind == ScopeKind::Function {
+                        Some(SearchResult::IncompleteVar(inc))
+                    } else {
+                        Some(SearchResult::IncompleteType(inc))
+                    }
                 } else {
                     // search in using
                     for u in sc.using.iter() {
@@ -464,5 +479,22 @@ struct A {
         let x = x.unwrap();
 
         assert!(Rc::ptr_eq(&x, &a));
+    }
+
+    #[test]
+    fn test_context_recursive_fun() {
+        let mut l = Lexer::<DefaultContext>::new(
+            br#"
+unsigned factorial(unsigned n) {
+    return n > 1 ? n * factorial(n - 1) : 1;
+}
+"#,
+        );
+        let p = DeclarationListParser::new(&mut l);
+        let mut context = Context::default();
+        let (_, d) = p.parse(None, &mut context);
+
+        assert_eq!(context.stack.len(), 1);
+        assert!(context.search(Some(&mk_id!("factorial"))).is_some());
     }
 }

@@ -11,9 +11,9 @@ use std::path::PathBuf;
 
 use super::buffer::{Buffer, BufferData};
 use super::errors::LexerError;
+use super::extra::SavedLexer;
 use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
-use super::saved::SavedLexer;
 use super::source::{FileId, SourceMutex};
 use super::string::StringType;
 use crate::args;
@@ -507,6 +507,35 @@ impl Token {
 
 pub trait TLexer {
     fn next_useful(&mut self) -> Token;
+
+    fn save_until(&mut self, term: Token) -> (Token, SavedLexer) {
+        let mut level = 0;
+
+        // TODO: tune the capacity
+        let mut stole = Vec::with_capacity(64);
+        loop {
+            let tok = self.next_useful();
+            if (tok == term && level == 0) || tok == Token::Eof {
+                stole.push(tok.clone());
+                return (tok, SavedLexer::new(stole));
+            }
+
+            match tok {
+                Token::LeftParen | Token::LeftBrack | Token::LeftBrace | Token::DoubleLeftBrack => {
+                    level += 1;
+                }
+                Token::RightParen
+                | Token::RightBrack
+                | Token::RightBrace
+                | Token::DoubleRightBrack => {
+                    level -= 1;
+                }
+                _ => {}
+            }
+
+            stole.push(tok);
+        }
+    }
 }
 
 pub struct Lexer<'a, PC: PreprocContext> {
@@ -1000,34 +1029,6 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     pub(crate) fn get_preproc(&mut self) -> Token {
         skip_whites!(self);
         self.get_preproc_keyword(true)
-    }
-
-    pub(crate) fn save_until(&mut self, term: Token) -> (Token, SavedLexer) {
-        let mut level = 0;
-
-        // TODO: tune the capacity
-        let mut stole = Vec::with_capacity(64);
-        loop {
-            let tok = self.next_useful();
-            if (tok == term && level == 0) || tok == Token::Eof {
-                return (tok, SavedLexer::new(stole));
-            }
-
-            match tok {
-                Token::LeftParen | Token::LeftBrack | Token::LeftBrace | Token::DoubleLeftBrack => {
-                    level += 1;
-                }
-                Token::RightParen
-                | Token::RightBrack
-                | Token::RightBrace
-                | Token::DoubleRightBrack => {
-                    level -= 1;
-                }
-                _ => {}
-            }
-
-            stole.push(tok);
-        }
     }
 
     fn location(&self) -> Location {

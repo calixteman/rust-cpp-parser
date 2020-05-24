@@ -12,14 +12,17 @@ use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
 use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
 use super::r#enum::EnumParser;
 use super::specifier::Specifier;
-use crate::lexer::{TLexer, Token};
+use crate::lexer::{
+    extra::{CombinedLexers, SavedLexer},
+    TLexer, Token,
+};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::dump::Dump;
-use crate::parser::expressions::{ExprNode, ExpressionParser};
+use crate::parser::expressions::{ExprNode, ExpressionParser, VarDecl, Variable};
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::types::{self, BaseType, CVQualifier, Type, UDType, UserDefined};
+use crate::parser::types::{self, BaseType, CVQualifier, Modifier, Type, UDType, UserDefined};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Identifier {
@@ -111,13 +114,21 @@ impl TypeDeclarator {
         };
 
         let typ = match &self.typ.base {
-            BaseType::UD(_) => None,
             BaseType::Class(c) => c.name.as_ref(),
             BaseType::Enum(e) => e.name.as_ref(),
             _ => None,
         };
 
         TypeDeclNames { var, typ, typd }
+    }
+
+    pub(crate) fn get_repr(&self) -> Option<String> {
+        match &self.typ.base {
+            BaseType::Class(_) => Some("class".to_string()),
+            BaseType::Enum(_) => Some("enum".to_string()),
+            BaseType::Function(_) => Some("function".to_string()),
+            _ => None,
+        }
     }
 }
 
@@ -126,7 +137,7 @@ pub(crate) enum DeclHint {
     Name(Option<Qualified>),
     Specifier(Specifier),
     Modifier(types::Modifier),
-    Type(Type),
+    Type(BaseType),
 }
 
 pub struct DeclSpecifierParser<'a, L: TLexer> {
@@ -166,9 +177,7 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
                 ),
                 DeclHint::Specifier(spec) => (None, spec, types::Modifier::empty()),
                 DeclHint::Modifier(modif) => (None, Specifier::empty(), modif),
-                DeclHint::Type(typ) => {
-                    return (tok, (Specifier::empty(), Some(typ), None, None));
-                }
+                DeclHint::Type(typ) => (Some(typ), Specifier::empty(), types::Modifier::empty()),
             }
         } else {
             (None, Specifier::empty(), types::Modifier::empty())
@@ -233,10 +242,10 @@ impl<'a, L: TLexer> DeclSpecifierParser<'a, L> {
                     let ud_typ = if let Some(res) = context.search(Some(&name)) {
                         match res {
                             SearchResult::Type(ty) => UDType::Direct(ty),
-                            SearchResult::Var(_) => {
+                            SearchResult::Var(_) | SearchResult::IncompleteVar(_) => {
                                 unreachable!("Invalid type: {:?}", name.to_string())
                             }
-                            SearchResult::Incomplete(ty) => UDType::Indirect(ty),
+                            SearchResult::IncompleteType(ty) => UDType::Indirect(ty),
                         }
                     } else {
                         UDType::Indirect(TypeToFix::default())
@@ -305,7 +314,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
         is_fun_arg: bool,
         init: bool,
         context: &mut Context,
-    ) -> (Option<Token>, Option<TypeDeclarator>) {
+    ) -> (Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>) {
         let (tok, identifier) = if !is_fun_arg {
             // declarator-id
             let qp = QualifiedParser::new(self.lexer);
@@ -334,7 +343,8 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
 
         // function
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function) = fp.parse(tok, is_fun_arg, context);
+        let (tok, function, to_fix) =
+            fp.parse(tok, is_fun_arg, identifier.identifier.as_ref(), context);
 
         if let Some(mut function) = function {
             function.return_type = Some(typ);
@@ -352,6 +362,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                     init: None,
                     bitfield_size: None,
                 }),
+                to_fix,
             );
         }
 
@@ -387,6 +398,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                 init,
                 bitfield_size: None,
             }),
+            None,
         )
     }
 }
@@ -415,9 +427,18 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         } else {
             // conversion operator
             let codp = ConvOperatorDeclaratorParser::new(self.lexer);
-            let (tok, conv) = codp.parse(spec, op, tok, context);
+            let (tok, conv, to_fix) = codp.parse(spec, op, tok, context);
+            let conv = if let Some(conv) = conv {
+                let conv = Rc::new(conv);
+                if let Some(to_fix) = to_fix {
+                    to_fix.fix(Rc::clone(&conv));
+                }
+                Some(conv)
+            } else {
+                None
+            };
 
-            return (tok, conv.map(Rc::new));
+            return (tok, conv);
         };
 
         let mut typ = typ;
@@ -440,9 +461,10 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         // int (*f[2]) [3] == A * f[2] avec A = int[3]
         // int (*f) (int) == A * f avec A = int () (int)
 
-        let npp = NoPtrDeclaratorParser::new(self.lexer);
-        let (tok, decl) = npp.parse(tok, typ, spec, is_func_param, init, context);
+        let npdp = NoPtrDeclaratorParser::new(self.lexer);
+        let (tok, decl, tf) = npdp.parse(tok, typ, spec, is_func_param, init, context);
         let mut decl = decl.unwrap();
+        let to_fix = if to_fix.is_none() { tf } else { to_fix };
 
         if let Some(paren_decl) = paren_decl {
             let TypeDeclarator {
@@ -489,7 +511,7 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
 
     pub(crate) fn is_decl_part(tok: &Token) -> bool {
         match tok {
-            Token::Star | Token::And | Token::AndAnd | Token::Identifier(_) => true,
+            Token::Star | Token::And | Token::AndAnd => true,
             _ => CVQualifier::is_cv(tok) || Specifier::is_specifier(tok),
         }
     }
@@ -505,7 +527,7 @@ impl Dump for DeclOrExpr {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
         match self {
             Self::Decl(x) => {
-                let prefix = dump_start!(name, "", prefix, last, stdout);
+                let prefix = dump_start!(name, "decl-or-expr", prefix, last, stdout);
                 x.dump("decl", &prefix, true, stdout);
             }
             Self::Expr(x) => {
@@ -531,50 +553,141 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
         context: &mut Context,
     ) -> (Option<Token>, Option<DeclOrExpr>) {
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-        match tok {
+        let (typ, var, tok) = match tok {
             Token::Identifier(id) => {
                 let qp = QualifiedParser::new(self.lexer);
                 let (tok, name) = qp.parse(None, Some(id), context);
 
-                let (tok, is_typ) = if context.search(name.as_ref()).map_or(false, |r| r.is_type())
-                {
-                    (tok, true)
+                if let Some(res) = context.search(name.as_ref()) {
+                    match res {
+                        SearchResult::Var(var) => (
+                            None,
+                            Some(ExprNode::Variable(Box::new(Variable {
+                                name: name.unwrap(),
+                                decl: VarDecl::Direct(var),
+                            }))),
+                            tok,
+                        ),
+                        SearchResult::IncompleteVar(var) => (
+                            None,
+                            Some(ExprNode::Variable(Box::new(Variable {
+                                name: name.unwrap(),
+                                decl: VarDecl::Indirect(var),
+                            }))),
+                            tok,
+                        ),
+                        SearchResult::Type(typ) => (
+                            Some(BaseType::UD(Box::new(UserDefined {
+                                name: name.unwrap(),
+                                typ: UDType::Direct(typ),
+                            }))),
+                            None,
+                            tok,
+                        ),
+                        SearchResult::IncompleteType(typ) => (
+                            Some(BaseType::UD(Box::new(UserDefined {
+                                name: name.unwrap(),
+                                typ: UDType::Indirect(typ),
+                            }))),
+                            None,
+                            tok,
+                        ),
+                    }
                 } else {
-                    let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                    let is_decl_part = TypeDeclaratorParser::<L>::is_decl_part(&tok);
-                    (Some(tok), is_decl_part)
-                };
-
-                if is_typ {
-                    let tp = TypeDeclaratorParser::new(self.lexer);
-                    let hint = DeclHint::Name(name);
-                    let (tok, typ) = tp.parse(tok, Some(hint), true, context);
-
-                    (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
-                } else {
-                    let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-                    let (tok, expr) = ep.parse_with_id(tok, name.unwrap(), context);
-
-                    (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+                    unreachable!("Unknown name: {:?}", name);
                 }
             }
             _ => {
-                let tp = TypeDeclaratorParser::new(self.lexer);
-                let (tok, typ) = tp.parse(Some(tok), None, true, context);
+                if Modifier::is_primitive_part(&tok) {
+                    let mut modif = Modifier::empty();
+                    modif.from_tok(&tok);
 
-                if let Some(typ) = typ {
-                    return (tok, Some(DeclOrExpr::Decl(typ)));
+                    let tok = self.lexer.next_useful();
+                    if tok == Token::LeftParen {
+                        (
+                            Some(BaseType::Primitive(modif.to_primitive())),
+                            None,
+                            Some(tok),
+                        )
+                    } else {
+                        let tdp = TypeDeclaratorParser::new(self.lexer);
+                        let (tok, typ) =
+                            tdp.parse(Some(tok), Some(DeclHint::Modifier(modif)), true, context);
+
+                        return (tok, Some(DeclOrExpr::Decl(typ.unwrap())));
+                    }
+                } else {
+                    (None, None, Some(tok))
                 }
-
-                let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
-                let (tok, expr) = ep.parse(tok, context);
-
-                if let Some(expr) = expr {
-                    return (tok, Some(DeclOrExpr::Expr(expr)));
-                }
-
-                (tok, None)
             }
+        };
+
+        if let Some(typ) = typ {
+            let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+            if tok == Token::LeftParen {
+                // We can't know what we have here until we know the token just after
+                // the closing parenthesis, so perform a lookahead.
+                let (tok, mut saved) = self.lexer.save_until(Token::RightParen);
+                let tok = self.lexer.next_useful();
+                saved.push(tok.clone());
+
+                let mut combined = CombinedLexers::new(&mut saved, self.lexer);
+
+                // If we've a declaration then the next token...
+                if tok == Token::SemiColon
+                    || tok == Token::Equal
+                    || tok == Token::LeftBrack
+                    || tok == Token::LeftParen
+                {
+                    let tdp = TypeDeclaratorParser::new(&mut combined);
+                    let (tok, typ) = tdp.parse(
+                        Some(Token::LeftParen),
+                        Some(DeclHint::Type(typ)),
+                        true,
+                        context,
+                    );
+
+                    (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
+                } else {
+                    // finally we've an explicit type conversion
+                    let mut ep = ExpressionParser::new(&mut combined, Token::Eof);
+                    ep.push_operand(ExprNode::Type(Box::new(Type {
+                        base: typ,
+                        cv: CVQualifier::empty(),
+                        pointers: None,
+                    })));
+
+                    let (tok, expr) = ep.parse(Some(Token::LeftParen), context);
+                    (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+                }
+            } else {
+                let tdp = TypeDeclaratorParser::new(self.lexer);
+                let (tok, typ) = tdp.parse(Some(tok), Some(DeclHint::Type(typ)), true, context);
+
+                (tok, Some(DeclOrExpr::Decl(typ.unwrap())))
+            }
+        } else if let Some(var) = var {
+            let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
+            ep.push_operand(var);
+            let (tok, expr) = ep.parse(tok, context);
+
+            (tok, Some(DeclOrExpr::Expr(expr.unwrap())))
+        } else {
+            let tp = TypeDeclaratorParser::new(self.lexer);
+            let (tok, typ) = tp.parse(tok, None, true, context);
+
+            if let Some(typ) = typ {
+                return (tok, Some(DeclOrExpr::Decl(typ)));
+            }
+
+            let mut ep = ExpressionParser::new(self.lexer, Token::Eof);
+            let (tok, expr) = ep.parse(tok, context);
+
+            if let Some(expr) = expr {
+                return (tok, Some(DeclOrExpr::Expr(expr)));
+            }
+
+            (tok, None)
         }
     }
 }
@@ -587,6 +700,7 @@ mod tests {
     use super::super::function::*;
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
+    use crate::mk_var;
     use crate::parser::array::*;
     use crate::parser::attributes::Attribute;
     use crate::parser::declarations::class::{self, *};
@@ -596,8 +710,28 @@ mod tests {
     use crate::parser::expressions::{self, *};
     use crate::parser::literals::{self, *};
     use crate::parser::names::{self, operator, ConvBaseType, ConvType, Name};
-    use crate::parser::types::Primitive;
+    use crate::parser::types::{Primitive, UserDefined};
     use pretty_assertions::assert_eq;
+
+    fn add_t_type(context: &mut Context) -> Rc<TypeDeclarator> {
+        let t = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::TYPEDEF,
+            identifier: Identifier {
+                identifier: Some(mk_id!("T")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+
+        context.add_type_decl(Rc::clone(&t));
+        t
+    }
 
     #[test]
     fn test_primitive() {
@@ -731,6 +865,38 @@ mod tests {
     }
 
     #[test]
+    fn test_simple_pointer_paren() {
+        let mut l = Lexer::<DefaultContext>::new(b"int (*x) = nullptr");
+        let p = TypeDeclaratorParser::new(&mut l);
+        let mut context = Context::default();
+        let (_, decl) = p.parse(None, None, true, &mut context);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Primitive(Primitive::Int),
+                    cv: CVQualifier::empty(),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Pointer,
+                        attributes: None,
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("x")),
+                    attributes: None
+                },
+                init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
+                bitfield_size: None,
+            })
+        );
+    }
+
+    #[test]
     fn test_simple_pointer_ud() {
         let mut l = Lexer::<DefaultContext>::new(b"volatile A::B::C * x = nullptr");
         let p = TypeDeclaratorParser::new(&mut l);
@@ -822,7 +988,7 @@ mod tests {
                     identifier: Some(mk_id!("x")),
                     attributes: None
                 },
-                init: Some(Initializer::Equal(ExprNode::Qualified(Box::new(mk_id!(
+                init: Some(Initializer::Equal(ExprNode::Variable(Box::new(mk_var!(
                     "NULL"
                 ))))),
                 bitfield_size: None,
@@ -1609,8 +1775,8 @@ mod tests {
                         cv: CVQualifier::CONST,
                         refq: RefQualifier::RValue,
                         except: Some(Exception::Throw(Some(vec![
-                            ExprNode::Qualified(Box::new(mk_id!("A"))),
-                            ExprNode::Qualified(Box::new(mk_id!("B"))),
+                            ExprNode::Variable(Box::new(mk_var!("A"))),
+                            ExprNode::Variable(Box::new(mk_var!("B"))),
                         ],))),
                         attributes: Some(vec![Attribute {
                             namespace: None,
@@ -1931,6 +2097,150 @@ mod tests {
                 init: None,
                 bitfield_size: None,
             })
+        );
+    }
+
+    #[test]
+    fn test_ambiguity_1() {
+        let mut l = Lexer::<DefaultContext>::new(b"T(a)->m = 7;");
+        let p = DeclOrExprParser::new(&mut l);
+        let mut context = Context::default();
+        let t = add_t_type(&mut context);
+
+        let (_, decl) = p.parse(None, &mut context);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            DeclOrExpr::Expr(node!(BinaryOp {
+                op: Operator::Assign,
+                arg1: node!(BinaryOp {
+                    op: Operator::Arrow,
+                    arg1: node!(CallExpr {
+                        callee: node!(Type {
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: mk_id!("T"),
+                                typ: UDType::Direct(t),
+                            })),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![node!(Variable {
+                            name: mk_id!("a"),
+                            decl: VarDecl::Indirect(TypeToFix::default()),
+                        })],
+                    }),
+                    arg2: node!(Variable {
+                        name: mk_id!("m"),
+                        decl: VarDecl::Indirect(TypeToFix::default()),
+                    }),
+                }),
+                arg2: node!(Integer {
+                    value: IntLiteral::Int(7)
+                }),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_ambiguity_2() {
+        let mut l = Lexer::<DefaultContext>::new(b"T(a)++;");
+        let p = DeclOrExprParser::new(&mut l);
+        let mut context = Context::default();
+        let t = add_t_type(&mut context);
+
+        let (_, decl) = p.parse(None, &mut context);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            DeclOrExpr::Expr(node!(UnaryOp {
+                op: Operator::PostInc,
+                arg: node!(CallExpr {
+                    callee: node!(Type {
+                        base: BaseType::UD(Box::new(UserDefined {
+                            name: mk_id!("T"),
+                            typ: UDType::Direct(t),
+                        })),
+                        cv: CVQualifier::empty(),
+                        pointers: None,
+                    }),
+                    params: vec![node!(Variable {
+                        name: mk_id!("a"),
+                        decl: VarDecl::Indirect(TypeToFix::default()),
+                    })],
+                }),
+            }))
+        );
+    }
+
+    #[test]
+    fn test_ambiguity_3() {
+        let mut l = Lexer::<DefaultContext>::new(b"T(*d)(int)");
+        let p = DeclOrExprParser::new(&mut l);
+        let mut context = Context::default();
+        let t = add_t_type(&mut context);
+
+        let (_, decl) = p.parse(None, &mut context);
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            DeclOrExpr::Decl(Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Function(Box::new(Function {
+                        return_type: Some(Type {
+                            base: BaseType::UD(Box::new(UserDefined {
+                                name: mk_id!("T"),
+                                typ: UDType::Direct(t),
+                            })),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        params: vec![Parameter {
+                            attributes: None,
+                            decl: Rc::new(TypeDeclarator {
+                                typ: Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                },
+                                specifier: Specifier::empty(),
+                                identifier: Identifier {
+                                    identifier: None,
+                                    attributes: None
+                                },
+                                init: None,
+                                bitfield_size: None,
+                            }),
+                        }],
+                        cv: CVQualifier::empty(),
+                        refq: RefQualifier::None,
+                        except: None,
+                        attributes: None,
+                        trailing: None,
+                        virt_specifier: VirtSpecifier::empty(),
+                        status: FunStatus::None,
+                        requires: None,
+                        ctor_init: None,
+                        body: None
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: Some(vec![Pointer {
+                        kind: PtrKind::Pointer,
+                        attributes: None,
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }]),
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("d")),
+                    attributes: None
+                },
+                init: None,
+                bitfield_size: None,
+            }))
         );
     }
 }

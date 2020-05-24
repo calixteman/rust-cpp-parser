@@ -11,7 +11,7 @@ use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{TypeDeclarator, TypeDeclaratorParser};
 use crate::parser::dump::Dump;
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Try {
@@ -81,6 +81,7 @@ impl<'a, L: TLexer> TryStmtParser<'a, L> {
 
         // Exception handler
         let clause = if let Some(clause) = clause {
+            context.set_current(None, ScopeKind::CatchBlock);
             context.add_type_decl(Rc::clone(&clause));
             Some(clause)
         } else {

@@ -50,6 +50,7 @@ impl<'a, L: TLexer> AsmParser<'a, L> {
         let tok = self.lexer.next_useful();
 
         if let Some(code) = tok.get_string() {
+            // TODO: add an asm lexer & parser
             let slp = StringLiteralParser::new(self.lexer);
             let (tok, code) = slp.parse(&code, context);
 

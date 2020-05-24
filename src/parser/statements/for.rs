@@ -12,7 +12,7 @@ use crate::parser::attributes::Attributes;
 use crate::parser::declarations::{DeclOrExpr, DeclOrExprParser, TypeDeclarator};
 use crate::parser::dump::Dump;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
-use crate::parser::Context;
+use crate::parser::{Context, ScopeKind};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct For {
@@ -83,15 +83,23 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
+        context.set_current(None, ScopeKind::ForBlock);
+
         let dep = DeclOrExprParser::new(self.lexer);
         let (tok, init) = dep.parse(None, context);
+
+        if let Some(DeclOrExpr::Decl(typ)) = init.as_ref() {
+            context.add_type_decl(Rc::clone(typ));
+        }
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::Colon {
             // for (decl : ...)
             let decl = if let DeclOrExpr::Decl(typ) = init.unwrap() {
+                context.add_type_decl(Rc::clone(&typ));
                 typ
             } else {
+                context.pop();
                 unreachable!("Invalid expression in for statement");
             };
 
@@ -100,11 +108,13 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
+                context.pop();
                 unreachable!("Invalid token in for statements: {:?}", tok);
             }
 
             let sp = StatementParser::new(self.lexer);
             let (tok, body) = sp.parse(None, context);
+            context.pop();
 
             return (
                 tok,
@@ -119,11 +129,16 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
         }
 
         if tok != Token::SemiColon {
+            context.pop();
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
         let dep = DeclOrExprParser::new(self.lexer);
         let (tok, condition) = dep.parse(None, context);
+
+        if let Some(DeclOrExpr::Decl(typ)) = condition.as_ref() {
+            context.add_type_decl(Rc::clone(typ));
+        }
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok == Token::Colon {
@@ -131,6 +146,7 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
             let decl = if let DeclOrExpr::Decl(typ) = condition.unwrap() {
                 typ
             } else {
+                context.pop();
                 unreachable!("Invalid expression in for statement");
             };
 
@@ -139,11 +155,13 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {
+                context.pop();
                 unreachable!("Invalid token in for statements: {:?}", tok);
             }
 
             let sp = StatementParser::new(self.lexer);
             let (tok, body) = sp.parse(None, context);
+            context.pop();
 
             return (
                 tok,
@@ -162,6 +180,7 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
             if let DeclOrExpr::Expr(cond) = cond {
                 Some(cond)
             } else {
+                context.pop();
                 unreachable!("Invalid expression in for statement");
             }
         } else {
@@ -169,6 +188,7 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
         };
 
         if tok != Token::SemiColon {
+            context.pop();
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
@@ -177,11 +197,13 @@ impl<'a, L: TLexer> ForStmtParser<'a, L> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
         if tok != Token::RightParen {
+            context.pop();
             unreachable!("Invalid token in for statements: {:?}", tok);
         }
 
         let sp = StatementParser::new(self.lexer);
         let (tok, body) = sp.parse(None, context);
+        context.pop();
 
         (
             tok,

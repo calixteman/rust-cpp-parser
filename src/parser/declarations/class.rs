@@ -377,6 +377,7 @@ mod tests {
 
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
+    use crate::mk_var;
     use crate::parser::declarations::{self, *};
     use crate::parser::expressions::{self, *};
     use crate::parser::initializer::Initializer;
@@ -413,6 +414,21 @@ public:
         let mut context = Context::default();
         let (_, c, _) = p.parse(None, &mut context);
         let c = c.unwrap();
+
+        let x = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: declarations::Identifier {
+                identifier: Some(mk_id!("x")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
 
         let expected = Class {
             kind: super::Kind::Class,
@@ -472,7 +488,10 @@ public:
                                         val: Some(node!(BinaryOp {
                                             op: expressions::operator::Operator::Arrow,
                                             arg1: ExprNode::This(Box::new(This {})),
-                                            arg2: ExprNode::Qualified(Box::new(mk_id!("x"))),
+                                            arg2: ExprNode::Variable(Box::new(Variable {
+                                                name: mk_id!("x"),
+                                                decl: VarDecl::Direct(Rc::clone(&x)),
+                                            }))
                                         })),
                                     }))],
                                 }),
@@ -509,20 +528,7 @@ public:
                     bitfield_size: None,
                 }))],
                 private: vec![
-                    Member::Type(Rc::new(TypeDeclarator {
-                        typ: Type {
-                            base: BaseType::Primitive(Primitive::Int),
-                            cv: CVQualifier::empty(),
-                            pointers: None,
-                        },
-                        specifier: Specifier::empty(),
-                        identifier: declarations::Identifier {
-                            identifier: Some(mk_id!("x")),
-                            attributes: None,
-                        },
-                        init: None,
-                        bitfield_size: None,
-                    })),
+                    Member::Type(Rc::clone(&x)),
                     Member::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Function(Box::new(Function {

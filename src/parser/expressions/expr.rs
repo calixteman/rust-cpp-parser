@@ -3,13 +3,15 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::list::{ListInitialization, ListInitializationParser};
 use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{TLexer, Token};
-use crate::parser::declarations::DeclSpecifierParser;
+use crate::parser::context::{Context, SearchResult, TypeToFix};
+use crate::parser::declarations::{DeclSpecifierParser, TypeDeclarator};
 use crate::parser::dump::Dump;
 use crate::parser::literals::{
     Bool, Char, CharLiteral, Float, FloatLiteral, IntLiteral, Integer, Str, StrLiteral,
@@ -17,7 +19,6 @@ use crate::parser::literals::{
 };
 use crate::parser::names::{Qualified, QualifiedParser};
 use crate::parser::types::Type;
-use crate::parser::Context;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Nullptr {}
@@ -50,12 +51,50 @@ impl Dump for This {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum VarDecl {
+    Direct(Rc<TypeDeclarator>),
+    Indirect(TypeToFix),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Variable {
+    pub name: Qualified,
+    pub decl: VarDecl,
+}
+
+impl Dump for Variable {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "variable", prefix, last, stdout, name, decl);
+    }
+}
+
+impl Dump for VarDecl {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        // TODO: fix me
+        match self {
+            Self::Direct(_) => dump_str!(name, "<direct>", Cyan, prefix, last, stdout),
+            Self::Indirect(i) => i.dump(name, prefix, last, stdout),
+        };
+    }
+}
+
+#[macro_export]
+macro_rules! mk_var {
+    ( $( $name:expr ),* ) => {
+        crate::parser::expressions::expr::Variable {
+            name: mk_id!($( $name ),*),
+            decl: crate::parser::expressions::expr::VarDecl::Indirect(crate::parser::context::TypeToFix::default()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExprNode {
     UnaryOp(Box<UnaryOp>),
     BinaryOp(Box<BinaryOp>),
     Conditional(Box<Conditional>),
     CallExpr(Box<CallExpr>),
-    Qualified(Box<Qualified>),
+    Variable(Box<Variable>),
     ListInit(Box<ListInitialization>),
     InitExpr(Box<InitExpr>),
     Integer(Box<Integer>),
@@ -82,7 +121,7 @@ impl Dump for ExprNode {
             Self::BinaryOp(x) => dump!(x),
             Self::Conditional(x) => dump!(x),
             Self::CallExpr(x) => dump!(x),
-            Self::Qualified(x) => dump!(x),
+            Self::Variable(x) => dump!(x),
             Self::Integer(x) => dump!(x),
             Self::Float(x) => dump!(x),
             Self::Char(x) => dump!(x),
@@ -90,6 +129,7 @@ impl Dump for ExprNode {
             Self::Bool(x) => dump!(x),
             Self::Nullptr(x) => dump!(x),
             Self::This(x) => dump!(x),
+            Self::Type(x) => dump!(x),
             _ => {}
         }
     }
@@ -194,8 +234,13 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
 
     pub(super) fn push_operator(&mut self, op: Operator) {
         self.flush_with_op(op);
-        self.last = LastKind::Operator;
         self.operators.push(op);
+        self.last = LastKind::Operator;
+    }
+
+    pub(crate) fn push_operand(&mut self, op: ExprNode) {
+        self.operands.push(op);
+        self.last = LastKind::Operand;
     }
 
     pub(super) fn flush_with_op(&mut self, op: Operator) {
@@ -247,11 +292,31 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         let qp = QualifiedParser::new(self.lexer);
         let (tk, qual) = qp.parse(None, Some(id), context);
 
-        self.operands
-            .push(ExprNode::Qualified(Box::new(qual.unwrap())));
-        self.last = LastKind::Operand;
-
+        self.handle_qual(qual, context);
         tk.unwrap_or_else(|| self.lexer.next_useful())
+    }
+
+    fn handle_qual(&mut self, qual: Option<Qualified>, context: &mut Context) {
+        let decl = if let Some(res) = context.search(qual.as_ref()) {
+            match res {
+                SearchResult::Var(var) => VarDecl::Direct(var),
+                SearchResult::Type(_) | SearchResult::IncompleteType(_) => {
+                    unreachable!("Invalid type in expression")
+                }
+                SearchResult::IncompleteVar(var) => {
+                    // Can happen with self referring functions
+                    VarDecl::Indirect(var)
+                }
+            }
+        } else {
+            VarDecl::Indirect(TypeToFix::default())
+        };
+
+        self.operands.push(ExprNode::Variable(Box::new(Variable {
+            name: qual.unwrap(),
+            decl,
+        })));
+        self.last = LastKind::Operand;
     }
 
     pub(crate) fn parse_with_id(
@@ -260,9 +325,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         name: Qualified,
         context: &mut Context,
     ) -> (Option<Token>, Option<ExprNode>) {
-        self.operands.push(ExprNode::Qualified(Box::new(name)));
-        self.last = LastKind::Operand;
-
+        self.handle_qual(Some(name), context);
         self.parse(tok, context)
     }
 
@@ -935,10 +998,10 @@ mod tests {
             op: Operator::Add,
             arg1: node!(BinaryOp {
                 op: Operator::Add,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
             }),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("c"))),
         });
 
         assert_eq!(node, expected);
@@ -953,11 +1016,11 @@ mod tests {
 
         let expected = node!(BinaryOp {
             op: Operator::Assign,
-            arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
             arg2: node!(BinaryOp {
                 op: Operator::Assign,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("b"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+                arg1: ExprNode::Variable(Box::new(mk_var!("b"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("c"))),
             }),
         });
 
@@ -973,11 +1036,11 @@ mod tests {
 
         let expected = node!(BinaryOp {
             op: Operator::Add,
-            arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
             arg2: node!(BinaryOp {
                 op: Operator::Mul,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("b"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+                arg1: ExprNode::Variable(Box::new(mk_var!("b"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("c"))),
             }),
         });
 
@@ -995,10 +1058,10 @@ mod tests {
             op: Operator::Add,
             arg1: node!(BinaryOp {
                 op: Operator::Mul,
-                arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
             }),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("c"))),
         });
 
         assert_eq!(node, expected);
@@ -1012,10 +1075,10 @@ mod tests {
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(CallExpr {
-            callee: ExprNode::Qualified(Box::new(mk_id!("foo", "bar"))),
+            callee: ExprNode::Variable(Box::new(mk_var!("foo", "bar"))),
             params: vec![
-                ExprNode::Qualified(Box::new(mk_id!("a"))),
-                ExprNode::Qualified(Box::new(mk_id!("b"))),
+                ExprNode::Variable(Box::new(mk_var!("a"))),
+                ExprNode::Variable(Box::new(mk_var!("b"))),
             ],
         });
 
@@ -1031,7 +1094,7 @@ mod tests {
 
         let expected = node!(UnaryOp {
             op: Operator::Sizeof,
-            arg: ExprNode::Qualified(Box::new(mk_id!("A"))),
+            arg: ExprNode::Variable(Box::new(mk_var!("A"))),
         });
 
         assert_eq!(node, expected);
@@ -1046,8 +1109,8 @@ mod tests {
 
         let expected = node!(BinaryOp {
             op: Operator::Subscript,
-            arg1: ExprNode::Qualified(Box::new(mk_id!("abc"))),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("x"))),
+            arg1: ExprNode::Variable(Box::new(mk_var!("abc"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("x"))),
         });
 
         assert_eq!(node, expected);
@@ -1065,12 +1128,12 @@ mod tests {
             arg1: node!(CallExpr {
                 callee: node!(BinaryOp {
                     op: Operator::Arrow,
-                    arg1: ExprNode::Qualified(Box::new(mk_id!("a"))),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 }),
-                params: vec![ExprNode::Qualified(Box::new(mk_id!("c"))),],
+                params: vec![ExprNode::Variable(Box::new(mk_var!("c"))),],
             }),
-            arg2: ExprNode::Qualified(Box::new(mk_id!("d"))),
+            arg2: ExprNode::Variable(Box::new(mk_var!("d"))),
         });
 
         assert_eq!(node, expected);
@@ -1087,7 +1150,7 @@ mod tests {
             op: Operator::PreInc,
             arg: node!(UnaryOp {
                 op: Operator::PostInc,
-                arg: ExprNode::Qualified(Box::new(mk_id!("a"))),
+                arg: ExprNode::Variable(Box::new(mk_var!("a"))),
             }),
         });
 
@@ -1105,7 +1168,7 @@ mod tests {
             op: Operator::Indirection,
             arg: node!(UnaryOp {
                 op: Operator::PostInc,
-                arg: ExprNode::Qualified(Box::new(mk_id!("p"))),
+                arg: ExprNode::Variable(Box::new(mk_var!("p"))),
             }),
         });
 
@@ -1120,9 +1183,9 @@ mod tests {
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(Conditional {
-            condition: ExprNode::Qualified(Box::new(mk_id!("a"))),
-            left: ExprNode::Qualified(Box::new(mk_id!("b"))),
-            right: ExprNode::Qualified(Box::new(mk_id!("c"))),
+            condition: ExprNode::Variable(Box::new(mk_var!("a"))),
+            left: ExprNode::Variable(Box::new(mk_var!("b"))),
+            right: ExprNode::Variable(Box::new(mk_var!("c"))),
         });
 
         assert_eq!(node, expected);
@@ -1136,7 +1199,7 @@ mod tests {
         let node = parser.parse(None, &mut context).1.unwrap();
 
         let expected = node!(Conditional {
-            condition: ExprNode::Qualified(Box::new(mk_id!("a"))),
+            condition: ExprNode::Variable(Box::new(mk_var!("a"))),
             left: node!(BinaryOp {
                 op: Operator::Comma,
                 arg1: node!(BinaryOp {
@@ -1146,11 +1209,11 @@ mod tests {
                         cv: CVQualifier::empty(),
                         pointers: None,
                     })),
-                    arg2: ExprNode::Qualified(Box::new(mk_id!("b"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("b"))),
                 }),
-                arg2: ExprNode::Qualified(Box::new(mk_id!("c"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("c"))),
             }),
-            right: ExprNode::Qualified(Box::new(mk_id!("d"))),
+            right: ExprNode::Variable(Box::new(mk_var!("d"))),
         });
 
         assert_eq!(node, expected);

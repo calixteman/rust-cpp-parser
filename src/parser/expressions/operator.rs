@@ -207,7 +207,13 @@ impl Dump for UnaryOp {
 
 impl Dump for Conditional {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
-        let prefix = dump_start!(name, "?:", prefix, last, stdout);
+        let prefix = dump_start!(
+            name,
+            "conditional(\u{b7}?\u{b7}:\u{b7})",
+            prefix,
+            last,
+            stdout
+        );
         dump_fields!(self, prefix, stdout, condition, left, right);
     }
 }

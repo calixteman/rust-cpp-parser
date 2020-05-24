@@ -17,7 +17,7 @@ use crate::parser::expressions::{ExprNode, ExpressionParser, Parameters, Paramet
 use crate::parser::initializer::{Initializer, InitializerParser};
 use crate::parser::names::{Name, OperatorParser, Qualified, QualifiedParser};
 use crate::parser::statements::{Compound, CompoundStmtParser};
-use crate::parser::{Context, ScopeKind};
+use crate::parser::{Context, ScopeKind, TypeToFix};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Parameter {
@@ -323,14 +323,15 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
         self,
         tok: Option<Token>,
         skip_lparen: bool,
+        name: Option<&Qualified>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<Function>) {
+    ) -> (Option<Token>, Option<Function>, Option<TypeToFix>) {
         let plp = ParameterListParser::new(self.lexer);
         let (tok, params) = plp.parse(tok, skip_lparen, context);
         let params = if let Some(params) = params {
             params
         } else {
-            return (tok, None);
+            return (tok, None, None);
         };
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -399,17 +400,17 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let (tok, body) = if tok == Token::LeftBrace {
-            context.set_current(None, ScopeKind::Block);
+        let (tok, body, to_fix) = if tok == Token::LeftBrace {
+            context.set_current(name, ScopeKind::Function);
             for param in params.iter() {
                 context.add_type_decl(Rc::clone(&param.decl));
             }
             let cp = CompoundStmtParser::new(self.lexer);
             let (tok, body) = cp.parse(None, context);
-            context.pop();
-            (tok, body)
+            let to_fix = context.pop_n(name.map_or(1, |n| n.len()));
+            (tok, body, to_fix)
         } else {
-            (Some(tok), None)
+            (Some(tok), None, None)
         };
 
         let fun = Function {
@@ -427,7 +428,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
             body,
         };
 
-        (tok, Some(fun))
+        (tok, Some(fun), to_fix)
     }
 }
 
@@ -492,7 +493,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
         name: Option<Qualified>,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> (Option<Token>, Option<TypeDeclarator>) {
+    ) -> (Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>) {
         let (tok, name) = if name.is_none() {
             let op = OperatorParser::new(self.lexer);
             let (tok, op) = op.parse(tok, context);
@@ -505,7 +506,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     }),
                 )
             } else {
-                return (tok, None);
+                return (tok, None, None);
             }
         } else {
             (tok, name)
@@ -516,7 +517,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
         let (tok, attributes) = ap.parse(tok, context);
 
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function) = fp.parse(tok, false, context);
+        let (tok, function, to_fix) = fp.parse(tok, false, name.as_ref(), context);
 
         if let Some(function) = function {
             let typ = Type {
@@ -536,6 +537,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     init: None,
                     bitfield_size: None,
                 }),
+                to_fix,
             )
         } else {
             unreachable!("Invalid token in operator name: {:?}", tok);
