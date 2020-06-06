@@ -290,7 +290,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     let shift = (self.buf.pos() - spos) as i64;
                     self.buf.inc();
                     let exp = self.get_exponent();
-                    eprintln!("COUCOU {} {}", exp, shift);
+                    //eprintln!("COUCOU {} {}", exp, shift);
                     return (num, exp - shift);
                 } else {
                     let shift = (self.buf.pos() - spos) as i64;

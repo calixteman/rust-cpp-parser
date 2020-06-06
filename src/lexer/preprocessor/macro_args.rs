@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 use super::context::PreprocContext;
 use super::macros::Macro;
 use super::preprocessor;
-use crate::lexer::buffer::FileInfo;
+use crate::lexer::buffer::{FileInfo, OutBuf};
 use crate::lexer::lexer::Lexer;
 use crate::lexer::string::StringType;
 
@@ -409,6 +409,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 return None;
             }
             self.buf.inc();
+        } else {
+            return None;
         }
 
         let mut args = self.get_macro_tokens(n_args);
@@ -436,7 +438,7 @@ impl<'a> MacroNode<'a> {
         nodes: &[MacroNode<'a>],
         context: &PC,
         info: &FileInfo,
-        out: &mut Vec<u8>,
+        out: &mut OutBuf,
         is_va: bool,
     ) {
         let mut pos = 0;
@@ -445,7 +447,7 @@ impl<'a> MacroNode<'a> {
             let node = unsafe { nodes.get_unchecked(pos) };
             match node {
                 MacroNode::Nothing(s) | MacroNode::String(s) => {
-                    out.extend_from_slice(s);
+                    out.buf.extend_from_slice(s);
                 }
                 MacroNode::Id(id) => {
                     if let Some(mac) = context.get(id) {
@@ -457,7 +459,7 @@ impl<'a> MacroNode<'a> {
                                 let spos = pos;
                                 pos += 1;
                                 if pos >= len {
-                                    out.extend_from_slice(id.as_bytes());
+                                    out.buf.extend_from_slice(id.as_bytes());
                                     break;
                                 }
 
@@ -467,8 +469,8 @@ impl<'a> MacroNode<'a> {
                                     MacroNode::Space => {
                                         pos += 1;
                                         if pos >= len {
-                                            out.extend_from_slice(id.as_bytes());
-                                            out.push(b' ');
+                                            out.buf.extend_from_slice(id.as_bytes());
+                                            out.buf.push(b' ');
                                             break;
                                         }
                                         unsafe { nodes.get_unchecked(pos) }
@@ -480,11 +482,11 @@ impl<'a> MacroNode<'a> {
                                     if mac.is_valid(args.len()) {
                                         mac.eval_parsed_args(args, context, info, out);
                                     } else {
-                                        out.extend_from_slice(id.as_bytes());
+                                        out.buf.extend_from_slice(id.as_bytes());
                                         pos = spos;
                                     }
                                 } else {
-                                    out.extend_from_slice(id.as_bytes());
+                                    out.buf.extend_from_slice(id.as_bytes());
                                     pos = spos;
                                 };
                             }
@@ -499,30 +501,30 @@ impl<'a> MacroNode<'a> {
                             }
                         }
                     } else {
-                        out.extend_from_slice(id.as_bytes());
+                        out.buf.extend_from_slice(id.as_bytes());
                     }
                 }
                 MacroNode::Space => {
                     if is_va || (pos != 0 && pos != len - 1) {
-                        out.push(b' ');
+                        out.buf.push(b' ');
                     }
                 }
                 MacroNode::Args(nodes) => {
-                    out.push(b'(');
+                    out.buf.push(b'(');
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::eval_nodes(arg, context, info, out, false);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::eval_nodes(last, context, info, out, false);
                     }
-                    out.push(b')');
+                    out.buf.push(b')');
                 }
                 MacroNode::VaArgs(nodes) => {
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::eval_nodes(arg, context, info, out, true);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::eval_nodes(last, context, info, out, true);
                     }
@@ -532,37 +534,37 @@ impl<'a> MacroNode<'a> {
         }
     }
 
-    pub(crate) fn make_expr(nodes: &[MacroNode<'a>], out: &mut Vec<u8>) {
+    pub(crate) fn make_expr(nodes: &[MacroNode<'a>], out: &mut OutBuf) {
         let len = nodes.len();
         for (pos, node) in nodes.iter().enumerate() {
             match node {
                 MacroNode::Nothing(s) | MacroNode::String(s) => {
-                    out.extend_from_slice(s);
+                    out.buf.extend_from_slice(s);
                 }
                 MacroNode::Id(id) => {
-                    out.extend_from_slice(id.as_bytes());
+                    out.buf.extend_from_slice(id.as_bytes());
                 }
                 MacroNode::Space => {
                     if pos != 0 && pos != len - 1 {
-                        out.push(b' ');
+                        out.buf.push(b' ');
                     }
                 }
                 MacroNode::Args(nodes) => {
-                    out.push(b'(');
+                    out.buf.push(b'(');
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::make_expr(arg, out);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::make_expr(last, out);
                     }
-                    out.push(b')');
+                    out.buf.push(b')');
                 }
                 MacroNode::VaArgs(nodes) => {
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::make_expr(arg, out);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::make_expr(last, out);
                     }
@@ -571,47 +573,47 @@ impl<'a> MacroNode<'a> {
         }
     }
 
-    pub(crate) fn make_string(nodes: &[MacroNode<'a>], out: &mut Vec<u8>) {
+    pub(crate) fn make_string(nodes: &[MacroNode<'a>], out: &mut OutBuf) {
         let len = nodes.len();
         for (pos, node) in nodes.iter().enumerate() {
             match node {
                 MacroNode::Nothing(s) => {
-                    out.extend_from_slice(s);
+                    out.buf.extend_from_slice(s);
                 }
                 MacroNode::String(s) => {
                     // Need to escape chars
                     for c in s.iter() {
                         let c = *c;
                         if c == b'\'' || c == b'\"' || c == b'\n' {
-                            out.push(b'\\');
+                            out.buf.push(b'\\');
                         }
-                        out.push(c);
+                        out.buf.push(c);
                     }
                 }
                 MacroNode::Id(id) => {
-                    out.extend_from_slice(id.as_bytes());
+                    out.buf.extend_from_slice(id.as_bytes());
                 }
                 MacroNode::Space => {
                     if pos != 0 && pos != len - 1 {
-                        out.push(b' ');
+                        out.buf.push(b' ');
                     }
                 }
                 MacroNode::Args(nodes) => {
-                    out.push(b'(');
+                    out.buf.push(b'(');
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::make_string(arg, out);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::make_string(last, out);
                     }
-                    out.push(b')');
+                    out.buf.push(b')');
                 }
                 MacroNode::VaArgs(nodes) => {
                     if let Some((last, nodes)) = nodes.split_last() {
                         for arg in nodes {
                             Self::make_string(arg, out);
-                            out.push(b',');
+                            out.buf.push(b',');
                         }
                         Self::make_string(last, out);
                     }
@@ -675,9 +677,9 @@ mod tests {
     fn test_make_expr1() {
         let mut p = Lexer::<DefaultContext>::new(b"(   a /* comment */  , b + 1)");
         let args = Args(p.get_arguments(2, None).unwrap());
-        let mut out = Vec::new();
+        let mut out = OutBuf::default();
         MacroNode::make_expr(&vec![args], &mut out);
-        let res = std::str::from_utf8(&out).unwrap();
+        let res = std::str::from_utf8(&out.buf).unwrap();
         let exp = "(a,b + 1)";
 
         assert_eq!(res, exp);
@@ -687,9 +689,9 @@ mod tests {
     fn test_make_expr2() {
         let mut p = Lexer::<DefaultContext>::new(b"(a, b, foo(x+1, y * 2, bar (z,t)))");
         let args = Args(p.get_arguments(3, None).unwrap());
-        let mut out = Vec::new();
+        let mut out = OutBuf::default();
         MacroNode::make_expr(&vec![args], &mut out);
-        let res = std::str::from_utf8(&out).unwrap();
+        let res = std::str::from_utf8(&out.buf).unwrap();
         let exp = "(a,b,foo(x+1,y * 2,bar (z,t)))";
 
         assert_eq!(res, exp);

@@ -51,7 +51,7 @@ pub(super) const CHARS: [Kind; 256] = [
     // 50  P   51  Q      52  R      53  S      54  T      55  U      56  V      57  W
     Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, Kind::IDN, //
     // 58  X   59  Y      5A  Z      5B  [      5C  \      5D  ]      5E  ^      5F  _
-    Kind::IDN, Kind::IDN, Kind::IDN, Kind::NON, Kind::NON, Kind::NON, Kind::IDN, Kind::KEY, //
+    Kind::IDN, Kind::IDN, Kind::IDN, Kind::NON, Kind::NON, Kind::NON, Kind::NON, Kind::KEY, //
     // 60  `   61  a      62  b      63  c      64  d      65  e      66  f      67  g
     Kind::NON, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, Kind::KEY, //
     // 68  h   69  i      6A  j      6B  k      6C  l      6D  m      6E  n      6F  o
@@ -655,6 +655,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         context.set_sys_paths(&opt.sys_paths);
 
         let mut cl = Vec::new();
+        if opt.lang == args::Language::CPP {
+            // TODO: be more smart here
+            cl.extend_from_slice(b"#define __cplusplus 201703L\n");
+        }
         for mac in opt.def.iter() {
             match mac {
                 args::Macro::Defined((name, data)) => {
@@ -729,6 +733,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         self.buf.get_line()
     }
 
+    pub fn get_file(&self) -> PathBuf {
+        self.context.get_path(self.buf.get_source_id().unwrap())
+    }
+
     pub(crate) fn get_column(&self) -> u32 {
         self.buf.get_column()
     }
@@ -789,7 +797,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
             if eval {
                 self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
-                    self.errors.push(error);
+                    self.errors.push(error.clone());
+                    eprintln!("ERRRRRRRRRRor {:?}", error);
                     Token::Eof
                 })
             } else {
@@ -1041,7 +1050,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         self.get_preproc_keyword(true)
     }
 
-    fn location(&self) -> Location {
+    pub fn location(&self) -> Location {
         Location {
             pos: self.buf.pos(),
             line: self.buf.get_line(),

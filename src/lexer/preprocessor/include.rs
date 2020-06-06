@@ -55,6 +55,7 @@ impl DefaultIncludeLocator {
     }
 
     fn read_file(path: &PathBuf) -> Option<Vec<u8>> {
+        //eprintln!("PATH {:?}", path);
         if let Ok(mut file) = File::open(path) {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
@@ -307,6 +308,7 @@ mod tests {
     use tempdir::TempDir;
 
     use super::*;
+    use crate::lexer::buffer::OutBuf;
     use crate::lexer::lexer::Token;
     use crate::lexer::preprocessor::context::{Context, DefaultContext};
     use crate::lexer::preprocessor::macros::Macro;
@@ -316,7 +318,7 @@ mod tests {
     macro_rules! eval {
         ( $name: expr, $lexer: expr ) => {{
             let context = $lexer.context.clone();
-            let mut res = Vec::new();
+            let mut res = OutBuf::default();
             let info = $lexer.buf.get_line_file();
             let mac = context.get($name).unwrap();
             match mac {
@@ -325,7 +327,7 @@ mod tests {
                 }
                 _ => {}
             }
-            String::from_utf8(res).unwrap()
+            String::from_utf8(res.buf).unwrap()
         }};
     }
 

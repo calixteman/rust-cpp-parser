@@ -15,7 +15,7 @@ pub fn get_defined() -> Vec<Macro> {
     // clang++-9 -dM -E - </dev/null
     vec![
         defined!("__has_attribute(x)", "0"),
-        defined!("__has_builtin(x)", "0"),
+        defined!("__has_builtin(x)", "1"),
         defined!("__has_extension(x)", "0"),
         defined!("__has_feature(x)", "0"),
         defined!("__has_include(x)", "0"),

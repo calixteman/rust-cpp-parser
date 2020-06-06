@@ -19,5 +19,12 @@ serde_json = "1.0"
 tempdir = "0.3"
 pretty_assertions = "0.6"
 
+[lib]
+name = "cpp_parser"
+path = "src/lib.rs"
+
+[workspace]
+members = ["cli_macro_stats"]
+
 [profile.release]
 lto = true

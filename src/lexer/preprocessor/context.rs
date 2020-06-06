@@ -3,15 +3,14 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use hashbrown::{hash_map, HashMap};
-use std::cell::Cell;
+use hashbrown::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::include::{DefaultIncludeLocator, IncludeLocator, PathIndex};
 use super::macros::{
     Macro, MacroCounter, MacroFile, MacroFunction, MacroLine, MacroObject, MacroType,
 };
-use crate::lexer::buffer::{BufferData, FileInfo};
+use crate::lexer::buffer::BufferData;
 use crate::lexer::source::{FileId, SourceMutex};
 
 /// Indicate the state of the if statement
@@ -265,7 +264,7 @@ impl<IL: IncludeLocator> IncludeLocator for Context<IL> {
     }
 }
 
-#[derive(Clone)]
+/*#[derive(Clone, Debug)]
 pub struct Stats {
     pub info: FileInfo,
     pub counter: Cell<usize>,
@@ -406,3 +405,4 @@ impl IncludeLocator for StatsContext {
         self.default.set_sys_paths(paths);
     }
 }
+*/

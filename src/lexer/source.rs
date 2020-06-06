@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use hashbrown::{hash_map, HashMap};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Hash, PartialEq)]
 pub struct FileId(pub u32);
 
 #[derive(Debug)]

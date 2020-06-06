@@ -30,12 +30,26 @@ pub enum Macro {
     Undef(String),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Language {
+    C,
+    CPP,
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        Self::C
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct PreprocOptions {
     pub def: Vec<Macro>,
     pub sys_paths: Vec<String>,
     pub includes: Vec<String>,
     pub current_dir: PathBuf,
+    pub file: PathBuf,
+    pub lang: Language,
 }
 
 struct Args<'a> {
@@ -170,6 +184,14 @@ impl<'a> Args<'a> {
         }
     }
 
+    fn get_language(s: &str) -> Language {
+        if s.contains("clang++") || s.contains("g++") {
+            Language::CPP
+        } else {
+            Language::C
+        }
+    }
+
     fn get_bash_single_string(&mut self, buf: &mut String) {
         loop {
             if self.has_char() {
@@ -246,8 +268,13 @@ impl<'a> Args<'a> {
 
     fn parse(&mut self) {
         let parts = self.get_parts();
-        let mut i = 0;
-        while i < parts.len() {
+        self.opt.lang = Self::get_language(&parts[0]);
+        let file = parts.last().unwrap();
+        let path = PathBuf::from(file);
+        self.opt.file = path;
+
+        let mut i = 1;
+        while i < parts.len() - 1 {
             let part = &parts[i];
             if !part.starts_with('-') {
                 i += 1;

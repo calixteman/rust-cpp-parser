@@ -8,7 +8,7 @@ use std::fmt;
 
 use super::context::{EmptyContext, PreprocContext};
 use super::macro_args::MacroNode;
-use crate::lexer::buffer::FileInfo;
+use crate::lexer::buffer::{FileInfo, OutBuf};
 use crate::lexer::{tools, Lexer};
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub struct MacroObject {
 pub struct MacroFunction {
     out: Vec<u8>,
     actions: Vec<Action>,
-    n_args: usize,
+    pub(crate) n_args: usize,
     pub(crate) in_use: Cell<bool>,
     pub(crate) va_args: Option<usize>,
     pub(crate) file_info: FileInfo,
@@ -93,32 +93,36 @@ impl MacroFunction {
         }
     }
 
+    pub fn get_file_info(&self) -> &FileInfo {
+        &self.file_info
+    }
+
     #[inline(always)]
     pub(crate) fn eval_parsed_args<'a, PC: PreprocContext>(
         &self,
         args: &[Vec<MacroNode<'a>>],
         context: &PC,
         info: &FileInfo,
-        out: &mut Vec<u8>,
+        out: &mut OutBuf,
     ) {
         let mut out_pos = 0;
-        let mut output = Vec::new();
+        let mut output = OutBuf::default();
 
         for action in self.actions.iter() {
             match action {
                 Action::Arg(pos) => {
                     // gcc/clang are smart: they add whites only when it's required
                     // tbh, I don't care so much, the goal is just to have paste avoidance
-                    if let Some(last) = output.last() {
+                    if let Some(last) = output.buf.last() {
                         if *last != b' ' {
-                            output.push(b' ');
+                            output.buf.push(b' ');
                         }
                     }
                     if let Some(arg) = args.get(*pos) {
                         MacroNode::eval_nodes(arg, context, info, &mut output, false);
-                        if let Some(last) = output.last() {
+                        if let Some(last) = output.buf.last() {
                             if *last != b' ' {
-                                output.push(b' ');
+                                output.buf.push(b' ');
                             }
                         }
                         /*if *output.last().unwrap() != b' ' {
@@ -133,14 +137,18 @@ impl MacroFunction {
                     MacroNode::make_string(&args[*pos], &mut output);
                 }
                 Action::Chunk(pos) => {
-                    output.extend_from_slice(unsafe { &self.out.get_unchecked(out_pos..*pos) });
+                    output
+                        .buf
+                        .extend_from_slice(unsafe { &self.out.get_unchecked(out_pos..*pos) });
                     out_pos = *pos;
                 }
             }
         }
-        output.extend_from_slice(unsafe { &self.out.get_unchecked(out_pos..) });
+        output
+            .buf
+            .extend_from_slice(unsafe { &self.out.get_unchecked(out_pos..) });
 
-        let mut lexer = Lexer::<EmptyContext>::new(&output);
+        let mut lexer = Lexer::<EmptyContext>::new(&output.buf);
         self.in_use.set(true);
         lexer.macro_final_eval(out, context, info);
         self.in_use.set(false);
@@ -180,28 +188,35 @@ impl MacroObject {
     #[inline(always)]
     pub(crate) fn eval<'a, PC: PreprocContext>(
         &'a self,
-        out: &mut Vec<u8>,
+        out: &mut OutBuf,
         context: &PC,
         info: &FileInfo,
     ) {
-        if let Some(last) = out.last() {
+        if let Some(last) = out.buf.last() {
             if *last != b' ' {
-                out.push(b' ');
+                out.buf.push(b' ');
             }
         }
+
         if self.has_id {
             let mut lexer = Lexer::<EmptyContext>::new(&self.out);
             self.in_use.set(true);
+
             lexer.macro_final_eval(out, context, info);
+
             self.in_use.set(false);
         } else {
-            out.extend_from_slice(&self.out);
+            out.buf.extend_from_slice(&self.out);
         }
-        if let Some(last) = out.last() {
+        if let Some(last) = out.buf.last() {
             if *last != b' ' {
-                out.push(b' ');
+                out.buf.push(b' ');
             }
         }
+    }
+
+    pub fn get_file_info(&self) -> &FileInfo {
+        &self.file_info
     }
 }
 
@@ -215,15 +230,15 @@ impl MacroLine {
     }
 
     #[inline(always)]
-    pub(crate) fn eval(self, out: &mut Vec<u8>, info: &FileInfo) {
-        if let Some(last) = out.last() {
+    pub(crate) fn eval(self, out: &mut OutBuf, info: &FileInfo) {
+        if let Some(last) = out.buf.last() {
             if *last != b' ' {
-                out.push(b' ');
+                out.buf.push(b' ');
             }
         }
 
-        tools::extend_with_u32(out, info.line);
-        out.push(b' ');
+        tools::extend_with_u32(&mut out.buf, info.line);
+        out.buf.push(b' ');
     }
 }
 
@@ -237,17 +252,17 @@ impl MacroFile {
     }
 
     #[inline(always)]
-    pub(crate) fn eval<PC: PreprocContext>(self, out: &mut Vec<u8>, context: &PC, info: &FileInfo) {
-        if let Some(last) = out.last() {
+    pub(crate) fn eval<PC: PreprocContext>(self, out: &mut OutBuf, context: &PC, info: &FileInfo) {
+        if let Some(last) = out.buf.last() {
             if *last != b' ' {
-                out.push(b' ');
+                out.buf.push(b' ');
             }
         }
 
         let path = context.get_path(info.source_id.unwrap());
         let path = path.to_str().unwrap();
-        out.extend_from_slice(path.as_bytes());
-        out.push(b' ');
+        out.buf.extend_from_slice(path.as_bytes());
+        out.buf.push(b' ');
     }
 }
 
@@ -265,18 +280,18 @@ impl MacroCounter {
     }
 
     #[inline(always)]
-    pub(crate) fn eval<'a>(&'a self, out: &mut Vec<u8>) {
-        if let Some(last) = out.last() {
+    pub(crate) fn eval<'a>(&'a self, out: &mut OutBuf) {
+        if let Some(last) = out.buf.last() {
             if *last != b' ' {
-                out.push(b' ');
+                out.buf.push(b' ');
             }
         }
 
         let n = self.value.get();
-        tools::extend_with_u64(out, n);
+        tools::extend_with_u64(&mut out.buf, n);
         self.value.set(n + 1);
 
-        out.push(b' ');
+        out.buf.push(b' ');
     }
 }
 
@@ -291,7 +306,7 @@ mod tests {
     macro_rules! eval {
         ( $name: expr, $lexer: expr ) => {{
             let context = $lexer.context.clone();
-            let mut res = Vec::new();
+            let mut res = OutBuf::default();
             let info = $lexer.buf.get_line_file();
             let mac = context.get($name).unwrap();
             match mac {
@@ -300,7 +315,7 @@ mod tests {
                 }
                 _ => {}
             }
-            String::from_utf8(res).unwrap()
+            String::from_utf8(res.buf).unwrap()
         }};
     }
 
@@ -689,5 +704,52 @@ mod tests {
         p.consume_all();
         assert_eq!(eval!("test1", p), "+ ");
         assert_eq!(eval!("test2", p), "+ ");
+    }
+
+    #[test]
+    fn test_eval_partial1() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define A(x) foo(x)\n",
+                "#define B A\n",
+                "#define C B(123)\n",
+            )
+            .as_bytes(),
+        );
+        p.consume_all();
+
+        assert_eq!(eval!("C", p), "foo( 123 ) ");
+    }
+
+    #[test]
+    fn test_eval_partial2() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define FOOBAR(x) foobar(x)\n",
+                "#define A(x,y) x##y\n",
+                "#define B A(FOO,BAR)(123)\n",
+            )
+            .as_bytes(),
+        );
+        p.consume_all();
+
+        assert_eq!(eval!("B", p), "foobar( 123 ) ");
+    }
+
+    #[test]
+    fn test_eval_chain() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define A F\n",
+                "#define B A\n",
+                "#define C B\n",
+                "#define D C\n",
+                "#define E D\n",
+            )
+            .as_bytes(),
+        );
+        p.consume_all();
+
+        assert_eq!(eval!("E", p), "F ");
     }
 }

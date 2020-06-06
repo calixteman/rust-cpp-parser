@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 use super::condition::Condition;
 use super::context::{IfKind, IfState, PreprocContext};
 use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
-use crate::lexer::buffer::FileInfo;
+use crate::lexer::buffer::{FileInfo, OutBuf};
 use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::{Lexer, TLexer, Token};
 use crate::lexer::string::StringType;
@@ -163,6 +163,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             }
             Token::PreprocPragma => {
                 skip_until!(self, b'\n');
+                // we're on the \n so consume it
+                self.buf.inc();
                 self.buf.add_new_line();
                 Token::PreprocPragma
             }
@@ -170,11 +172,14 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let spos = self.buf.pos();
                 skip_until!(self, b'\n');
                 let sl = self.buf.slice(spos);
+                self.buf.inc();
+                self.buf.add_new_line();
                 let msg = String::from_utf8_lossy(&sl).to_string();
                 return Err(LexerError::ErrorDirective {
                     sp: self.span(),
                     msg,
                 });
+                Token::PreprocError
             }
             _ => instr,
         })
@@ -394,12 +399,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         &mut self,
         args: HashMap<&str, usize>,
         va_args: Option<usize>,
+        info: FileInfo,
     ) -> MacroFunction {
         let mut out = Vec::with_capacity(1024);
         let mut actions = Vec::with_capacity(args.len());
         let mut last_kind = LastKind::None;
         let mut last_chunk_end = 0;
-        let info = self.buf.get_line_file();
 
         loop {
             let tok = self.next_macro_token();
@@ -470,11 +475,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_object_definition(&mut self) -> MacroObject {
+    pub(crate) fn get_object_definition(&mut self, info: FileInfo) -> MacroObject {
         let mut out = Vec::with_capacity(64);
         let mut last_kind = LastKind::None;
         let mut has_id = false;
-        let info = self.buf.get_line_file();
 
         skip_whites!(self);
 
@@ -509,52 +513,66 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
     pub(crate) fn macro_final_eval<P: PreprocContext>(
         &mut self,
-        out: &mut Vec<u8>,
+        out: &mut OutBuf,
         context: &P,
         info: &FileInfo,
     ) {
+        let mut fake: Option<String> = None;
         loop {
-            let tok = self.next_macro_token();
+            let tok = fake
+                .as_ref()
+                .map_or_else(|| self.next_macro_token(), |x| MacroToken::Id(x));
             match tok {
                 MacroToken::None(s) => {
-                    out.extend_from_slice(s);
+                    out.invalidate();
+                    out.buf.extend_from_slice(s);
                 }
                 MacroToken::Id(id) => {
+                    out.invalidate();
                     if let Some(mac) = context.get(id) {
                         match mac {
                             Macro::Object(mac) => {
                                 mac.eval(out, context, info);
+                                fake = out.last.take();
                             }
                             Macro::Function(mac) => {
                                 if let Some(args) =
                                     self.get_arguments(mac.len(), mac.va_args.as_ref())
                                 {
                                     mac.eval_parsed_args(&args, context, info, out);
+                                    fake = out.last.take();
                                 } else {
-                                    out.extend_from_slice(id.as_bytes());
+                                    // Not enough arguments
+                                    out.last = Some(id.to_string());
+                                    fake = None;
                                 }
                             }
                             Macro::Line(mac) => {
+                                fake = None;
                                 mac.eval(out, info);
                             }
                             Macro::File(mac) => {
+                                fake = None;
                                 mac.eval(out, context, info);
                             }
                             Macro::Counter(mac) => {
+                                fake = None;
                                 mac.eval(out);
                             }
                         }
                     } else {
-                        out.extend_from_slice(id.as_bytes());
+                        out.buf.extend_from_slice(id.as_bytes());
+                        fake = None;
                     }
                 }
                 MacroToken::Space => {
-                    if let Some(last) = out.last() {
+                    out.invalidate();
+                    if let Some(last) = out.buf.last() {
                         if *last != b' ' {
-                            out.push(b' ');
+                            out.buf.push(b' ');
                         }
                     } else {
-                        out.push(b' ');
+                        out.buf.push(b' ');
                     }
                 }
                 MacroToken::WhiteStringify | MacroToken::Stringify | MacroToken::Concat => {}
@@ -613,7 +631,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     pub(crate) fn skip_until_else_endif(&mut self) -> Result<(), LexerError> {
         // skip until #else, #endif
         // need to lex to avoid to catch #else or #endif in a string, comment
-        // or something like #define foo(else) #else (who want to do that ???)
+        // or something like #define foo(else) #else (who wants to do that ???)
 
         loop {
             let spos = self.buf.pos();
@@ -632,10 +650,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 self.buf.inc();
                 let kind = unsafe { *PPCHARS.get_unchecked(c as usize) };
                 match kind {
+                    #[cold]
                     Kind::QUO => {
                         // we've a string or char literal
                         self.skip_by_delim(c);
                     }
+                    #[cold]
                     Kind::RET => {
                         self.buf.add_new_line();
                         // we've a new line so check if it starts with preproc directive
@@ -650,6 +670,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             }
                         }
                     }
+                    #[cold]
                     Kind::SLA => {
                         self.skip_slash_or_not();
                     }
@@ -773,6 +794,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     #[inline(always)]
     pub(crate) fn get_define(&mut self) {
+        let info = self.buf.get_line_file();
+
         skip_whites!(self);
         let name = self.get_preproc_identifier();
         if self.buf.has_char() {
@@ -781,11 +804,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 self.buf.inc();
                 let (args, va_args) = self.get_macro_arguments();
                 skip_whites!(self);
-                let mac = self.get_function_definition(args, va_args);
+                let mac = self.get_function_definition(args, va_args, info);
                 self.context.add_function(name.to_string(), mac);
             } else {
                 skip_whites!(self);
-                let obj = self.get_object_definition();
+                let obj = self.get_object_definition(info);
                 self.context.add_object(name.to_string(), obj);
             }
         }

@@ -873,4 +873,33 @@ mod tests {
 
         assert_eq!(res, Int::Unsigned(6));
     }
+
+    #[test]
+    fn test_bitor() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 | 2 | 4 | 1024 | 8 | 16 | 32");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(1 | 2 | 4 | 1024 | 8 | 16 | 32));
+    }
+
+    #[test]
+    fn test_bitxor() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"1 ^ 2 ^ 4 ^ 1024 ^ 8 ^ 16 ^ 32");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(1 ^ 2 ^ 4 ^ 1024 ^ 8 ^ 16 ^ 32));
+    }
+
+    #[test]
+    fn test_bitor_bitxor() {
+        let mut lexer = Lexer::<DefaultContext>::new(
+            b"(1 | 2 | 4 | 1024 | 8 | 16 | 32) != (1 ^ 2 ^ 4 ^ 1024 ^ 8 ^ 16 ^ 32)",
+        );
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(0));
+    }
 }

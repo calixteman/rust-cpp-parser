@@ -6,14 +6,12 @@
 pub mod lexer;
 pub use self::lexer::*;
 
+pub mod buffer;
+pub mod errors;
+pub mod extra;
 pub mod preprocessor;
 pub mod source;
 
-pub mod errors;
-
-pub mod extra;
-
-mod buffer;
 mod cchar;
 mod comment;
 mod number;

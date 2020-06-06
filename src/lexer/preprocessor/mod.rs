@@ -7,8 +7,8 @@ pub mod context;
 pub use self::context::*;
 
 pub mod include;
+pub mod macros;
 
 mod condition;
 mod macro_args;
-mod macros;
 mod preprocessor;

@@ -6,6 +6,21 @@
 use super::preprocessor::include::PathIndex;
 use super::source::FileId;
 
+#[derive(Debug, Default)]
+pub(crate) struct OutBuf {
+    pub(crate) buf: Vec<u8>,
+    pub(crate) last: Option<String>,
+}
+
+impl OutBuf {
+    #[inline(always)]
+    pub(crate) fn invalidate(&mut self) {
+        if let Some(last) = self.last.take() {
+            self.buf.extend_from_slice(last.as_bytes());
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Position {
     pos: usize,
@@ -44,7 +59,7 @@ impl BufferData {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Hash, PartialEq)]
 pub struct FileInfo {
     pub line: u32,
     pub source_id: Option<FileId>,
@@ -53,7 +68,7 @@ pub struct FileInfo {
 #[derive(Debug)]
 pub(crate) struct Buffer<'a> {
     stack: Vec<BufferData>,
-    preproc: Vec<u8>,
+    preproc: OutBuf,
     current: &'a [u8],
     len: usize,
     position: Position,
@@ -65,7 +80,7 @@ impl<'a> Buffer<'a> {
     pub(crate) fn new(buf: Vec<u8>, source_id: FileId, path_index: PathIndex) -> Self {
         let mut ret = Self {
             stack: Vec::new(),
-            preproc: Vec::new(),
+            preproc: OutBuf::default(),
             current: &[],
             len: buf.len(),
             position: Position::default(),
@@ -85,20 +100,20 @@ impl<'a> Buffer<'a> {
     }
 
     pub(crate) fn switch_to_preproc(&mut self) {
-        if self.preproc.is_empty() {
+        if self.preproc.buf.is_empty() {
             return;
         }
 
         self.saved_position = self.position.clone();
         self.saved_buf = self.current;
-        self.current = unsafe { &*std::mem::transmute::<&[u8], *const [u8]>(&self.preproc) };
+        self.current = unsafe { &*std::mem::transmute::<&[u8], *const [u8]>(&self.preproc.buf) };
         self.position = Position::default();
-        self.len = self.preproc.len();
+        self.len = self.preproc.buf.len();
     }
 
     #[inline(always)]
     pub(crate) fn preproc_use(&self) -> bool {
-        !self.preproc.is_empty()
+        !self.preproc.buf.is_empty()
     }
 
     #[inline(always)]
@@ -125,7 +140,7 @@ impl<'a> Buffer<'a> {
             self.current = self.saved_buf;
             self.len = self.current.len();
             self.position = self.saved_position.clone();
-            self.preproc.clear();
+            self.preproc.buf.clear();
             return true;
         }
 
@@ -199,7 +214,7 @@ impl<'a> Buffer<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_preproc_buf(&mut self) -> &mut Vec<u8> {
+    pub(crate) fn get_preproc_buf(&mut self) -> &mut OutBuf {
         &mut self.preproc
     }
 
@@ -243,6 +258,14 @@ impl<'a> Buffer<'a> {
         unsafe { *self.current.get_unchecked(self.position.pos - n) }
     }
 
+    pub(crate) fn as_str(&self) -> &'a str {
+        unsafe { std::str::from_utf8_unchecked(self.current) }
+    }
+
+    pub(crate) fn remainder_as_str(&self) -> &'a str {
+        unsafe { std::str::from_utf8_unchecked(&self.current[self.position.pos..]) }
+    }
+
     #[inline(always)]
     pub(crate) fn inc(&mut self) {
         self.position.pos += 1;
@@ -273,12 +296,12 @@ impl<'a> Buffer<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn has_char(&mut self) -> bool {
+    pub(crate) fn has_char(&self) -> bool {
         self.position.pos < self.len
     }
 
     #[inline(always)]
-    pub(crate) fn has_char_n(&mut self, n: usize) -> bool {
+    pub(crate) fn has_char_n(&self, n: usize) -> bool {
         self.position.pos + n < self.len
     }
 }
@@ -294,7 +317,7 @@ mod tests {
         assert_eq!(buf.next_char(), b'a');
         buf.inc();
 
-        buf.preproc.extend_from_slice(b"def");
+        buf.preproc.buf.extend_from_slice(b"def");
         buf.switch_to_preproc();
 
         assert_eq!(buf.next_char(), b'd');
