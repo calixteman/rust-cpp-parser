@@ -274,7 +274,7 @@ impl<'a> Args<'a> {
         self.opt.file = path;
 
         let mut i = 1;
-        while i < parts.len() - 1 {
+        while i < parts.len() {
             let part = &parts[i];
             if !part.starts_with('-') {
                 i += 1;

@@ -778,7 +778,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) }
     }
 
-    pub(crate) fn get_preproc_keyword(&mut self, eval: bool) -> Token {
+    pub(crate) fn get_preproc_keyword(&mut self) -> Token {
         let spos = self.buf.pos();
         loop {
             if self.buf.has_char() {
@@ -795,18 +795,32 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
-            if eval {
-                self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
-                    self.errors.push(error.clone());
-                    eprintln!("ERRRRRRRRRRor {:?}", error);
-                    Token::Eof
-                })
-            } else {
-                keyword.clone()
-            }
+            self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
+                self.errors.push(error.clone());
+                eprintln!("ERRRRRRRRRRor {:?}", error);
+                Token::Eof
+            })
         } else {
             Token::Identifier(id.to_string())
         }
+    }
+
+    pub(crate) fn get_preproc_name(&mut self) -> &'a [u8] {
+        let spos = self.buf.pos();
+        loop {
+            if self.buf.has_char() {
+                let c = self.buf.next_char();
+                let kind = unsafe { CHARS.get_unchecked(c as usize) };
+                if *kind != Kind::KEY {
+                    break;
+                }
+                self.buf.inc();
+            } else {
+                break;
+            }
+        }
+
+        &self.buf.slice(spos)
     }
 
     pub(crate) fn get_identifier_or_keyword(&mut self) -> Option<Token> {
@@ -1047,7 +1061,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub(crate) fn get_preproc(&mut self) -> Token {
         skip_whites!(self);
-        self.get_preproc_keyword(true)
+        self.get_preproc_keyword()
     }
 
     pub fn location(&self) -> Location {

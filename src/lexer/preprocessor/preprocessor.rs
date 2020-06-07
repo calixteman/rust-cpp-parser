@@ -172,14 +172,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let spos = self.buf.pos();
                 skip_until!(self, b'\n');
                 let sl = self.buf.slice(spos);
+                let span = self.span();
                 self.buf.inc();
                 self.buf.add_new_line();
                 let msg = String::from_utf8_lossy(&sl).to_string();
-                return Err(LexerError::ErrorDirective {
-                    sp: self.span(),
-                    msg,
-                });
-                Token::PreprocError
+                return Err(LexerError::ErrorDirective { sp: span, msg });
             }
             _ => instr,
         })
@@ -693,15 +690,26 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 // we've a hash at the beginning of a line
                 self.buf.inc();
                 skip_whites!(self);
-                let id = self.get_preproc_keyword(false);
-                match id {
-                    Token::PreprocIf => self.get_if(IfKind::If),
-                    Token::PreprocIfdef => self.get_if(IfKind::Ifdef),
-                    Token::PreprocIfndef => self.get_if(IfKind::Ifndef),
-                    Token::PreprocElif => self.get_elif(),
-                    Token::PreprocElse => self.get_else(),
-                    Token::PreprocEndif => self.get_endif()?,
-                    _ => false,
+                // we're looking only for an id starting with a 'i' or a 'e'
+                let c = self.buf.next_char();
+                if c == b'i' {
+                    self.buf.inc();
+                    match self.get_preproc_name() {
+                        b"f" => self.get_if(IfKind::If),
+                        b"fdef" => self.get_if(IfKind::Ifdef),
+                        b"ndef" => self.get_if(IfKind::Ifndef),
+                        _ => false,
+                    }
+                } else if c == b'e' {
+                    self.buf.inc();
+                    match self.get_preproc_name() {
+                        b"lif" => self.get_elif(),
+                        b"lse" => self.get_else(),
+                        b"ndif" => self.get_endif()?,
+                        _ => false,
+                    }
+                } else {
+                    false
                 }
             } else {
                 false
