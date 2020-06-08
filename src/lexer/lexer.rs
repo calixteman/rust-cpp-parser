@@ -552,6 +552,7 @@ impl<'a, PC: PreprocContext> TLexer for Lexer<'a, PC> {
     fn next_useful(&mut self) -> Token {
         loop {
             let tok = self.next_token();
+            //eprintln!("{:?} -- {:?} -- {:?}", tok, self.span(), self.context.get_path(self.buf.get_source_id().unwrap()));
             match tok {
                 Token::Comment | Token::Eol => {}
                 _ => {

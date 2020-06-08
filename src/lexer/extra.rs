@@ -56,7 +56,6 @@ impl<'l1, 'l2> TLexer for CombinedLexers<'l1, 'l2> {
         } else {
             self.second.next_useful()
         };
-        eprintln!("TOK: {:?}", tok);
         tok
     }
 

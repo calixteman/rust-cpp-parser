@@ -30,7 +30,9 @@ pub enum Operator {
     BitXor,
     BitOr,
     And,
+    FalseAnd,
     Or,
+    TrueOr,
     Question,
     Colon,
 }
@@ -119,9 +121,15 @@ impl Operator {
                 let b = stack.pop().unwrap();
                 stack.last_mut().unwrap().and(b);
             }
+            FalseAnd => {
+                stack.pop();
+            }
             Or => {
                 let b = stack.pop().unwrap();
                 stack.last_mut().unwrap().or(b);
+            }
+            TrueOr => {
+                stack.pop();
             }
             Colon => {
                 // a ? b : c
@@ -164,6 +172,21 @@ pub(crate) enum Int {
 }
 
 impl Int {
+    #[inline(always)]
+    fn as_bool(&self) -> bool {
+        match *self {
+            Int::Unsigned(x) => x != 0,
+            Int::Signed(x) => x != 0,
+        }
+    }
+
+    #[inline(always)]
+    fn to_bool(&mut self) -> bool {
+        let b = self.as_bool();
+        *self = Int::Unsigned(b as u64);
+        b
+    }
+
     #[inline(always)]
     fn minus(&mut self) {
         *self = match self {
@@ -461,8 +484,8 @@ fn precedence(op: Operator) -> (u32, Associativity) {
         BitAnd => (8, Associativity::LR),
         BitXor => (9, Associativity::LR),
         BitOr => (10, Associativity::LR),
-        And => (11, Associativity::LR),
-        Or => (12, Associativity::LR),
+        And | FalseAnd => (11, Associativity::LR),
+        Or | TrueOr => (12, Associativity::LR),
         Question | Colon => (13, Associativity::RL),
         _ => (0, Associativity::LR),
     }
@@ -515,6 +538,61 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     }
 
     #[inline(always)]
+    fn push_and(&mut self) {
+        loop {
+            if let Some(top) = self.operators.last() {
+                if *top != Operator::Parenthesis && check_precedence(*top, Operator::And) {
+                    let top = self.operators.pop().unwrap();
+                    top.operate(&mut self.operands);
+                    continue;
+                }
+            }
+            break;
+        }
+        let last = self.operands.last_mut().unwrap();
+        let op = if !last.to_bool() {
+            Operator::FalseAnd
+        } else {
+            Operator::And
+        };
+
+        self.last = LastKind::Operator;
+        self.operators.push(op);
+    }
+
+    #[inline(always)]
+    fn push_or(&mut self) {
+        loop {
+            if let Some(top) = self.operators.last() {
+                if *top != Operator::Parenthesis && check_precedence(*top, Operator::Or) {
+                    let top = self.operators.pop().unwrap();
+                    top.operate(&mut self.operands);
+                    continue;
+                }
+            }
+            break;
+        }
+        let last = self.operands.last_mut().unwrap();
+        let op = if last.to_bool() {
+            Operator::TrueOr
+        } else {
+            Operator::Or
+        };
+
+        self.last = LastKind::Operator;
+        self.operators.push(op);
+    }
+
+    #[inline(always)]
+    fn is_lazy_op(&self) -> bool {
+        if let Some(last) = self.operators.last() {
+            *last == Operator::FalseAnd || *last == Operator::TrueOr
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
     fn flush(&mut self) {
         while let Some(op) = self.operators.pop() {
             op.operate(&mut self.operands);
@@ -538,11 +616,17 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     #[inline(always)]
     fn handle_id(&mut self, id: &str) {
         if id == "defined" {
-            let x = self.lexer.get_defined();
+            let x = self.lexer.get_defined(self.is_lazy_op());
             self.operands.push(Int::Unsigned(x));
         } else {
             self.operands.push(Int::Unsigned(0));
         }
+        self.last = LastKind::Operand;
+    }
+
+    #[inline(always)]
+    fn push_zero(&mut self) {
+        self.operands.push(Int::Unsigned(0));
         self.last = LastKind::Operand;
     }
 
@@ -621,14 +705,27 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
                     self.push_operator(Operator::BitOr);
                 }
                 Token::AndAnd => {
-                    self.push_operator(Operator::And);
+                    if self.is_lazy_op() {
+                        self.push_operator(Operator::FalseAnd);
+                    } else {
+                        self.push_and();
+                    }
                 }
                 Token::OrOr => {
-                    self.push_operator(Operator::Or);
+                    if self.is_lazy_op() {
+                        self.push_operator(Operator::TrueOr);
+                    } else {
+                        self.push_or();
+                    }
                 }
                 Token::LeftParen => {
-                    self.operators.push(Operator::Parenthesis);
-                    self.last = LastKind::Operator;
+                    if self.is_lazy_op() {
+                        self.lexer.skip_until_matching_paren();
+                        self.push_zero();
+                    } else {
+                        self.operators.push(Operator::Parenthesis);
+                        self.last = LastKind::Operator;
+                    }
                 }
                 Token::RightParen => {
                     self.flush_until_paren();
@@ -728,10 +825,7 @@ impl<'a, 'b, PC: PreprocContext> Condition<'a, 'b, PC> {
     }
 
     pub(crate) fn eval_as_bool(&mut self) -> bool {
-        match self.eval() {
-            Int::Unsigned(x) => x != 0,
-            Int::Signed(x) => x != 0,
-        }
+        self.eval().as_bool()
     }
 }
 
@@ -897,6 +991,24 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(
             b"(1 | 2 | 4 | 1024 | 8 | 16 | 32) != (1 ^ 2 ^ 4 ^ 1024 ^ 8 ^ 16 ^ 32)",
         );
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(0));
+    }
+
+    #[test]
+    fn test_lazy_bool1() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"0 && (1 / 0)");
+        let mut cond = Condition::new(&mut lexer);
+        let res = cond.eval();
+
+        assert_eq!(res, Int::Unsigned(0));
+    }
+
+    #[test]
+    fn test_lazy_bool2() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"0 && 0 || (1 / 0)");
         let mut cond = Condition::new(&mut lexer);
         let res = cond.eval();
 

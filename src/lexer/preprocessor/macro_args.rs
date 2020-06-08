@@ -57,7 +57,7 @@ const MCHARS: [Kind; 256] = [
     // 50  P   51  Q      52  R      53  S      54  T      55  U      56  V      57  W
     Kind::IDE, Kind::IDE, Kind::IDR, Kind::IDE, Kind::IDE, Kind::IDU, Kind::IDE, Kind::IDE, //
     // 58  X   59  Y      5A  Z      5B  [      5C  \      5D  ]      5E  ^      5F  _
-    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::BAC, Kind::NON, Kind::IDE, Kind::IDE, //
+    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::BAC, Kind::NON, Kind::NON, Kind::IDE, //
     // 60  `   61  a      62  b      63  c      64  d      65  e      66  f      67  g
     Kind::NON, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, //
     // 68  h   69  i      6A  j      6B  k      6C  l      6D  m      6E  n      6F  o

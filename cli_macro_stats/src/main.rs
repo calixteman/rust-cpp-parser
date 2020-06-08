@@ -11,7 +11,7 @@ extern crate serde;
 extern crate serde_json;
 
 use clap::{App, Arg};
-use cpp_parser::args::{self, Command};
+use cpp_parser::args::Command;
 use cpp_parser::defaults;
 use cpp_parser::lexer::buffer::{BufferData, FileInfo};
 use cpp_parser::lexer::preprocessor::context::{DefaultContext, IfState, PreprocContext};
@@ -30,7 +30,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 use std::{process, thread};
 
 #[derive(Debug, PartialOrd, Ord, PartialEq, Serialize)]
@@ -98,7 +97,6 @@ impl PreprocContext for StatsContext {
     fn add_object(&mut self, name: String, mac: MacroObject) {
         let info = mac.get_file_info().clone();
         self.default.add_object(name.clone(), mac);
-        return;
         match self.stats.entry(name) {
             hash_map::Entry::Occupied(p) => {
                 let p = p.into_mut();
@@ -209,8 +207,9 @@ fn consumer(receiver: JobReceiver) {
         }
         let JobItem { cmd, source, stats } = job.unwrap();
         let file = cmd.file.to_str().unwrap();
+        //eprintln!("File {}", file);
 
-        if !file.contains("Unified_c_src_third_party0.c") {
+        if !file.contains("Unified_cpp_protocol_http3.cpp") {
             //continue;
         }
 
@@ -222,7 +221,7 @@ fn consumer(receiver: JobReceiver) {
 
         loop {
             let tok = lexer.next_useful();
-            //eprintln!("{:?}", tok);
+            //eprintln!("{:?} -- {:?}", tok, lexer.span());
             if tok == Token::Eof {
                 break;
             }
@@ -264,7 +263,7 @@ fn mk_globset(elems: clap::Values, files: clap::Values) -> GlobSet {
     for file in files {
         let mut file = File::open(file).unwrap();
         let mut content = String::new();
-        file.read_to_string(&mut content);
+        file.read_to_string(&mut content).unwrap();
         for line in content.split('\n').filter(|s| !s.is_empty()) {
             let mut glob = String::new();
             if !line.starts_with('/') {
@@ -377,7 +376,7 @@ fn main() {
         receivers.push(t);
     }
 
-    for (path, mut cmd) in map_cmds.drain() {
+    for (_, mut cmd) in map_cmds.drain() {
         cmd.opt
             .sys_paths
             .extend_from_slice(&defaults::get_sys_paths());
@@ -385,11 +384,13 @@ fn main() {
         def.extend_from_slice(&cmd.opt.def);
         cmd.opt.def = def;
 
-        sender.send(Some(JobItem {
-            cmd,
-            source: Arc::clone(&source),
-            stats: Arc::clone(&all_stats),
-        }));
+        sender
+            .send(Some(JobItem {
+                cmd,
+                source: Arc::clone(&source),
+                stats: Arc::clone(&all_stats),
+            }))
+            .unwrap();
     }
 
     // Poison the receiver, now that the producer is finished.

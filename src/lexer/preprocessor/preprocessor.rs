@@ -56,7 +56,7 @@ pub(crate) const PPCHARS: [Kind; 256] = [
     // 50  P   51  Q      52  R      53  S      54  T      55  U      56  V      57  W
     Kind::IDE, Kind::IDE, Kind::IDR, Kind::IDE, Kind::IDE, Kind::IDU, Kind::IDE, Kind::IDE, //
     // 58  X   59  Y      5A  Z      5B  [      5C  \      5D  ]      5E  ^      5F  _
-    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::BAC, Kind::NON, Kind::IDE, Kind::IDE, //
+    Kind::IDE, Kind::IDE, Kind::IDE, Kind::NON, Kind::BAC, Kind::NON, Kind::NON, Kind::IDE, //
     // 60  `   61  a      62  b      63  c      64  d      65  e      66  f      67  g
     Kind::NON, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, Kind::IDE, //
     // 68  h   69  i      6A  j      6B  k      6C  l      6D  m      6E  n      6F  o
@@ -180,6 +180,26 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             }
             _ => instr,
         })
+    }
+
+    #[inline(always)]
+    pub(crate) fn skip_until_matching_paren(&mut self) {
+        // Used to skip unevaluated part of or/and operator in condition
+        let mut level = 0;
+        loop {
+            let tok = self.next_token();
+            if tok == Token::RightParen {
+                if level == 0 {
+                    break;
+                } else {
+                    level -= 1;
+                }
+            } else if tok == Token::LeftParen {
+                level += 1;
+            } else if tok == Token::Eol || tok == Token::Eof {
+                break;
+            }
+        }
     }
 
     #[inline(always)]
@@ -697,7 +717,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     match self.get_preproc_name() {
                         b"f" => self.get_if(IfKind::If),
                         b"fdef" => self.get_if(IfKind::Ifdef),
-                        b"ndef" => self.get_if(IfKind::Ifndef),
+                        b"fndef" => self.get_if(IfKind::Ifndef),
                         _ => false,
                     }
                 } else if c == b'e' {
@@ -823,7 +843,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_defined(&mut self) -> u64 {
+    pub(crate) fn get_defined(&mut self, skip: bool) -> u64 {
         skip_whites!(self);
         if self.buf.has_char() {
             let c = self.buf.next_char();
@@ -842,7 +862,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             } else {
                 self.get_preproc_identifier()
             };
-            return self.context.defined(name) as u64;
+            if !skip {
+                return self.context.defined(name) as u64;
+            }
         }
 
         0
