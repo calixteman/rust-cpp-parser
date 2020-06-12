@@ -3,7 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -56,8 +56,9 @@ impl DefaultIncludeLocator {
 
     fn read_file(path: &PathBuf) -> Option<Vec<u8>> {
         //eprintln!("PATH {:?}", path);
+        let file_size = fs::metadata(&path).map_or(1024 * 1024, |m| m.len() as usize);
         if let Ok(mut file) = File::open(path) {
-            let mut data = Vec::new();
+            let mut data = Vec::with_capacity(file_size + 1);
             file.read_to_end(&mut data).unwrap();
             Some(data)
         } else {
