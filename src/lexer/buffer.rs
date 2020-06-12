@@ -6,10 +6,19 @@
 use super::preprocessor::include::PathIndex;
 use super::source::FileId;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct OutBuf {
     pub(crate) buf: Vec<u8>,
     pub(crate) last: Option<String>,
+}
+
+impl Default for OutBuf {
+    fn default() -> Self {
+        Self {
+            buf: Vec::with_capacity(512),
+            last: None,
+        }
+    }
 }
 
 impl OutBuf {
@@ -22,10 +31,10 @@ impl OutBuf {
 }
 
 #[derive(Debug, Clone)]
-struct Position {
-    pos: usize,
-    line: u32,
-    lpos: usize,
+pub struct Position {
+    pub(crate) pos: usize,
+    pub(crate) line: u32,
+    pub(crate) lpos: usize,
 }
 
 impl Default for Position {
@@ -204,8 +213,18 @@ impl<'a> Buffer<'a> {
     }
 
     #[inline(always)]
+    pub(crate) fn raw_pos(&self) -> Position {
+        self.position.clone()
+    }
+
+    #[inline(always)]
     pub(crate) fn set_pos(&mut self, pos: usize) {
         self.position.pos = pos;
+    }
+
+    #[inline(always)]
+    pub(crate) fn reset_pos(&mut self, pos: Position) {
+        self.position = pos;
     }
 
     #[inline(always)]

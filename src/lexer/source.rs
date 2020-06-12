@@ -3,10 +3,9 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use hashbrown::{hash_map, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-
-use hashbrown::{hash_map, HashMap};
 
 #[derive(Debug, Clone, Copy, Default, Hash, PartialEq)]
 pub struct FileId(pub u32);

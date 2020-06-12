@@ -389,11 +389,14 @@ mod tests {
                     _ => return None,
                 }
             };
-            Some(BufferData::new(buf, FileId(0), PathIndex(0)))
+            let id = path[4..].parse::<u32>().unwrap();
+            Some(BufferData::new(buf, FileId(id), PathIndex(0)))
         }
 
-        fn get_id(&mut self, _path: &PathBuf) -> FileId {
-            FileId(0)
+        fn get_id(&mut self, path: &PathBuf) -> FileId {
+            let path = path.to_str().unwrap();
+            let id = path[4..].parse::<u32>().unwrap();
+            FileId(id)
         }
 
         fn get_path(&self, _id: FileId) -> PathBuf {

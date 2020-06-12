@@ -6,6 +6,7 @@
 pub mod context;
 pub use self::context::*;
 
+pub mod cache;
 pub mod include;
 pub mod macros;
 

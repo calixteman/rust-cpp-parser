@@ -13,7 +13,8 @@ extern crate serde_json;
 use clap::{App, Arg};
 use cpp_parser::args::Command;
 use cpp_parser::defaults;
-use cpp_parser::lexer::buffer::{BufferData, FileInfo};
+use cpp_parser::lexer::buffer::{BufferData, FileInfo, Position};
+use cpp_parser::lexer::preprocessor::cache::IfCache;
 use cpp_parser::lexer::preprocessor::context::{DefaultContext, IfState, PreprocContext};
 use cpp_parser::lexer::preprocessor::include::{IncludeLocator, PathIndex};
 use cpp_parser::lexer::preprocessor::macros::{Macro, MacroFunction, MacroObject, MacroType};
@@ -152,6 +153,25 @@ impl PreprocContext for StatsContext {
         }
         typ
     }
+
+    fn skip_until_next(&self, file: FileId, pos: usize) -> Option<Position> {
+        self.default.skip_until_next(file, pos)
+    }
+
+    fn save_switch(&self, file: FileId, pos: usize, next: Position) {
+        self.default.save_switch(file, pos, next);
+    }
+
+    fn new_with_if_cache(if_cache: Arc<IfCache>) -> Self {
+        Self {
+            default: DefaultContext::new_with_if_cache(if_cache),
+            stats: HashMap::default(),
+        }
+    }
+
+    fn toto(&self) -> Vec<IfState> {
+        self.default.toto()
+    }
 }
 
 impl IncludeLocator for StatsContext {
@@ -193,6 +213,7 @@ impl Eq for Key {}
 
 struct JobItem {
     cmd: Command,
+    if_cache: Arc<IfCache>,
     source: SourceMutex,
     stats: Arc<Mutex<HashMap<Key, usize>>>,
 }
@@ -205,17 +226,23 @@ fn consumer(receiver: JobReceiver) {
         if job.is_none() {
             break;
         }
-        let JobItem { cmd, source, stats } = job.unwrap();
+        let JobItem {
+            cmd,
+            if_cache,
+            source,
+            stats,
+        } = job.unwrap();
         let file = cmd.file.to_str().unwrap();
         //eprintln!("File {}", file);
 
-        if !file.contains("Unified_cpp_protocol_http3.cpp") {
+        if !file.contains("ecp_25519.c") {
             //continue;
         }
 
         let mut lexer = Lexer::<StatsContext>::new_from_file(
             cmd.file.to_str().unwrap(),
-            source.clone(),
+            source,
+            if_cache,
             cmd.opt,
         );
 
@@ -344,6 +371,7 @@ fn main() {
 
     let all_stats = Arc::new(Mutex::new(HashMap::default()));
     let source = source::get_source_mutex();
+    let if_cache = Arc::new(IfCache::default());
     let mut cmds = Command::from_json(&database);
     let mut map_cmds: HashMap<PathBuf, Command> = HashMap::default();
     for mut cmd in cmds.drain(..) {
@@ -387,6 +415,7 @@ fn main() {
         sender
             .send(Some(JobItem {
                 cmd,
+                if_cache: Arc::clone(&if_cache),
                 source: Arc::clone(&source),
                 stats: Arc::clone(&all_stats),
             }))

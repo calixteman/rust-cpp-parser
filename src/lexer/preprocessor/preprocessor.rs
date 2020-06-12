@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 use super::condition::Condition;
 use super::context::{IfKind, IfState, PreprocContext};
 use super::macros::{Action, Macro, MacroFunction, MacroObject, MacroType};
-use crate::lexer::buffer::{FileInfo, OutBuf};
+use crate::lexer::buffer::{FileInfo, OutBuf, Position};
 use crate::lexer::errors::LexerError;
 use crate::lexer::lexer::{Lexer, TLexer, Token};
 use crate::lexer::string::StringType;
@@ -105,7 +105,7 @@ pub enum MacroToken<'a> {
 
 impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
-    pub fn preproc_parse(&mut self, instr: Token) -> Result<Token, LexerError> {
+    pub fn preproc_parse(&mut self, instr: Token, pos: Position) -> Result<Token, LexerError> {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
         Ok(match instr {
@@ -122,37 +122,37 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 Token::PreprocUndef
             }
             Token::PreprocIf => {
-                if !self.get_if(IfKind::If) {
+                if !self.get_if(IfKind::If, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocIf
             }
             Token::PreprocIfdef => {
-                if !self.get_if(IfKind::Ifdef) {
+                if !self.get_if(IfKind::Ifdef, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocIfdef
             }
             Token::PreprocIfndef => {
-                if !self.get_if(IfKind::Ifndef) {
+                if !self.get_if(IfKind::Ifndef, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocIfndef
             }
             Token::PreprocElif => {
-                if !self.get_elif() {
+                if !self.get_elif(pos) {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocElif
             }
             Token::PreprocElse => {
-                if !self.get_else() {
+                if !self.get_else(pos) {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocElse
             }
             Token::PreprocEndif => {
-                if !self.get_endif()? {
+                if !self.get_endif(pos)? {
                     self.skip_until_else_endif()?;
                 }
                 Token::PreprocEndif
@@ -707,6 +707,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         Ok(if self.buf.has_char() {
             let c = self.buf.next_char();
             if c == b'#' {
+                let raw_pos = self.buf.raw_pos();
                 // we've a hash at the beginning of a line
                 self.buf.inc();
                 skip_whites!(self);
@@ -715,17 +716,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 if c == b'i' {
                     self.buf.inc();
                     match self.get_preproc_name() {
-                        b"f" => self.get_if(IfKind::If),
-                        b"fdef" => self.get_if(IfKind::Ifdef),
-                        b"fndef" => self.get_if(IfKind::Ifndef),
+                        b"f" => self.get_if(IfKind::If, raw_pos.pos),
+                        b"fdef" => self.get_if(IfKind::Ifdef, raw_pos.pos),
+                        b"fndef" => self.get_if(IfKind::Ifndef, raw_pos.pos),
                         _ => false,
                     }
                 } else if c == b'e' {
                     self.buf.inc();
                     match self.get_preproc_name() {
-                        b"lif" => self.get_elif(),
-                        b"lse" => self.get_else(),
-                        b"ndif" => self.get_endif()?,
+                        b"lif" => self.get_elif(raw_pos),
+                        b"lse" => self.get_else(raw_pos),
+                        b"ndif" => self.get_endif(raw_pos)?,
                         _ => false,
                     }
                 } else {
@@ -740,9 +741,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_if(&mut self, kind: IfKind) -> bool {
+    pub(crate) fn get_if(&mut self, kind: IfKind, pos: usize) -> bool {
         let must_eval = if let Some(state) = self.context.if_state() {
-            *state == IfState::Eval
+            std::mem::discriminant(state) == std::mem::discriminant(&IfState::Eval(0))
         } else {
             true
         };
@@ -765,39 +766,79 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
             };
 
             if condition {
-                self.context.add_if(IfState::Eval);
+                self.context.add_if(IfState::Eval(pos));
                 true
             } else {
-                self.context.add_if(IfState::SkipAndSwitch);
+                if let Some(next) = self
+                    .context
+                    .skip_until_next(self.buf.get_source_id().unwrap(), pos)
+                {
+                    self.buf.reset_pos(next);
+                }
+                self.context.add_if(IfState::SkipAndSwitch(pos));
                 false
             }
         } else {
-            self.context.add_if(IfState::Skip);
+            self.context.add_if(IfState::Skip(pos));
             false
         }
     }
 
     #[inline(always)]
-    pub(crate) fn get_elif(&mut self) -> bool {
+    pub(crate) fn get_elif(&mut self, pos: Position) -> bool {
         // elif == else if
-        if self.get_else() {
-            self.get_if(IfKind::If)
-        } else {
-            false
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_else(&mut self) -> bool {
         if let Some(state) = self.context.if_state() {
+            let file_id = self.buf.get_source_id().unwrap();
+            let spos = pos.pos;
             match state {
-                IfState::Eval => {
-                    self.context.if_change(IfState::Skip);
+                IfState::Eval(prev) => {
+                    if let Some(next) = self.context.skip_until_next(file_id, spos) {
+                        self.buf.reset_pos(next);
+                    } else {
+                        self.context.save_switch(file_id, *prev, pos);
+                    }
+                    self.context.if_change(IfState::Skip(spos));
                     false
                 }
-                IfState::Skip => false,
-                IfState::SkipAndSwitch => {
-                    self.context.if_change(IfState::Eval);
+                IfState::Skip(prev) => {
+                    self.context.save_switch(file_id, *prev, pos);
+                    self.context.if_change(IfState::Skip(spos));
+                    false
+                }
+                IfState::SkipAndSwitch(prev) => {
+                    self.context.save_switch(file_id, *prev, pos);
+                    self.context.rm_if();
+                    self.get_if(IfKind::If, spos)
+                }
+            }
+        } else {
+            unreachable!();
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn get_else(&mut self, pos: Position) -> bool {
+        if let Some(state) = self.context.if_state() {
+            let file_id = self.buf.get_source_id().unwrap();
+            let spos = pos.pos;
+            match state {
+                IfState::Eval(prev) => {
+                    if let Some(next) = self.context.skip_until_next(file_id, spos) {
+                        self.buf.reset_pos(next);
+                    } else {
+                        self.context.save_switch(file_id, *prev, pos);
+                    }
+                    self.context.if_change(IfState::Skip(spos));
+                    false
+                }
+                IfState::Skip(prev) => {
+                    self.context.save_switch(file_id, *prev, pos);
+                    self.context.if_change(IfState::Skip(spos));
+                    false
+                }
+                IfState::SkipAndSwitch(prev) => {
+                    self.context.save_switch(file_id, *prev, pos);
+                    self.context.if_change(IfState::Eval(spos));
                     true
                 }
             }
@@ -807,11 +848,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     }
 
     #[inline(always)]
-    pub(crate) fn get_endif(&mut self) -> Result<bool, LexerError> {
-        if self.context.if_state().is_some() {
+    pub(crate) fn get_endif(&mut self, pos: Position) -> Result<bool, LexerError> {
+        if let Some(state) = self.context.if_state() {
+            let file_id = self.buf.get_source_id().unwrap();
+            let prev = match state {
+                IfState::Eval(prev) | IfState::Skip(prev) | IfState::SkipAndSwitch(prev) => *prev,
+            };
+
+            self.context.save_switch(file_id, prev, pos);
             self.context.rm_if();
             Ok(if let Some(state) = self.context.if_state() {
-                *state == IfState::Eval
+                std::mem::discriminant(state) == std::mem::discriminant(&IfState::Eval(0))
             } else {
                 true
             })
@@ -826,6 +873,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
         skip_whites!(self);
         let name = self.get_preproc_identifier();
+        //self.debug(&format!("DEFINE {}", name));
         if self.buf.has_char() {
             let c = self.buf.next_char();
             if c == b'(' {
@@ -874,6 +922,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     pub(crate) fn get_undef(&mut self) {
         skip_whites!(self);
         let name = self.get_preproc_identifier();
+        //self.debug(&format!("UNDEF {}", name));
         self.context.undef(name);
     }
 }
@@ -882,8 +931,11 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 mod tests {
 
     use super::*;
+    use crate::lexer::preprocessor::cache::IfCache;
     use crate::lexer::preprocessor::context::DefaultContext;
+    use crate::lexer::source::FileId;
     use pretty_assertions::assert_eq;
+    use std::sync::Arc;
 
     #[test]
     fn test_parse_args() {
@@ -1208,6 +1260,34 @@ mod tests {
     }
 
     #[test]
+    fn test_elif_4() {
+        let mut p = Lexer::<DefaultContext>::new(
+            concat!(
+                "#define foo 123\n",
+                "#if 0\n",
+                "hello\n",
+                "#elif 0\n",
+                "# if 1\n",
+                "# endif\n",
+                "# define foo 456\n",
+                "#else\n",
+                "# define foo 789\n",
+                "#endif\n",
+                "foo"
+            )
+            .as_bytes(),
+        );
+
+        assert_eq!(p.next_token(), Token::PreprocDefine);
+        assert_eq!(p.next_token(), Token::PreprocIf);
+        assert_eq!(p.next_token(), Token::Eol);
+        assert_eq!(p.next_token(), Token::PreprocDefine);
+        assert_eq!(p.next_token(), Token::PreprocEndif);
+        assert_eq!(p.next_token(), Token::Eol);
+        assert_eq!(p.next_token(), Token::LiteralInt(789));
+    }
+
+    #[test]
     fn test_line() {
         let mut p = Lexer::<DefaultContext>::new(
             concat!(
@@ -1288,6 +1368,99 @@ mod tests {
             assert_eq!(sp.end.pos, 19);
         } else {
             panic!("mismatch. Was: {:?}", p.errors[0]);
+        }
+    }
+
+    #[test]
+    fn test_if_cache1() {
+        let cache = Arc::new(IfCache::default());
+        let buf = br#"
+#if 0
+0
+1
+2
+   #else
+3
+4
+#endif
+"#
+        .to_vec();
+        for _ in 0..3 {
+            let context = DefaultContext::new_with_if_cache(Arc::clone(&cache));
+            let mut p = Lexer::new_with_context(&buf, FileId(0), context);
+
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::PreprocIf);
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::LiteralInt(3));
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::LiteralInt(4));
+            assert_eq!(p.next_token(), Token::Eol);
+
+            assert_eq!(cache.get_next(FileId(0), 1).map(|p| p.pos), Some(16));
+        }
+    }
+
+    #[test]
+    fn test_if_cache2() {
+        let cache = Arc::new(IfCache::default());
+        let buf = br#"
+#if 0
+0
+1
+2
+3
+4
+#endif
+5
+"#
+        .to_vec();
+        for _ in 0..3 {
+            let context = DefaultContext::new_with_if_cache(Arc::clone(&cache));
+            let mut p = Lexer::new_with_context(&buf, FileId(0), context);
+
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::PreprocIf);
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::LiteralInt(5));
+
+            assert_eq!(cache.get_next(FileId(0), 1).map(|p| p.pos), Some(17));
+        }
+    }
+
+    #[test]
+    fn test_if_cache3() {
+        let cache = Arc::new(IfCache::default());
+        let buf = br#"
+#if 1
+0
+1
+2
+#else
+3
+4
+5
+#endif
+"#
+        .to_vec();
+        for _ in 0..3 {
+            let context = DefaultContext::new_with_if_cache(Arc::clone(&cache));
+            let mut p = Lexer::new_with_context(&buf, FileId(0), context);
+
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::PreprocIf);
+            assert_eq!(p.next_token(), Token::LiteralInt(0));
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::LiteralInt(1));
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::LiteralInt(2));
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::PreprocElse);
+            assert_eq!(p.next_token(), Token::Eol);
+            assert_eq!(p.next_token(), Token::Eof);
+
+            assert_eq!(cache.get_next(FileId(0), 1).map(|p| p.pos), Some(13));
+            assert_eq!(cache.get_next(FileId(0), 13).map(|p| p.pos), Some(25));
         }
     }
 }

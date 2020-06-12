@@ -5,13 +5,15 @@
 
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use super::buffer::{Buffer, BufferData};
+use super::buffer::{Buffer, BufferData, Position};
 use super::errors::LexerError;
 use super::extra::SavedLexer;
+use super::preprocessor::cache::IfCache;
 use super::preprocessor::context::PreprocContext;
 use super::preprocessor::include::PathIndex;
 use super::source::{FileId, SourceMutex};
@@ -641,21 +643,27 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub fn new_from_file(file: &str, source: SourceMutex, opt: args::PreprocOptions) -> Self {
+    pub fn new_from_file(
+        file: &str,
+        source: SourceMutex,
+        if_cache: Arc<IfCache>,
+        opt: args::PreprocOptions,
+    ) -> Self {
         let path = PathBuf::from(file); //std::fs::canonicalize(file).unwrap();
                                         //let path = std::fs::canonicalize(file).unwrap();
+        let file_size = fs::metadata(&path).map_or(1024 * 1024, |m| m.len() as usize);
         let mut file = File::open(&path).unwrap();
-        let mut data = Vec::new();
+        let mut data = Vec::with_capacity(file_size + 1);
         file.read_to_end(&mut data).unwrap();
 
-        let mut context = PC::default();
+        let mut context = PC::new_with_if_cache(if_cache);
         context.set_source(source);
         let source_id = context.get_id(&path);
         let mut buffer = Buffer::new(data, source_id, PathIndex(0));
 
         context.set_sys_paths(&opt.sys_paths);
 
-        let mut cl = Vec::new();
+        let mut cl = Vec::with_capacity(16384);
         if opt.lang == args::Language::CPP {
             // TODO: be more smart here
             cl.extend_from_slice(b"#define __cplusplus 201703L\n");
@@ -744,9 +752,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
     pub fn debug(&self, msg: &str) {
         eprintln!(
-            "DEBUG ({}): line {} in file {:?}",
+            "DEBUG ({}): line {} in file ({:?}) {:?}",
             msg,
             self.get_line(),
+            self.buf.get_source_id().unwrap(),
             self.context.get_path(self.buf.get_source_id().unwrap())
         );
     }
@@ -779,7 +788,7 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) }
     }
 
-    pub(crate) fn get_preproc_keyword(&mut self) -> Token {
+    pub(crate) fn get_preproc_keyword(&mut self, pos: Position) -> Token {
         let spos = self.buf.pos();
         loop {
             if self.buf.has_char() {
@@ -796,11 +805,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
-            self.preproc_parse(keyword.clone()).unwrap_or_else(|error| {
-                self.errors.push(error.clone());
-                eprintln!("ERRRRRRRRRRor {:?}", error);
-                Token::Eof
-            })
+            self.preproc_parse(keyword.clone(), pos)
+                .unwrap_or_else(|error| {
+                    self.errors.push(error.clone());
+                    eprintln!("ERRRRRRRRRRor {:?}", error);
+                    Token::Eof
+                })
         } else {
             Token::Identifier(id.to_string())
         }
@@ -1060,9 +1070,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
         }
     }
 
-    pub(crate) fn get_preproc(&mut self) -> Token {
+    pub(crate) fn get_preproc(&mut self, pos: Position) -> Token {
         skip_whites!(self);
-        self.get_preproc_keyword()
+        self.get_preproc_keyword(pos)
     }
 
     pub fn location(&self) -> Location {
@@ -1095,7 +1105,9 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         return self.get_string(StringType::None);
                     }
                     b'#' => {
-                        return self.get_preproc();
+                        let mut pos = self.buf.raw_pos();
+                        pos.pos -= 1;
+                        return self.get_preproc(pos.clone());
                     }
                     b'$' => {
                         return Token::Dollar;

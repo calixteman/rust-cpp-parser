@@ -5,23 +5,25 @@
 
 use hashbrown::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use super::cache::IfCache;
 use super::include::{DefaultIncludeLocator, IncludeLocator, PathIndex};
 use super::macros::{
     Macro, MacroCounter, MacroFile, MacroFunction, MacroLine, MacroObject, MacroType,
 };
-use crate::lexer::buffer::BufferData;
+use crate::lexer::buffer::{BufferData, Position};
 use crate::lexer::source::{FileId, SourceMutex};
 
 /// Indicate the state of the if statement
 /// Eval: indicates that we're evaluating the tokens
 /// Skip: indicates that we're skipping everything until the corresponding endif
-/// SkipAndSwitch: indicates that  we're skipping until the else (if one)
+/// SkipAndSwitch: indicates that we're skipping until the else (if one)
 #[derive(Clone, Debug, PartialEq)]
 pub enum IfState {
-    Eval,
-    Skip,
-    SkipAndSwitch,
+    Eval(usize),
+    Skip(usize),
+    SkipAndSwitch(usize),
 }
 
 pub trait PreprocContext: Default + IncludeLocator {
@@ -56,6 +58,21 @@ pub trait PreprocContext: Default + IncludeLocator {
 
     /// Get MacroType
     fn get_type(&self, name: &str) -> MacroType;
+
+    /// The first time the file is preprocessed, we can save the positions of
+    /// #if, #else, #elif and #endif.
+    /// And when the file is read a second time then it's possible to directly
+    /// jump to the matching preproc element according to the condition
+    fn skip_until_next(&self, file: FileId, pos: usize) -> Option<Position>;
+
+    /// Save the position of matching #if/#else|#endif
+    fn save_switch(&self, file: FileId, pos: usize, next: Position);
+
+    fn new_with_if_cache(if_cache: Arc<IfCache>) -> Self;
+
+    fn toto(&self) -> Vec<IfState> {
+        Vec::new()
+    }
 }
 
 #[derive(Default)]
@@ -87,6 +104,16 @@ impl PreprocContext for EmptyContext {
 
     fn get_type(&self, _name: &str) -> MacroType {
         MacroType::None
+    }
+
+    fn skip_until_next(&self, _file: FileId, _pos: usize) -> Option<Position> {
+        None
+    }
+
+    fn save_switch(&self, _file: FileId, _pos: usize, _next: Position) {}
+
+    fn new_with_if_cache(_if_cache: Arc<IfCache>) -> Self {
+        Self {}
     }
 }
 
@@ -126,6 +153,7 @@ pub enum IfKind {
 pub struct Context<IL: IncludeLocator> {
     macros: HashMap<String, Macro>,
     if_stack: Vec<IfState>,
+    if_cache: Arc<IfCache>,
     include: IL,
     buffer: Option<()>,
 }
@@ -146,6 +174,7 @@ impl<IL: IncludeLocator> Default for Context<IL> {
                 map
             },
             if_stack: Vec::new(),
+            if_cache: Arc::new(IfCache::default()),
             include: IL::default(),
             buffer: None,
         }
@@ -157,6 +186,7 @@ impl<IL: IncludeLocator> Context<IL> {
         Self {
             macros: HashMap::default(),
             if_stack: Vec::new(),
+            if_cache: Arc::new(IfCache::default()),
             include,
             buffer: None,
         }
@@ -233,6 +263,28 @@ impl<IL: IncludeLocator> PreprocContext for Context<IL> {
             MacroType::None
         }
     }
+
+    fn skip_until_next(&self, file: FileId, pos: usize) -> Option<Position> {
+        self.if_cache.get_next(file, pos)
+    }
+
+    fn save_switch(&self, file: FileId, pos: usize, next: Position) {
+        self.if_cache.save_next(file, pos, next);
+    }
+
+    fn new_with_if_cache(if_cache: Arc<IfCache>) -> Self {
+        Self {
+            macros: HashMap::default(),
+            if_stack: Vec::new(),
+            if_cache,
+            include: IL::default(),
+            buffer: None,
+        }
+    }
+
+    fn toto(&self) -> Vec<IfState> {
+        self.if_stack.clone()
+    }
 }
 
 impl<IL: IncludeLocator> IncludeLocator for Context<IL> {
@@ -263,146 +315,3 @@ impl<IL: IncludeLocator> IncludeLocator for Context<IL> {
         self.include.set_sys_paths(paths);
     }
 }
-
-/*#[derive(Clone, Debug)]
-pub struct Stats {
-    pub info: FileInfo,
-    pub counter: Cell<usize>,
-}
-
-#[derive(Default)]
-pub struct StatsContext {
-    default: DefaultContext,
-    stats: HashMap<String, Stats>,
-    toto: HashMap<(String, FileInfo), usize>,
-}
-
-impl StatsContext {
-    pub fn get_stats(&self) -> &HashMap<String, Stats> {
-        &self.stats
-    }
-}
-
-impl PreprocContext for StatsContext {
-    fn add_if(&mut self, state: IfState) {
-        self.default.add_if(state);
-    }
-
-    fn rm_if(&mut self) {
-        self.default.rm_if();
-    }
-
-    fn if_state(&self) -> Option<&IfState> {
-        self.default.if_state()
-    }
-
-    fn if_change(&mut self, state: IfState) {
-        self.default.if_change(state);
-    }
-
-    fn add_function(&mut self, name: String, mac: MacroFunction) {
-        let info = mac.file_info.clone();
-        self.default.add_function(name.clone(), mac);
-        match self.stats.entry(name) {
-            hash_map::Entry::Occupied(p) => {
-                let p = p.into_mut();
-                p.info = info;
-            }
-            hash_map::Entry::Vacant(p) => {
-                p.insert(Stats {
-                    info,
-                    counter: Cell::new(0),
-                });
-            }
-        }
-    }
-
-    fn add_object(&mut self, name: String, mac: MacroObject) {
-        let info = mac.file_info.clone();
-        self.default.add_object(name.clone(), mac);
-        match self.stats.entry(name) {
-            hash_map::Entry::Occupied(p) => {
-                let p = p.into_mut();
-                p.info = info;
-            }
-            hash_map::Entry::Vacant(p) => {
-                p.insert(Stats {
-                    info,
-                    counter: Cell::new(0),
-                });
-            }
-        }
-    }
-
-    fn undef(&mut self, name: &str) {
-        self.default.undef(name);
-    }
-
-    fn defined(&mut self, name: &str) -> bool {
-        if self.default.defined(name) {
-            if let Some(stat) = self.stats.get(name) {
-                stat.counter.set(stat.counter.get() + 1);
-            }
-            true
-        } else {
-            self.stats.insert(
-                name.to_string(),
-                Stats {
-                    info: FileInfo::default(),
-                    counter: Cell::new(1),
-                },
-            );
-            false
-        }
-    }
-
-    fn get(&self, name: &str) -> Option<&Macro> {
-        let mac = self.default.get(name);
-        if mac.is_some() {
-            if let Some(stat) = self.stats.get(name) {
-                stat.counter.set(stat.counter.get() + 1);
-            }
-        }
-        mac
-    }
-
-    fn get_type(&self, name: &str) -> MacroType {
-        let typ = self.default.get_type(name);
-        if let MacroType::Object(_) = typ {
-            if let Some(stat) = self.stats.get(name) {
-                stat.counter.set(stat.counter.get() + 1);
-            }
-        }
-        typ
-    }
-}
-
-impl IncludeLocator for StatsContext {
-    fn find(
-        &mut self,
-        angle: bool,
-        path: &str,
-        next: bool,
-        current: FileId,
-        path_index: PathIndex,
-    ) -> Option<BufferData> {
-        self.default.find(angle, path, next, current, path_index)
-    }
-
-    fn get_id(&mut self, path: &PathBuf) -> FileId {
-        self.default.get_id(path)
-    }
-
-    fn get_path(&self, id: FileId) -> PathBuf {
-        self.default.get_path(id)
-    }
-
-    fn set_source(&mut self, source: SourceMutex) {
-        self.default.set_source(source)
-    }
-
-    fn set_sys_paths<P: AsRef<Path>>(&mut self, paths: &[P]) {
-        self.default.set_sys_paths(paths);
-    }
-}
-*/
