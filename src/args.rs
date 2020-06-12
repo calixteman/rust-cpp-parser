@@ -360,19 +360,31 @@ pub struct Command {
     pub file: PathBuf,
 }
 
-impl Command {
-    pub fn from_json(path: &str) -> Vec<Command> {
+pub struct CompilationDB {
+    vec: Vec<JsonCommand>,
+}
+
+impl Iterator for CompilationDB {
+    type Item = Command;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(jc) = self.vec.pop() {
+            let mut opt = Args::get_options(jc.command.as_bytes());
+            opt.current_dir = jc.directory;
+            Some(Command { opt, file: jc.file })
+        } else {
+            None
+        }
+    }
+}
+
+impl CompilationDB {
+    pub fn from_json(path: &str) -> CompilationDB {
         let mut file = File::open(&path).unwrap();
         let mut data = Vec::new();
         file.read_to_end(&mut data).unwrap();
-        let mut r: Vec<JsonCommand> = serde_json::de::from_slice(&data).unwrap();
-        r.drain(..)
-            .map(|c| {
-                let mut opt = Args::get_options(c.command.as_bytes());
-                opt.current_dir = c.directory;
-                Command { opt, file: c.file }
-            })
-            .collect()
+        let vec: Vec<JsonCommand> = serde_json::de::from_slice(&data).unwrap();
+        CompilationDB { vec }
     }
 }
 

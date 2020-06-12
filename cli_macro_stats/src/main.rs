@@ -11,7 +11,7 @@ extern crate serde;
 extern crate serde_json;
 
 use clap::{App, Arg};
-use cpp_parser::args::Command;
+use cpp_parser::args::{Command, CompilationDB};
 use cpp_parser::defaults;
 use cpp_parser::lexer::buffer::{BufferData, FileInfo, Position};
 use cpp_parser::lexer::preprocessor::cache::IfCache;
@@ -23,7 +23,7 @@ use cpp_parser::lexer::{Lexer, TLexer, Token};
 use crossbeam::channel::{Receiver, Sender};
 use crossbeam::crossbeam_channel::unbounded;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use hashbrown::{hash_map, HashMap};
+use hashbrown::{hash_map, HashMap, HashSet};
 use num_cpus;
 use std::cell::Cell;
 use std::collections::BTreeSet;
@@ -372,21 +372,6 @@ fn main() {
     let all_stats = Arc::new(Mutex::new(HashMap::default()));
     let source = source::get_source_mutex();
     let if_cache = Arc::new(IfCache::default());
-    let mut cmds = Command::from_json(&database);
-    let mut map_cmds: HashMap<PathBuf, Command> = HashMap::default();
-    for mut cmd in cmds.drain(..) {
-        let file = if cmd.opt.file.is_absolute() {
-            cmd.opt.file.clone()
-        } else {
-            cmd.opt.current_dir.join(&cmd.opt.file)
-        };
-        if file.exists() {
-            if !map_cmds.contains_key(&file) {
-                cmd.file = file.clone();
-                map_cmds.insert(file.clone(), cmd);
-            }
-        }
-    }
 
     let (sender, receiver) = unbounded();
 
@@ -404,22 +389,32 @@ fn main() {
         receivers.push(t);
     }
 
-    for (_, mut cmd) in map_cmds.drain() {
-        cmd.opt
-            .sys_paths
-            .extend_from_slice(&defaults::get_sys_paths());
-        let mut def = defaults::get_defined();
-        def.extend_from_slice(&cmd.opt.def);
-        cmd.opt.def = def;
+    let mut sent: HashSet<PathBuf> = HashSet::default();
+    let sys_paths = defaults::get_sys_paths();
+    for mut cmd in CompilationDB::from_json(&database) {
+        let file = if cmd.opt.file.is_absolute() {
+            cmd.opt.file.clone()
+        } else {
+            cmd.opt.current_dir.join(&cmd.opt.file)
+        };
+        if file.exists() && !sent.contains(&file) {
+            cmd.file = file.clone();
+            sent.insert(file.clone());
 
-        sender
-            .send(Some(JobItem {
-                cmd,
-                if_cache: Arc::clone(&if_cache),
-                source: Arc::clone(&source),
-                stats: Arc::clone(&all_stats),
-            }))
-            .unwrap();
+            cmd.opt.sys_paths.extend_from_slice(&sys_paths);
+            let mut def = defaults::get_defined();
+            def.extend_from_slice(&cmd.opt.def);
+            cmd.opt.def = def;
+
+            sender
+                .send(Some(JobItem {
+                    cmd,
+                    if_cache: Arc::clone(&if_cache),
+                    source: Arc::clone(&source),
+                    stats: Arc::clone(&all_stats),
+                }))
+                .unwrap();
+        }
     }
 
     // Poison the receiver, now that the producer is finished.
