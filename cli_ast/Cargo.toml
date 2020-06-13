@@ -1,0 +1,9 @@
+[package]
+name = "ast"
+version = "0.0.1"
+authors = ["calixteman <calixte.denizet@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33"
+cpp-parser = { path = ".." }

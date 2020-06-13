@@ -1862,6 +1862,87 @@ mod tests {
     }
 
     #[test]
+    fn test_array_no_size() {
+        let mut l = Lexer::<DefaultContext>::new(b"unsigned short foo[]");
+        let p = TypeDeclaratorParser::new(&mut l);
+        let mut context = Context::default();
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Array(Box::new(Array {
+                        base: Some(Type {
+                            base: BaseType::Primitive(Primitive::UnsignedShort),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        dimensions: vec![Dimension {
+                            size: None,
+                            attributes: None,
+                        }],
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::empty(),
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
+                init: None,
+                bitfield_size: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_array_no_size_init() {
+        let mut l = Lexer::<DefaultContext>::new(b"static unsigned short foo[] = { 1, 2 }");
+        let p = TypeDeclaratorParser::new(&mut l);
+        let mut context = Context::default();
+        let (_, decl) = p.parse(None, None, true, &mut context).unwrap();
+        let decl = decl.unwrap();
+
+        assert_eq!(
+            decl,
+            Rc::new(TypeDeclarator {
+                typ: Type {
+                    base: BaseType::Array(Box::new(Array {
+                        base: Some(Type {
+                            base: BaseType::Primitive(Primitive::UnsignedShort),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        }),
+                        dimensions: vec![Dimension {
+                            size: None,
+                            attributes: None,
+                        }],
+                    })),
+                    cv: CVQualifier::empty(),
+                    pointers: None,
+                },
+                specifier: Specifier::STATIC,
+                identifier: Identifier {
+                    identifier: Some(mk_id!("foo")),
+                    attributes: None
+                },
+                init: Some(Initializer::Equal(ExprNode::ListInit(Box::new(vec![
+                    ExprNode::Integer(Box::new(literals::Integer {
+                        value: IntLiteral::Int(1)
+                    })),
+                    ExprNode::Integer(Box::new(literals::Integer {
+                        value: IntLiteral::Int(2)
+                    })),
+                ])))),
+                bitfield_size: None,
+            })
+        );
+    }
+
+    #[test]
     fn test_enum() {
         let mut l = Lexer::<DefaultContext>::new(b"typedef enum A { a } B");
         let p = TypeDeclaratorParser::new(&mut l);

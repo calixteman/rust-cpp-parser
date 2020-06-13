@@ -168,10 +168,6 @@ impl PreprocContext for StatsContext {
             stats: HashMap::default(),
         }
     }
-
-    fn toto(&self) -> Vec<IfState> {
-        self.default.toto()
-    }
 }
 
 impl IncludeLocator for StatsContext {

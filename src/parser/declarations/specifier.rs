@@ -93,7 +93,7 @@ impl Specifier {
                 *self |= Specifier::TYPEDEF;
                 true
             }
-            Token::Inline => {
+            Token::Inline | Token::UInline | Token::UInlineU => {
                 *self |= Specifier::INLINE;
                 true
             }
@@ -173,6 +173,8 @@ impl Specifier {
         match tok {
             Token::Typedef
             | Token::Inline
+            | Token::UInline
+            | Token::UInlineU
             | Token::Virtual
             | Token::Explicit
             | Token::Friend

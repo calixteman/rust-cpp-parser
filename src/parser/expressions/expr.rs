@@ -106,7 +106,6 @@ pub enum ExprNode {
     Nullptr(Box<Nullptr>),
     This(Box<This>),
     Type(Box<Type>),
-    None,
 }
 
 impl Dump for ExprNode {
@@ -123,6 +122,8 @@ impl Dump for ExprNode {
             Self::Conditional(x) => dump!(x),
             Self::CallExpr(x) => dump!(x),
             Self::Variable(x) => dump!(x),
+            Self::ListInit(x) => dump!(x),
+            Self::InitExpr(x) => dump!(x),
             Self::Integer(x) => dump!(x),
             Self::Float(x) => dump!(x),
             Self::Char(x) => dump!(x),
@@ -131,7 +132,6 @@ impl Dump for ExprNode {
             Self::Nullptr(x) => dump!(x),
             Self::This(x) => dump!(x),
             Self::Type(x) => dump!(x),
-            _ => {}
         }
     }
 }
@@ -152,6 +152,12 @@ impl Dump for CallExpr {
 pub struct InitExpr {
     pub base: ExprNode,
     pub list: ListInitialization,
+}
+
+impl Dump for InitExpr {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "init", prefix, last, stdout, base, list);
+    }
 }
 
 #[derive(PartialEq)]
@@ -483,23 +489,27 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         self.flush_with_op(Operator::Subscript);
                         let mut ep = ExpressionParser::new(self.lexer, Token::RightBrack);
                         let (tk, expr) = ep.parse(None, context)?;
-                        if tk.as_ref().map_or(true, |t| *t == Token::RightBrack) {
+                        if let Some(tk) = tk {
                             let array = self.operands.pop().unwrap();
                             self.operands.push(ExprNode::BinaryOp(Box::new(BinaryOp {
                                 op: Operator::Subscript,
                                 arg1: array,
                                 arg2: expr.unwrap(),
                             })));
-                        } else {
-                            return Err(ParserError::InvalidTokenInArraySize {
-                                sp: self.lexer.span(),
-                                tok: tk.unwrap(),
-                            });
+                            if tk == Token::DoubleRightBrack {
+                                tok = Token::RightBrack;
+                                continue;
+                            }
                         }
                     } else {
                         // TODO: lambda: https://en.cppreference.com/w/cpp/language/lambda
                     }
                     self.last = LastKind::Operand;
+                }
+                Token::DoubleRightBrack => {
+                    if self.is_terminal(Token::RightBrack) {
+                        return Ok((Some(tok), self.get_node()));
+                    }
                 }
                 Token::LeftShift => {
                     self.push_operator(Operator::LShift);
@@ -1127,6 +1137,78 @@ mod tests {
             op: Operator::Subscript,
             arg1: ExprNode::Variable(Box::new(mk_var!("abc"))),
             arg2: ExprNode::Variable(Box::new(mk_var!("x"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_array1() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a[b[x]]");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Subscript,
+            arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+            arg2: node!(BinaryOp {
+                op: Operator::Subscript,
+                arg1: ExprNode::Variable(Box::new(mk_var!("b"))),
+                arg2: ExprNode::Variable(Box::new(mk_var!("x"))),
+            }),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_array2() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a[b[c[x]]]");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Subscript,
+            arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+            arg2: node!(BinaryOp {
+                op: Operator::Subscript,
+                arg1: ExprNode::Variable(Box::new(mk_var!("b"))),
+                arg2: node!(BinaryOp {
+                    op: Operator::Subscript,
+                    arg1: ExprNode::Variable(Box::new(mk_var!("c"))),
+                    arg2: ExprNode::Variable(Box::new(mk_var!("x"))),
+                }),
+            }),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_array3() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"a[b[c[d[x]]]]");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Subscript,
+            arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+            arg2: node!(BinaryOp {
+                op: Operator::Subscript,
+                arg1: ExprNode::Variable(Box::new(mk_var!("b"))),
+                arg2: node!(BinaryOp {
+                    op: Operator::Subscript,
+                    arg1: ExprNode::Variable(Box::new(mk_var!("c"))),
+                    arg2: node!(BinaryOp {
+                        op: Operator::Subscript,
+                        arg1: ExprNode::Variable(Box::new(mk_var!("d"))),
+                        arg2: ExprNode::Variable(Box::new(mk_var!("x"))),
+                    }),
+                }),
+            }),
         });
 
         assert_eq!(node, expected);

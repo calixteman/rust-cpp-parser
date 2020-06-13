@@ -96,8 +96,7 @@ impl Dump for BaseType {
             Self::Enum(x) => dump!(x),
             Self::Class(x) => dump!(x),
             Self::Function(x) => dump!(x),
-            //Self::Array(x) => dump!(x),
-            _ => {}
+            Self::Array(x) => dump!(x),
         }
     }
 }

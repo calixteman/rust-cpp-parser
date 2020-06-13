@@ -386,7 +386,6 @@ mod tests {
 
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
-    use crate::mk_var;
     use crate::parser::declarations::{self, *};
     use crate::parser::expressions::{self, *};
     use crate::parser::initializer::Initializer;

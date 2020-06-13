@@ -3,8 +3,11 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
+use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
 use crate::parser::types::Type;
@@ -16,12 +19,30 @@ pub struct Dimension {
     pub attributes: Option<Attributes>,
 }
 
+impl Dump for Dimension {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "", prefix, last, stdout, size, attributes);
+    }
+}
+
 pub type Dimensions = Vec<Dimension>;
+
+impl Dump for Dimensions {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_vec!(name, self, "dim", prefix, last, stdout);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Array {
     pub base: Option<Type>,
     pub dimensions: Dimensions,
+}
+
+impl Dump for Array {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "array", prefix, last, stdout, base, dimensions);
+    }
 }
 
 pub struct ArrayParser<'a, L: TLexer> {

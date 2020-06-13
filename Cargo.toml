@@ -24,7 +24,7 @@ name = "cpp_parser"
 path = "src/lib.rs"
 
 [workspace]
-members = ["cli_macro_stats"]
+members = ["cli_macro_stats", "cli_ast"]
 
 [profile.release]
 lto = true

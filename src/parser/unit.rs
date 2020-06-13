@@ -3,10 +3,13 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use termcolor::StandardStreamLock;
+
 use super::context::Context;
 use super::declarations::{DeclarationListParser, Declarations};
 use crate::lexer::preprocessor::context::PreprocContext;
 use crate::lexer::{Lexer, TLexer, Token};
+use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -14,16 +17,20 @@ pub struct Unit {
     decls: Declarations,
 }
 
+impl Dump for Unit {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "unit", prefix, last, stdout, decls);
+    }
+}
+
 pub struct UnitParser<'a, PC: PreprocContext> {
-    buf: &'a [u8],
-    lexer: Lexer<'a, PC>,
-    context: Context,
+    pub lexer: Lexer<'a, PC>,
+    pub context: Context,
 }
 
 impl<'a, PC: PreprocContext> UnitParser<'a, PC> {
     pub fn new(buf: &'a [u8]) -> Self {
         Self {
-            buf,
             lexer: Lexer::new(buf),
             context: Context::default(),
         }

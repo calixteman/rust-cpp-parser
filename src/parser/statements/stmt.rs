@@ -43,6 +43,17 @@ impl Dump for Continue {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct Label {
+    pub(crate) name: String,
+}
+
+impl Dump for Label {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        dump_obj!(self, name, "label", prefix, last, stdout, name);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Statement {
     Compound(Box<Compound>),
     Return(Box<Return>),
@@ -55,6 +66,7 @@ pub enum Statement {
     Continue(Box<Continue>),
     Break(Box<Break>),
     Goto(Box<Goto>),
+    Label(Box<Label>),
     Try(Box<Try>),
     For(Box<For>),
     ForRange(Box<ForRange>),
@@ -83,6 +95,7 @@ impl Dump for Statement {
             Self::Continue(x) => dump!(x),
             Self::Break(x) => dump!(x),
             Self::Goto(x) => dump!(x),
+            Self::Label(x) => dump!(x),
             Self::Try(x) => dump!(x),
             Self::For(x) => dump!(x),
             Self::ForRange(x) => dump!(x),
@@ -223,9 +236,14 @@ impl<'a, L: TLexer> StatementParser<'a, L> {
             Token::SemiColon => Ok((None, Some(Statement::Empty))),
             Token::Identifier(id) => {
                 let qp = QualifiedParser::new(self.lexer);
-                let (tok, name) = qp.parse(None, Some(id), context)?;
+                let (tok, mut name) = qp.parse(None, Some(id), context)?;
 
                 let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                if tok == Token::Colon {
+                    // we've a label
+                    let name = name.unwrap().get_first_name();
+                    return Ok((None, Some(Statement::Label(Box::new(Label { name })))));
+                }
                 let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
                     let dp = DeclarationParser::new(self.lexer);
                     let hint = DeclHint::Name(name);

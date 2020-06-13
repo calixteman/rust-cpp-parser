@@ -69,10 +69,6 @@ pub trait PreprocContext: Default + IncludeLocator {
     fn save_switch(&self, file: FileId, pos: usize, next: Position);
 
     fn new_with_if_cache(if_cache: Arc<IfCache>) -> Self;
-
-    fn toto(&self) -> Vec<IfState> {
-        Vec::new()
-    }
 }
 
 #[derive(Default)]
@@ -280,10 +276,6 @@ impl<IL: IncludeLocator> PreprocContext for Context<IL> {
             include: IL::default(),
             buffer: None,
         }
-    }
-
-    fn toto(&self) -> Vec<IfState> {
-        self.if_stack.clone()
     }
 }
 
