@@ -81,7 +81,7 @@ pub(super) const CHARS: [Kind; 256] = [
 ];
 
 macro_rules! mk_maps {
-    ( $name: ident, $conv_name: ident, $( $tok_val: expr, $tok_name: path ), *) => {
+    ( $name: ident, $conv_name: ident, $test_name: ident, $( $tok_val: expr, $tok_name: path ), *) => {
         lazy_static! {
             static ref $name: HashMap<&'static str, Token> = {
                 use Token::*;
@@ -91,6 +91,7 @@ macro_rules! mk_maps {
             };
         }
 
+        #[allow(dead_code)]
         pub fn $conv_name(tok: Token) -> &'static str {
             use Token::*;
             match tok {
@@ -98,11 +99,20 @@ macro_rules! mk_maps {
                     _ => unreachable!(),
             }
         }
+
+        #[allow(dead_code)]
+        pub fn $test_name() -> Vec<(&'static str, Token)> {
+            use Token::*;
+
+            vec![
+                $(($tok_val, $tok_name),)*
+            ]
+        }
     }
 }
 
 mk_maps! {
-    PREPROC_KEYWORDS, preproc_kw_to_str,
+    PREPROC_KEYWORDS, preproc_kw_to_str, test_preproc_kw,
     "define", PreprocDefine,
     "elif", PreprocElif,
     "else", PreprocElse,
@@ -118,8 +128,13 @@ mk_maps! {
     "undef", PreprocUndef
 }
 
+// No keywords start with an uppercase letter
+// If it happens then need to fix next_token
+// first letters are:
+// a, b, c, d, e, f, g, i, l, m, n, o, p, r, s, t, u, v, w, x and _
+// So if there is some change then need to fix next_token too
 mk_maps! {
-    CPP_KEYWORDS, cpp_kw_to_str,
+    CPP_KEYWORDS, cpp_kw_to_str, test_cpp_kw,
     "alignas", Alignas,
     "alignof", Alignof,
     "and", AndKw,
@@ -1209,8 +1224,13 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                     b'^' => {
                         return get_basic_operator!(self, b'^', Xor, XorEqual);
                     }
-                    b'_' | b'a'..=b't' | b'v'..=b'z' => {
+                    b'_' | b'a'..=b'g' | b'i' | b'l'..=b'p' | b'r'..=b't' | b'v'..=b'x' => {
                         if let Some(tok) = self.get_identifier_or_keyword() {
+                            return tok;
+                        }
+                    }
+                    b'h' | b'j' | b'k' | b'q' | b'y' | b'z' => {
+                        if let Some(tok) = self.get_identifier() {
                             return tok;
                         }
                     }
@@ -1346,5 +1366,13 @@ mod tests {
         assert_eq!(p.next_token(), Token::DotStar);
         assert_eq!(p.next_token(), Token::Ellipsis);
         assert_eq!(p.next_token(), Token::LowerEqualGreater);
+    }
+
+    #[test]
+    fn test_for_cpp_kw() {
+        for (s, tok) in test_cpp_kw().drain(..) {
+            let mut p = Lexer::<DefaultContext>::new(s.as_bytes());
+            assert_eq!(p.next_token(), tok);
+        }
     }
 }

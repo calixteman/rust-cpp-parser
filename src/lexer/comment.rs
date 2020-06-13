@@ -22,13 +22,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         self.comment = Some(comment);
                         return Token::Comment;
                     }
-                    self.buf.inc();
                 } else if c == b'\n' {
                     self.buf.add_new_line();
-                    self.buf.inc();
-                } else {
-                    self.buf.inc();
                 }
+                self.buf.inc();
             } else {
                 break;
             }
@@ -48,6 +45,12 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 self.buf.inc();
                 if c == b'\\' {
                     self.buf.inc();
+                    if self.buf.has_char() {
+                        let c = self.buf.next_char();
+                        if c == b'\n' {
+                            self.buf.add_new_line();
+                        }
+                    }
                 } else if c == b'\n' {
                     //self.buf.add_new_line();
                     let comment = self.buf.slice_m_n(spos, 1);
@@ -77,13 +80,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                         self.buf.inc();
                         break;
                     }
-                    self.buf.inc();
                 } else if c == b'\n' {
-                    self.buf.inc();
                     self.buf.add_new_line();
-                } else {
-                    self.buf.inc();
                 }
+                self.buf.inc();
             } else {
                 break;
             }
@@ -106,10 +106,8 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                             self.buf.add_new_line();
                         }
                     }
-                    self.buf.inc();
-                } else {
-                    self.buf.inc();
                 }
+                self.buf.inc();
             } else {
                 break;
             }
