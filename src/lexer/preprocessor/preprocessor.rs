@@ -105,68 +105,57 @@ pub enum MacroToken<'a> {
 
 impl<'a, PC: PreprocContext> Lexer<'a, PC> {
     #[inline(always)]
-    pub fn preproc_parse(&mut self, instr: Token, pos: Position) -> Result<Token, LexerError> {
+    pub fn preproc_parse(&mut self, instr: Token, pos: Position) -> Result<(), LexerError> {
         // https://docs.freebsd.org/info/cpp/cpp.pdf
         skip_whites!(self);
-        Ok(match instr {
+        match instr {
             Token::PreprocInclude => {
                 self.get_include(false)?;
-                Token::PreprocInclude
             }
             Token::PreprocIncludeNext => {
                 self.get_include(true)?;
-                Token::PreprocIncludeNext
             }
             Token::PreprocUndef => {
                 self.get_undef();
-                Token::PreprocUndef
             }
             Token::PreprocIf => {
                 if !self.get_if(IfKind::If, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocIf
             }
             Token::PreprocIfdef => {
                 if !self.get_if(IfKind::Ifdef, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocIfdef
             }
             Token::PreprocIfndef => {
                 if !self.get_if(IfKind::Ifndef, pos.pos) {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocIfndef
             }
             Token::PreprocElif => {
                 if !self.get_elif(pos) {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocElif
             }
             Token::PreprocElse => {
                 if !self.get_else(pos) {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocElse
             }
             Token::PreprocEndif => {
                 if !self.get_endif(pos)? {
                     self.skip_until_else_endif()?;
                 }
-                Token::PreprocEndif
             }
             Token::PreprocDefine => {
                 self.get_define();
-                Token::PreprocDefine
             }
             Token::PreprocPragma => {
                 skip_until!(self, b'\n');
                 // we're on the \n so consume it
                 self.buf.inc();
                 self.buf.add_new_line();
-                Token::PreprocPragma
             }
             Token::PreprocError => {
                 let spos = self.buf.pos();
@@ -178,8 +167,10 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
                 let msg = String::from_utf8_lossy(&sl).to_string();
                 return Err(LexerError::ErrorDirective { sp: span, msg });
             }
-            _ => instr,
-        })
+            _ => {}
+        };
+
+        Ok(())
     }
 
     #[inline(always)]

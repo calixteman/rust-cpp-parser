@@ -824,12 +824,17 @@ impl<'a, PC: PreprocContext> Lexer<'a, PC> {
 
         let id = unsafe { std::str::from_utf8_unchecked(&self.buf.slice(spos)) };
         if let Some(keyword) = PREPROC_KEYWORDS.get(id) {
-            self.preproc_parse(keyword.clone(), pos)
-                .unwrap_or_else(|error| {
-                    self.errors.push(error.clone());
-                    eprintln!("ERRRRRRRRRRor {:?}", error);
-                    Token::Eof
-                })
+            if let Err(e) = self.preproc_parse(keyword.clone(), pos) {
+                self.errors.push(e.clone());
+                eprintln!("ERRRRRRRRRRor {:?}", e);
+                Token::Eof
+            } else {
+                if cfg!(test) {
+                    keyword.clone()
+                } else {
+                    Token::Eol
+                }
+            }
         } else {
             Token::Identifier(id.to_string())
         }

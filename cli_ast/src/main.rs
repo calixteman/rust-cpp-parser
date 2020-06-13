@@ -11,11 +11,11 @@ use cpp_parser::args::{Language, PreprocOptions};
 use cpp_parser::defaults;
 use cpp_parser::lexer::preprocessor::cache::IfCache;
 use cpp_parser::lexer::preprocessor::context::{DefaultContext, PreprocContext};
-use cpp_parser::lexer::source::{self, FileId, SourceMutex};
-use cpp_parser::lexer::{Lexer, TLexer};
-use cpp_parser::parser::{Context, Dump, Unit, UnitParser};
+use cpp_parser::lexer::source;
+use cpp_parser::lexer::Lexer;
+use cpp_parser::parser::{Context, Dump, UnitParser};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 fn main() {
     let matches = App::new("AST dump")
