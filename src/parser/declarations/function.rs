@@ -4,12 +4,14 @@
 // copied, modified, or distributed except according to those terms.
 
 use bitflags::bitflags;
+use std::cell::RefCell;
 use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::super::types::{BaseType, CVQualifier, Type};
 use super::specifier::Specifier;
 use super::types::{Identifier, TypeDeclarator, TypeDeclaratorParser};
+use crate::lexer::extra::SavedLexer;
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::dump::Dump;
@@ -231,7 +233,7 @@ pub struct Function {
     pub status: FunStatus,
     pub requires: Option<ExprNode>,
     pub ctor_init: Option<CtorInitializers>,
-    pub body: Option<Compound>,
+    pub body: RefCell<Option<Compound>>,
 }
 
 impl Dump for Function {
@@ -333,13 +335,21 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
         skip_lparen: bool,
         name: Option<&Qualified>,
         context: &mut Context,
-    ) -> Result<(Option<Token>, Option<Function>, Option<TypeToFix>), ParserError> {
+    ) -> Result<
+        (
+            Option<Token>,
+            Option<Function>,
+            Option<TypeToFix>,
+            Option<SavedLexer>,
+        ),
+        ParserError,
+    > {
         let plp = ParameterListParser::new(self.lexer);
         let (tok, params) = plp.parse(tok, skip_lparen, context)?;
         let params = if let Some(params) = params {
             params
         } else {
-            return Ok((tok, None, None));
+            return Ok((tok, None, None, None));
         };
 
         let mut tok = tok.unwrap_or_else(|| self.lexer.next_useful());
@@ -411,17 +421,24 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
 
         let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
 
-        let (tok, body, to_fix) = if tok == Token::LeftBrace {
-            context.set_current(name, ScopeKind::Function);
-            for param in params.iter() {
-                context.add_type_decl(Rc::clone(&param.decl));
+        let (tok, body, to_fix, saved) = if tok == Token::LeftBrace {
+            if context.in_class() {
+                // we're in a class/struct so we must postpone the body parsing
+                // to avoid to have issues due to the use of unknown members.
+                let (tok, saved) = self.lexer.save_until(Token::RightBrace, 1);
+                (None, Some(Compound::default()), None, Some(saved))
+            } else {
+                context.set_current(name, ScopeKind::Function);
+                for param in params.iter() {
+                    context.add_type_decl(Rc::clone(&param.decl));
+                }
+                let cp = CompoundStmtParser::new(self.lexer);
+                let (tok, body) = cp.parse(None, context)?;
+                let to_fix = context.pop_n(name.map_or(1, |n| n.len()));
+                (tok, body, to_fix, None)
             }
-            let cp = CompoundStmtParser::new(self.lexer);
-            let (tok, body) = cp.parse(None, context)?;
-            let to_fix = context.pop_n(name.map_or(1, |n| n.len()));
-            (tok, body, to_fix)
         } else {
-            (Some(tok), None, None)
+            (Some(tok), None, None, None)
         };
 
         let fun = Function {
@@ -436,10 +453,10 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
             status,
             requires,
             ctor_init,
-            body,
+            body: RefCell::new(body),
         };
 
-        Ok((tok, Some(fun), to_fix))
+        Ok((tok, Some(fun), to_fix, saved))
     }
 }
 
@@ -507,7 +524,15 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
         name: Option<Qualified>,
         tok: Option<Token>,
         context: &mut Context,
-    ) -> Result<(Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>), ParserError> {
+    ) -> Result<
+        (
+            Option<Token>,
+            Option<TypeDeclarator>,
+            Option<TypeToFix>,
+            Option<SavedLexer>,
+        ),
+        ParserError,
+    > {
         let (tok, name) = if name.is_none() {
             let op = OperatorParser::new(self.lexer);
             let (tok, op) = op.parse(tok, context)?;
@@ -520,7 +545,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     }),
                 )
             } else {
-                return Ok((tok, None, None));
+                return Ok((tok, None, None, None));
             }
         } else {
             (tok, name)
@@ -531,7 +556,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
         let (tok, attributes) = ap.parse(tok, context)?;
 
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function, to_fix) = fp.parse(tok, false, name.as_ref(), context)?;
+        let (tok, function, to_fix, saved) = fp.parse(tok, false, name.as_ref(), context)?;
 
         if let Some(function) = function {
             let typ = Type {
@@ -552,6 +577,7 @@ impl<'a, L: TLexer> ConvOperatorDeclaratorParser<'a, L> {
                     bitfield_size: None,
                 }),
                 to_fix,
+                saved,
             ))
         } else {
             Err(ParserError::InvalidTokenInOp {

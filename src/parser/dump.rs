@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use termcolor::{ColorChoice, StandardStream, StandardStreamLock};
 
@@ -52,6 +53,12 @@ impl<T: Dump> Dump for Option<T> {
 impl<T: Dump> Dump for Rc<T> {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
         self.as_ref().dump(name, prefix, last, stdout);
+    }
+}
+
+impl<T: Dump> Dump for RefCell<T> {
+    fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        self.borrow().dump(name, prefix, last, stdout);
     }
 }
 

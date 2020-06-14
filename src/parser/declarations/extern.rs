@@ -97,6 +97,7 @@ impl<'a, L: TLexer> ExternParser<'a, L> {
 #[cfg(test)]
 mod tests {
 
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use super::*;
@@ -159,7 +160,7 @@ extern "C" {
                             status: FunStatus::None,
                             requires: None,
                             ctor_init: None,
-                            body: None
+                            body: RefCell::new(None)
                         })),
                         cv: CVQualifier::empty(),
                         pointers: None,
@@ -226,7 +227,7 @@ extern double sqrt(double);
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,

@@ -239,7 +239,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
         }
     }
 
-    pub(super) fn push_operator(&mut self, op: Operator) {
+    pub(crate) fn push_operator(&mut self, op: Operator) {
         self.flush_with_op(op);
         self.operators.push(op);
         self.last = LastKind::Operator;

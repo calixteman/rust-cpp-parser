@@ -12,7 +12,7 @@ use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::{Context, ScopeKind};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Compound {
     pub(crate) attributes: Option<Attributes>,
     pub(crate) stmts: Vec<Statement>,

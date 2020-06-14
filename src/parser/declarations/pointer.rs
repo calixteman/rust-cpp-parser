@@ -227,7 +227,8 @@ impl<'a, L: TLexer> ParenPointerDeclaratorParser<'a, L> {
                 cv: CVQualifier::empty(),
                 pointers,
             };
-            let (tok, decl, _) = npdp.parse(tok, typ, Specifier::empty(), false, false, context)?;
+            let (tok, decl, _, _) =
+                npdp.parse(tok, typ, Specifier::empty(), false, false, context)?;
 
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok != Token::RightParen {

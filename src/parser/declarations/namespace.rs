@@ -206,6 +206,8 @@ impl<'a, L: TLexer> NamespaceParser<'a, L> {
 #[cfg(test)]
 mod tests {
 
+    use std::cell::RefCell;
+
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::declarations::{types, *};
@@ -311,7 +313,7 @@ namespace A {
                                     status: FunStatus::None,
                                     requires: None,
                                     ctor_init: None,
-                                    body: None
+                                    body: RefCell::new(None)
                                 })),
                                 cv: CVQualifier::empty(),
                                 pointers: None,
@@ -343,7 +345,7 @@ namespace A {
                                 status: FunStatus::None,
                                 requires: None,
                                 ctor_init: None,
-                                body: None
+                                body: RefCell::new(None)
                             })),
                             cv: CVQualifier::empty(),
                             pointers: None,

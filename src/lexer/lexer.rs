@@ -529,18 +529,13 @@ impl Token {
 pub trait TLexer {
     fn next_useful(&mut self) -> Token;
 
-    fn save_until(&mut self, term: Token) -> (Token, SavedLexer) {
-        let mut level = 0;
+    fn save_until(&mut self, term: Token, level: usize) -> (Token, SavedLexer) {
+        let mut level = level;
 
         // TODO: tune the capacity
         let mut stole = Vec::with_capacity(64);
         loop {
             let tok = self.next_useful();
-            if (tok == term && level == 0) || tok == Token::Eof {
-                stole.push(tok.clone());
-                return (tok, SavedLexer::new(stole));
-            }
-
             match tok {
                 Token::LeftParen | Token::LeftBrack | Token::LeftBrace | Token::DoubleLeftBrack => {
                     level += 1;
@@ -554,7 +549,11 @@ pub trait TLexer {
                 _ => {}
             }
 
-            stole.push(tok);
+            stole.push(tok.clone());
+
+            if (tok == term && level == 0) || tok == Token::Eof {
+                return (tok, SavedLexer::new(stole));
+            }
         }
     }
 

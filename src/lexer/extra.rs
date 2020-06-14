@@ -35,6 +35,14 @@ impl SavedLexer {
     pub fn push(&mut self, tok: Token) {
         self.toks.push(tok);
     }
+
+    pub fn is_consumed(&self) -> bool {
+        self.pos >= self.toks.len()
+    }
+
+    pub fn reset(&mut self) {
+        self.pos = 0;
+    }
 }
 
 pub struct CombinedLexers<'l1, 'l2> {
@@ -88,7 +96,7 @@ mod tests {
     #[test]
     fn test_saved_lexer() {
         let mut l = Lexer::<DefaultContext>::new(b"(1 + 2 * 3) + (4 - 5))");
-        let (_, saved) = l.save_until(Token::RightParen);
+        let (_, saved) = l.save_until(Token::RightParen, 1);
 
         assert_eq!(
             saved.toks,

@@ -9,6 +9,7 @@ use hashbrown::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::lexer::extra::SavedLexer;
 use crate::parser::declarations::namespace::NsNames;
 use crate::parser::declarations::TypeDeclarator;
 use crate::parser::dump::Dump;
@@ -92,6 +93,7 @@ pub struct Scope {
     scopes: HashMap<String, Rc<RefCell<Scope>>>,
     using: Vec<Rc<RefCell<Scope>>>,
     incomplete: Option<TypeToFix>,
+    methods: Vec<(Rc<TypeDeclarator>, SavedLexer)>,
 }
 
 impl Scope {
@@ -102,6 +104,7 @@ impl Scope {
             scopes: HashMap::default(),
             using: Vec::default(),
             incomplete: None,
+            methods: Vec::new(),
         }
     }
 }
@@ -299,6 +302,14 @@ impl Context {
         }
     }
 
+    pub fn get_current_kind(&self) -> ScopeKind {
+        self.stack.last().unwrap().borrow().kind.clone()
+    }
+
+    pub fn in_class(&self) -> bool {
+        self.stack.last().unwrap().borrow().kind == ScopeKind::Class
+    }
+
     pub fn pop(&mut self) -> Option<TypeToFix> {
         self.pop_n(1)
     }
@@ -343,11 +354,23 @@ impl Context {
     }
 
     pub fn add_alias(&mut self, name: &str, typ: Rc<TypeDeclarator>) {
-        let scope = Rc::clone(self.stack.last().unwrap());
+        let scope = self.stack.last().unwrap();
         let name = Name::Identifier(Identifier {
             val: name.to_string(),
         });
         scope.borrow_mut().decls.insert(name, Kind::Type(typ));
+    }
+
+    pub fn add_method(&self, typ: Rc<TypeDeclarator>, saved: SavedLexer) {
+        let scope = self.stack.last().unwrap();
+        scope.borrow_mut().methods.push((typ, saved));
+    }
+
+    pub fn get_methods(&self) -> Vec<(Rc<TypeDeclarator>, SavedLexer)> {
+        let scope = self.stack.last().unwrap();
+        let mut methods = Vec::new();
+        std::mem::swap(&mut methods, &mut scope.borrow_mut().methods);
+        methods
     }
 }
 

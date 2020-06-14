@@ -46,6 +46,7 @@ pub enum ParserError {
     InvalidBitfieldSize { sp: Span },
     InvalidCtorInit { sp: Span },
     InvalidCast { sp: Span },
+    InvalidDeclOrExpr { sp: Span },
 }
 
 impl ParserError {
@@ -151,6 +152,7 @@ impl ParserError {
             InvalidCtorInit { sp } => (*sp, format!("Invalid ctor initializer")),
             InvalidArgInStaticAssert { sp } => (*sp, format!("Invalid argument in static_assert")),
             InvalidCast { sp } => (*sp, format!("Invalid cast")),
+            InvalidDeclOrExpr { sp } => (*sp, format!("Invalid declaration or expression")),
         };
         StringlyError { message, sp }
     }

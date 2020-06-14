@@ -12,10 +12,8 @@ use super::function::{ConvOperatorDeclaratorParser, FunctionParser};
 use super::pointer::{ParenPointerDeclaratorParser, PointerDeclaratorParser};
 use super::r#enum::EnumParser;
 use super::specifier::Specifier;
-use crate::lexer::{
-    extra::{CombinedLexers, SavedLexer},
-    TLexer, Token,
-};
+use crate::lexer::extra::SavedLexer;
+use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::dump::Dump;
@@ -83,7 +81,7 @@ impl TypeDeclarator {
 
     pub(crate) fn has_semicolon(&self) -> bool {
         if let BaseType::Function(fun) = &self.typ.base {
-            fun.body.is_none()
+            fun.body.borrow().is_none()
         } else {
             true
         }
@@ -321,7 +319,15 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
         is_fun_arg: bool,
         init: bool,
         context: &mut Context,
-    ) -> Result<(Option<Token>, Option<TypeDeclarator>, Option<TypeToFix>), ParserError> {
+    ) -> Result<
+        (
+            Option<Token>,
+            Option<TypeDeclarator>,
+            Option<TypeToFix>,
+            Option<SavedLexer>,
+        ),
+        ParserError,
+    > {
         let (tok, identifier) = if !is_fun_arg {
             // declarator-id
             let qp = QualifiedParser::new(self.lexer);
@@ -350,7 +356,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
 
         // function
         let fp = FunctionParser::new(self.lexer);
-        let (tok, function, to_fix) =
+        let (tok, function, to_fix, saved) =
             fp.parse(tok, is_fun_arg, identifier.identifier.as_ref(), context)?;
 
         if let Some(mut function) = function {
@@ -370,6 +376,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                     bitfield_size: None,
                 }),
                 to_fix,
+                saved,
             ));
         }
 
@@ -406,6 +413,7 @@ impl<'a, L: TLexer> NoPtrDeclaratorParser<'a, L> {
                 bitfield_size: None,
             }),
             None,
+            None,
         ))
     }
 }
@@ -434,11 +442,14 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         } else {
             // conversion operator
             let codp = ConvOperatorDeclaratorParser::new(self.lexer);
-            let (tok, conv, to_fix) = codp.parse(spec, op, tok, context)?;
+            let (tok, conv, to_fix, saved) = codp.parse(spec, op, tok, context)?;
             let conv = if let Some(conv) = conv {
                 let conv = Rc::new(conv);
                 if let Some(to_fix) = to_fix {
                     to_fix.fix(Rc::clone(&conv));
+                }
+                if let Some(saved) = saved {
+                    context.add_method(Rc::clone(&conv), saved);
                 }
                 Some(conv)
             } else {
@@ -469,7 +480,7 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         // int (*f) (int) == A * f avec A = int () (int)
 
         let npdp = NoPtrDeclaratorParser::new(self.lexer);
-        let (tok, decl, tf) = npdp.parse(tok, typ, spec, is_func_param, init, context)?;
+        let (tok, decl, tf, saved) = npdp.parse(tok, typ, spec, is_func_param, init, context)?;
         let mut decl = decl.unwrap();
         let to_fix = if to_fix.is_none() { tf } else { to_fix };
 
@@ -511,6 +522,10 @@ impl<'a, L: TLexer> TypeDeclaratorParser<'a, L> {
         let decl = Rc::new(decl);
         if let Some(to_fix) = to_fix {
             to_fix.fix(Rc::clone(&decl));
+        }
+
+        if let Some(saved) = saved {
+            context.add_method(Rc::clone(&decl), saved);
         }
 
         Ok((tok, Some(decl)))
@@ -635,41 +650,42 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
         if let Some(typ) = typ {
             let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
             if tok == Token::LeftParen {
-                // We can't know what we have here until we know the token just after
-                // the closing parenthesis, so perform a lookahead.
-                let (tok, mut saved) = self.lexer.save_until(Token::RightParen);
-                let tok = self.lexer.next_useful();
-                saved.push(tok.clone());
+                // We can have a declaration or an expression.
+                // The only way to disambiguate is to try to parse it as a declaration
+                // if it's ok then it's a declaration else it's an expression.
+                let (tok, mut saved) = self.lexer.save_until(Token::SemiColon, 1);
 
-                let mut combined = CombinedLexers::new(&mut saved, self.lexer);
+                let tdp = TypeDeclaratorParser::new(&mut saved);
+                let res = tdp.parse(
+                    Some(Token::LeftParen),
+                    Some(DeclHint::Type(typ.clone())),
+                    true,
+                    context,
+                );
 
-                // If we've a declaration then the next token...
-                if tok == Token::SemiColon
-                    || tok == Token::Equal
-                    || tok == Token::LeftBrack
-                    || tok == Token::LeftParen
-                {
-                    let tdp = TypeDeclaratorParser::new(&mut combined);
-                    let (tok, typ) = tdp.parse(
-                        Some(Token::LeftParen),
-                        Some(DeclHint::Type(typ)),
-                        true,
-                        context,
-                    )?;
-
-                    Ok((tok, Some(DeclOrExpr::Decl(typ.unwrap()))))
-                } else {
-                    // finally we've an explicit type conversion
-                    let mut ep = ExpressionParser::new(&mut combined, Token::Eof);
-                    ep.push_operand(ExprNode::Type(Box::new(Type {
+                if !saved.is_consumed() || res.is_err() {
+                    saved.reset();
+                    let typ = Type {
                         base: typ,
                         cv: CVQualifier::empty(),
                         pointers: None,
-                    })));
+                    };
+                    let mut ep = ExpressionParser::new(&mut saved, Token::Eof);
+                    ep.push_operand(ExprNode::Type(Box::new(typ)));
 
                     let (tok, expr) = ep.parse(Some(Token::LeftParen), context)?;
-                    Ok((tok, Some(DeclOrExpr::Expr(expr.unwrap()))))
+
+                    if let Some(expr) = expr {
+                        return Ok((tok, Some(DeclOrExpr::Expr(expr))));
+                    } else {
+                        return Err(ParserError::InvalidDeclOrExpr {
+                            sp: self.lexer.span(),
+                        });
+                    }
                 }
+
+                let (_, typ) = res.unwrap();
+                return Ok((None, Some(DeclOrExpr::Decl(typ.unwrap()))));
             } else {
                 let tdp = TypeDeclaratorParser::new(self.lexer);
                 let (tok, typ) = tdp.parse(Some(tok), Some(DeclHint::Type(typ)), true, context)?;
@@ -705,6 +721,7 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
 #[cfg(test)]
 mod tests {
 
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use super::super::function::*;
@@ -1366,7 +1383,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -1426,7 +1443,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -1486,7 +1503,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: Some(vec![
@@ -1572,7 +1589,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -1656,7 +1673,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -1720,7 +1737,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -1806,7 +1823,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -2061,7 +2078,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -2110,7 +2127,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -2161,7 +2178,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: None,
@@ -2267,7 +2284,7 @@ mod tests {
 
     #[test]
     fn test_ambiguity_3() {
-        let mut l = Lexer::<DefaultContext>::new(b"T(*d)(int)");
+        let mut l = Lexer::<DefaultContext>::new(b"T(*d)(int);");
         let p = DeclOrExprParser::new(&mut l);
         let mut context = Context::default();
         let t = add_t_type(&mut context);
@@ -2314,7 +2331,7 @@ mod tests {
                         status: FunStatus::None,
                         requires: None,
                         ctor_init: None,
-                        body: None
+                        body: RefCell::new(None)
                     })),
                     cv: CVQualifier::empty(),
                     pointers: Some(vec![Pointer {

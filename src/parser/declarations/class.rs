@@ -4,6 +4,7 @@
 // copied, modified, or distributed except according to those terms.
 
 use bitflags::bitflags;
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::member::{MemberParser, MemberRes, Members, Visibility};
@@ -14,6 +15,8 @@ use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::names::{Qualified, QualifiedParser};
+use crate::parser::statements::{Compound, CompoundStmtParser};
+use crate::parser::types::BaseType;
 
 bitflags! {
     pub struct ClassSpecifier: u8 {
@@ -287,6 +290,31 @@ impl<'a, L: TLexer> ClassParser<'a, L> {
             context.set_current(name.as_ref(), ScopeKind::Class);
             let cbp = ClassBodyParser::new(self.lexer);
             let (tok, body) = cbp.parse(kind.clone(), context)?;
+
+            // methods haven't been parsed (due to possible use of unparsed members)
+            // so need to do it.
+            let mut methods = context.get_methods();
+            for (typ, mut saved) in methods.drain(..) {
+                let name = typ.identifier.identifier.as_ref();
+                context.set_current(name, ScopeKind::Function);
+                let fun = match &typ.typ.base {
+                    BaseType::Function(fun) => fun,
+                    _ => unreachable!("Very bad error... impossible"),
+                };
+
+                for param in fun.params.iter() {
+                    context.add_type_decl(Rc::clone(&param.decl));
+                }
+                let cp = CompoundStmtParser::new(&mut saved);
+                let (_, body) = cp.parse(None, context)?;
+                let to_fix = context.pop_n(name.map_or(1, |n| n.len()));
+                if let Some(to_fix) = to_fix {
+                    to_fix.fix(Rc::clone(&typ));
+                }
+
+                *fun.body.borrow_mut() = body;
+            }
+
             let to_fix = context.pop_n(name.as_ref().map_or(1, |n| n.len()));
             (tok, Some(body), to_fix)
         } else {
@@ -382,6 +410,7 @@ impl<'a, L: TLexer> ClassBodyParser<'a, L> {
 #[cfg(test)]
 mod tests {
 
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use super::*;
@@ -489,7 +518,7 @@ public:
                                 status: FunStatus::None,
                                 requires: None,
                                 ctor_init: None,
-                                body: Some(Compound {
+                                body: RefCell::new(Some(Compound {
                                     attributes: None,
                                     stmts: vec![Statement::Return(Box::new(Return {
                                         attributes: None,
@@ -502,7 +531,7 @@ public:
                                             }))
                                         })),
                                     }))],
-                                }),
+                                })),
                             })),
                             cv: CVQualifier::empty(),
                             pointers: None,
@@ -555,7 +584,7 @@ public:
                                 status: FunStatus::None,
                                 requires: None,
                                 ctor_init: None,
-                                body: None,
+                                body: RefCell::new(None),
                             })),
                             cv: CVQualifier::empty(),
                             pointers: None,
@@ -569,6 +598,110 @@ public:
                         bitfield_size: None,
                     })),
                 ],
+            }),
+        };
+
+        assert_eq!(c, expected);
+    }
+
+    #[test]
+    fn test_member_at_the_end() {
+        let mut l = Lexer::<DefaultContext>::new(
+            br#"
+struct A {
+    int f() {
+        return x;
+    }
+
+    int x;
+}
+"#,
+        );
+        let p = ClassParser::new(&mut l);
+        let mut context = Context::default();
+        let (_, c, _) = p.parse(None, &mut context).unwrap();
+        let c = c.unwrap();
+
+        let x = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: declarations::Identifier {
+                identifier: Some(mk_id!("x")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+
+        let expected = Class {
+            kind: super::Kind::Struct,
+            attributes: None,
+            name: Some(mk_id!("A")),
+            r#final: false,
+            bases: None,
+            body: Some(ClassBody {
+                public: vec![
+                    Member::Type(Rc::new(TypeDeclarator {
+                        typ: Type {
+                            base: BaseType::Function(Box::new(Function {
+                                return_type: Some(Type {
+                                    base: BaseType::Primitive(Primitive::Int),
+                                    cv: CVQualifier::empty(),
+                                    pointers: None,
+                                }),
+                                params: vec![],
+                                cv: CVQualifier::empty(),
+                                refq: RefQualifier::None,
+                                except: None,
+                                attributes: None,
+                                trailing: None,
+                                virt_specifier: VirtSpecifier::empty(),
+                                status: FunStatus::None,
+                                requires: None,
+                                ctor_init: None,
+                                body: RefCell::new(Some(Compound {
+                                    attributes: None,
+                                    stmts: vec![Statement::Return(Box::new(Return {
+                                        attributes: None,
+                                        val: Some(ExprNode::Variable(Box::new(Variable {
+                                            name: mk_id!("x"),
+                                            decl: VarDecl::Direct(Rc::clone(&x)),
+                                        }))),
+                                    }))],
+                                })),
+                            })),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        },
+                        specifier: Specifier::empty(),
+                        identifier: declarations::Identifier {
+                            identifier: Some(mk_id!("f")),
+                            attributes: None,
+                        },
+                        init: None,
+                        bitfield_size: None,
+                    })),
+                    Member::Type(Rc::new(TypeDeclarator {
+                        typ: Type {
+                            base: BaseType::Primitive(Primitive::Int),
+                            cv: CVQualifier::empty(),
+                            pointers: None,
+                        },
+                        specifier: Specifier::empty(),
+                        identifier: declarations::Identifier {
+                            identifier: Some(mk_id!("x")),
+                            attributes: None,
+                        },
+                        init: None,
+                        bitfield_size: None,
+                    })),
+                ],
+                protected: vec![],
+                private: vec![],
             }),
         };
 

@@ -114,7 +114,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
             cv: CVQualifier::empty(),
             pointers: None,
         };
-        let (tok, decl, _) = npdp.parse(None, typ, Specifier::empty(), false, false, context)?;
+        let (tok, decl, _, _) = npdp.parse(None, typ, Specifier::empty(), false, false, context)?;
         let mut typ = decl.unwrap().typ;
         typ.pointers = Some(pointers);
 
@@ -273,6 +273,7 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
 #[cfg(test)]
 mod tests {
 
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     use super::*;
@@ -435,7 +436,7 @@ mod tests {
                     status: FunStatus::None,
                     requires: None,
                     ctor_init: None,
-                    body: None
+                    body: RefCell::new(None)
                 })),
                 cv: CVQualifier::empty(),
                 pointers: Some(vec![Pointer {
@@ -512,7 +513,7 @@ mod tests {
                     status: FunStatus::None,
                     requires: None,
                     ctor_init: None,
-                    body: None
+                    body: RefCell::new(None)
                 })),
                 cv: CVQualifier::empty(),
                 pointers: Some(vec![Pointer {

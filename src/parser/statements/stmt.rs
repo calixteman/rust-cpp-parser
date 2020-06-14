@@ -3,6 +3,7 @@
 // http://opensource.org/licenses/MIT>, at your option. This file may not be
 // copied, modified, or distributed except according to those terms.
 
+use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
 use super::{
@@ -14,7 +15,9 @@ use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::Context;
 use crate::parser::declarations::decl::{Declaration, DeclarationParser};
-use crate::parser::declarations::types::{DeclHint, TypeDeclaratorParser};
+use crate::parser::declarations::types::{
+    DeclHint, DeclOrExpr, DeclOrExprParser, TypeDeclarator, TypeDeclaratorParser,
+};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
@@ -70,7 +73,7 @@ pub enum Statement {
     Try(Box<Try>),
     For(Box<For>),
     ForRange(Box<ForRange>),
-    Declaration(Box<Declaration>),
+    Type(Rc<TypeDeclarator>),
     Expression(Box<ExprNode>),
     Empty,
 }
@@ -99,7 +102,7 @@ impl Dump for Statement {
             Self::Try(x) => dump!(x),
             Self::For(x) => dump!(x),
             Self::ForRange(x) => dump!(x),
-            Self::Declaration(x) => dump!(x),
+            Self::Type(x) => dump!(x),
             Self::Expression(x) => dump!(x),
             Self::Empty => dump_str!(name, "empty", Cyan, prefix, last, stdout),
         }
@@ -234,50 +237,69 @@ impl<'a, L: TLexer> StatementParser<'a, L> {
                 Ok((tok, Some(Statement::Default(Box::new(default.unwrap())))))
             }
             Token::SemiColon => Ok((None, Some(Statement::Empty))),
-            Token::Identifier(id) => {
-                let qp = QualifiedParser::new(self.lexer);
-                let (tok, mut name) = qp.parse(None, Some(id), context)?;
-
-                let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                if tok == Token::Colon {
-                    // we've a label
-                    let name = name.unwrap().get_first_name();
-                    return Ok((None, Some(Statement::Label(Box::new(Label { name })))));
-                }
-                let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
-                    let dp = DeclarationParser::new(self.lexer);
-                    let hint = DeclHint::Name(name);
-                    let (tok, decl) = dp.parse(Some(tok), Some(hint), context)?;
-
-                    (tok, Some(Statement::Declaration(Box::new(decl.unwrap()))))
-                } else {
-                    let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                    let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context)?;
-
-                    (tok, Some(Statement::Expression(Box::new(expr.unwrap()))))
-                };
-                check_semicolon!(self, tok);
-                Ok((None, stmt))
-            }
             _ => {
-                let dp = DeclarationParser::new(self.lexer);
-                let (tok, decl) = dp.parse(Some(tok), None, context)?;
-                let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
+                let doep = DeclOrExprParser::new(self.lexer);
+                let (_, doe) = doep.parse(Some(tok.clone()), context)?;
 
-                if decl.is_some() {
-                    return Ok((tok, decl));
+                if let Some(doe) = doe {
+                    return Ok(match doe {
+                        DeclOrExpr::Decl(d) => {
+                            context.add_type_decl(Rc::clone(&d));
+                            (None, Some(Statement::Type(d)))
+                        }
+                        DeclOrExpr::Expr(e) => (None, Some(Statement::Expression(Box::new(e)))),
+                    });
                 }
 
                 let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                let (tok, expr) = ep.parse(tok, context)?;
+                let (tok, expr) = ep.parse(Some(tok), context)?;
 
-                if let Some(expr) = expr {
-                    check_semicolon!(self, tok);
-                    return Ok((None, Some(Statement::Expression(Box::new(expr)))));
-                }
+                check_semicolon!(self, tok);
+                Ok((None, Some(Statement::Expression(Box::new(expr.unwrap())))))
+            } /*Token::Identifier(id) => {
+                  let qp = QualifiedParser::new(self.lexer);
+                  let (tok, mut name) = qp.parse(None, Some(id), context)?;
 
-                Ok((tok, None))
-            }
+                  let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
+                  if tok == Token::Colon {
+                      // we've a label
+                      let name = name.unwrap().get_first_name();
+                      return Ok((None, Some(Statement::Label(Box::new(Label { name })))));
+                  }
+                  let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
+                      let dp = DeclarationParser::new(self.lexer);
+                      let hint = DeclHint::Name(name);
+                      let (tok, decl) = dp.parse(Some(tok), Some(hint), context)?;
+
+                      (tok, Some(Statement::Declaration(Box::new(decl.unwrap()))))
+                  } else {
+                      let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
+                      let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context)?;
+
+                      (tok, Some(Statement::Expression(Box::new(expr.unwrap()))))
+                  };
+                  check_semicolon!(self, tok);
+                  Ok((None, stmt))
+              }
+              _ => {
+                  let dp = DeclarationParser::new(self.lexer);
+                  let (tok, decl) = dp.parse(Some(tok), None, context)?;
+                  let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
+
+                  if decl.is_some() {
+                      return Ok((tok, decl));
+                  }
+
+                  let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
+                  let (tok, expr) = ep.parse(tok, context)?;
+
+                  if let Some(expr) = expr {
+                      check_semicolon!(self, tok);
+                      return Ok((None, Some(Statement::Expression(Box::new(expr)))));
+                  }
+
+                  Ok((tok, None))
+              }*/
         }
     }
 }
@@ -331,9 +353,10 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(
             b"
              {
-                 a = 1;
-                 int a = 1;
-                 A * b = nullptr;
+                 short a = 1;
+                 a = 2;
+                 int b = 1;
+                 int * c = nullptr;
                  ;
              }
              ",
@@ -342,19 +365,42 @@ mod tests {
         let mut context = Context::default();
         let stmt = parser.parse(None, &mut context).unwrap().1.unwrap();
 
+        let a = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Short),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: types::Identifier {
+                identifier: Some(mk_id!("a")),
+                attributes: None,
+            },
+            init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
+                literals::Integer {
+                    value: IntLiteral::Int(1),
+                },
+            )))),
+            bitfield_size: None,
+        });
+
         assert_eq!(
             stmt,
             Statement::Compound(Box::new(Compound {
                 attributes: None,
                 stmts: vec![
+                    Statement::Type(Rc::clone(&a)),
                     Statement::Expression(Box::new(node!(BinaryOp {
                         op: Operator::Assign,
-                        arg1: ExprNode::Variable(Box::new(mk_var!("a"))),
+                        arg1: ExprNode::Variable(Box::new(Variable {
+                            name: mk_id!("a"),
+                            decl: VarDecl::Direct(Rc::clone(&a)),
+                        })),
                         arg2: ExprNode::Integer(Box::new(literals::Integer {
-                            value: IntLiteral::Int(1)
+                            value: IntLiteral::Int(2)
                         })),
                     }))),
-                    Statement::Declaration(Box::new(Declaration::Type(Rc::new(TypeDeclarator {
+                    Statement::Type(Rc::new(TypeDeclarator {
                         typ: Type {
                             base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
@@ -362,7 +408,7 @@ mod tests {
                         },
                         specifier: Specifier::empty(),
                         identifier: types::Identifier {
-                            identifier: Some(mk_id!("a")),
+                            identifier: Some(mk_id!("b")),
                             attributes: None,
                         },
                         init: Some(Initializer::Equal(ExprNode::Integer(Box::new(
@@ -371,13 +417,10 @@ mod tests {
                             }
                         )))),
                         bitfield_size: None,
-                    })))),
-                    Statement::Declaration(Box::new(Declaration::Type(Rc::new(TypeDeclarator {
+                    })),
+                    Statement::Type(Rc::new(TypeDeclarator {
                         typ: Type {
-                            base: BaseType::UD(Box::new(UserDefined {
-                                name: mk_id!("A"),
-                                typ: UDType::Indirect(TypeToFix::default())
-                            })),
+                            base: BaseType::Primitive(Primitive::Int),
                             cv: CVQualifier::empty(),
                             pointers: Some(vec![Pointer {
                                 kind: PtrKind::Pointer,
@@ -388,12 +431,12 @@ mod tests {
                         },
                         specifier: Specifier::empty(),
                         identifier: types::Identifier {
-                            identifier: Some(mk_id!("b")),
+                            identifier: Some(mk_id!("c")),
                             attributes: None
                         },
                         init: Some(Initializer::Equal(ExprNode::Nullptr(Box::new(Nullptr {})))),
                         bitfield_size: None,
-                    })))),
+                    })),
                     Statement::Empty,
                 ]
             }))
