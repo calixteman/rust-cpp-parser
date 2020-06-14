@@ -547,13 +547,12 @@ pub enum DeclOrExpr {
 
 impl Dump for DeclOrExpr {
     fn dump(&self, name: &str, prefix: &str, last: bool, stdout: &mut StandardStreamLock) {
+        let prefix = dump_start!(name, "decl-or-expr", prefix, last, stdout);
         match self {
             Self::Decl(x) => {
-                let prefix = dump_start!(name, "decl-or-expr", prefix, last, stdout);
                 x.dump("decl", &prefix, true, stdout);
             }
             Self::Expr(x) => {
-                let prefix = dump_start!(name, "", prefix, last, stdout);
                 x.dump("expr", &prefix, true, stdout);
             }
         }

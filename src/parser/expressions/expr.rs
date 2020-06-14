@@ -11,7 +11,7 @@ use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
-use crate::parser::declarations::{DeclSpecifierParser, TypeDeclarator};
+use crate::parser::declarations::{DeclSpecifierParser, TypeDeclarator, DeclOrExprParser, DeclOrExpr};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::literals::{
@@ -326,11 +326,10 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
             VarDecl::Indirect(TypeToFix::default())
         };
 
-        self.operands.push(ExprNode::Variable(Box::new(Variable {
+        self.push_operand(ExprNode::Variable(Box::new(Variable {
             name: qual.unwrap(),
             decl,
         })));
-        self.last = LastKind::Operand;
 
         Ok(())
     }
@@ -426,15 +425,22 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                 Token::Sizeof => {
                     let tk = self.lexer.next_useful();
                     if tk == Token::LeftParen {
-                        let pp = ParametersParser::new(self.lexer, Token::RightParen);
-                        let (_, params) = pp.parse(None, None, context)?;
+                        let doep = DeclOrExprParser::new(self.lexer);
+                        let (_, doe) = doep.parse(None, context)?;
+                        let arg = match doe.unwrap() {
+                            DeclOrExpr::Decl(d) => ExprNode::Type(Box::new(Rc::try_unwrap(d).unwrap().typ)),
+                            DeclOrExpr::Expr(e) => e
+                        };
+
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
                             op: Operator::Sizeof,
-                            arg: params.unwrap().pop().unwrap(),
+                            arg,
                         })));
                         self.last = LastKind::Operand;
                     } else {
                         self.push_operator(Operator::Sizeof);
+                        tok = tk;
+                        continue;
                     }
                 }
                 Token::Arrow => {
@@ -1010,7 +1016,8 @@ mod tests {
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
     use crate::parser::names::Qualified;
-    use crate::parser::types::{BaseType, CVQualifier, Primitive, Type};
+    use crate::parser::types::{self, BaseType, CVQualifier, Primitive, Type};
+    use crate::parser::declarations::{Pointer, PtrKind, MSModifier, Specifier, types::Identifier};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1112,15 +1119,112 @@ mod tests {
     }
 
     #[test]
-    fn test_sizeof() {
-        let mut lexer = Lexer::<DefaultContext>::new(b"sizeof(A)");
+    fn test_sizeof_const_int() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"sizeof(const int)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
         let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(UnaryOp {
             op: Operator::Sizeof,
-            arg: ExprNode::Variable(Box::new(mk_var!("A"))),
+            arg: ExprNode::Type(Box::new(Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: None,
+            })),
+        });
+        
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_sizeof_const_int_ptr() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"sizeof(const int **)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(UnaryOp {
+            op: Operator::Sizeof,
+            arg: ExprNode::Type(Box::new(Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: Some(vec![
+                    Pointer {
+                        kind: PtrKind::Pointer,
+                        attributes: None,
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    },
+                    Pointer {
+                        kind: PtrKind::Pointer,
+                        attributes: None,
+                        cv: CVQualifier::empty(),
+                        ms: MSModifier::empty(),
+                    }
+                ]),
+            })),
+        });
+        
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_sizeof_expr_no_par() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"sizeof x + y");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(BinaryOp {
+            op: Operator::Add,
+            arg1: node!(UnaryOp {
+                op: Operator::Sizeof,
+                arg: ExprNode::Variable(Box::new(mk_var!("x")))
+            }),
+            arg2: ExprNode::Variable(Box::new(mk_var!("y"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_sizeof_expr_par() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"sizeof (x + x)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        
+        let x = Rc::new(TypeDeclarator {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::empty(),
+                pointers: None,
+            },
+            specifier: Specifier::empty(),
+            identifier: Identifier {
+                identifier: Some(mk_id!("x")),
+                attributes: None,
+            },
+            init: None,
+            bitfield_size: None,
+        });
+        context.add_type_decl(Rc::clone(&x));
+        
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(UnaryOp {
+            op: Operator::Sizeof,
+            arg: node!(BinaryOp {
+                op: Operator::Add,
+                arg1: ExprNode::Variable(Box::new(Variable {
+                    name: mk_id!("x"),
+                    decl: VarDecl::Direct(Rc::clone(&x)),
+                })),
+                arg2: ExprNode::Variable(Box::new(Variable {
+                    name: mk_id!("x"),
+                    decl: VarDecl::Direct(Rc::clone(&x)),
+                })),
+            })
         });
 
         assert_eq!(node, expected);
