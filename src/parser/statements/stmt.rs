@@ -256,50 +256,7 @@ impl<'a, L: TLexer> StatementParser<'a, L> {
 
                 check_semicolon!(self, tok);
                 Ok((None, Some(Statement::Expression(Box::new(expr.unwrap())))))
-            } /*Token::Identifier(id) => {
-                  let qp = QualifiedParser::new(self.lexer);
-                  let (tok, mut name) = qp.parse(None, Some(id), context)?;
-
-                  let tok = tok.unwrap_or_else(|| self.lexer.next_useful());
-                  if tok == Token::Colon {
-                      // we've a label
-                      let name = name.unwrap().get_first_name();
-                      return Ok((None, Some(Statement::Label(Box::new(Label { name })))));
-                  }
-                  let (tok, stmt) = if TypeDeclaratorParser::<L>::is_decl_part(&tok) {
-                      let dp = DeclarationParser::new(self.lexer);
-                      let hint = DeclHint::Name(name);
-                      let (tok, decl) = dp.parse(Some(tok), Some(hint), context)?;
-
-                      (tok, Some(Statement::Declaration(Box::new(decl.unwrap()))))
-                  } else {
-                      let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                      let (tok, expr) = ep.parse_with_id(Some(tok), name.unwrap(), context)?;
-
-                      (tok, Some(Statement::Expression(Box::new(expr.unwrap()))))
-                  };
-                  check_semicolon!(self, tok);
-                  Ok((None, stmt))
-              }
-              _ => {
-                  let dp = DeclarationParser::new(self.lexer);
-                  let (tok, decl) = dp.parse(Some(tok), None, context)?;
-                  let (tok, decl) = check_semicolon_or_not!(self, tok, decl);
-
-                  if decl.is_some() {
-                      return Ok((tok, decl));
-                  }
-
-                  let mut ep = ExpressionParser::new(self.lexer, Token::SemiColon);
-                  let (tok, expr) = ep.parse(tok, context)?;
-
-                  if let Some(expr) = expr {
-                      check_semicolon!(self, tok);
-                      return Ok((None, Some(Statement::Expression(Box::new(expr)))));
-                  }
-
-                  Ok((tok, None))
-              }*/
+            }
         }
     }
 }
