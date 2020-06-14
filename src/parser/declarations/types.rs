@@ -652,7 +652,7 @@ impl<'a, L: TLexer> DeclOrExprParser<'a, L> {
                 // We can have a declaration or an expression.
                 // The only way to disambiguate is to try to parse it as a declaration
                 // if it's ok then it's a declaration else it's an expression.
-                let (tok, mut saved) = self.lexer.save_until(Token::SemiColon, 1);
+                let (_, mut saved) = self.lexer.save_until(Token::SemiColon, 1);
 
                 let tdp = TypeDeclaratorParser::new(&mut saved);
                 let res = tdp.parse(

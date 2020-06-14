@@ -11,7 +11,9 @@ use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
 use crate::lexer::lexer::{TLexer, Token};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
-use crate::parser::declarations::{DeclSpecifierParser, TypeDeclarator, DeclOrExprParser, DeclOrExpr};
+use crate::parser::declarations::{
+    DeclOrExpr, DeclOrExprParser, DeclSpecifierParser, TypeDeclarator,
+};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::literals::{
@@ -428,8 +430,10 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         let doep = DeclOrExprParser::new(self.lexer);
                         let (_, doe) = doep.parse(None, context)?;
                         let arg = match doe.unwrap() {
-                            DeclOrExpr::Decl(d) => ExprNode::Type(Box::new(Rc::try_unwrap(d).unwrap().typ)),
-                            DeclOrExpr::Expr(e) => e
+                            DeclOrExpr::Decl(d) => {
+                                ExprNode::Type(Box::new(Rc::try_unwrap(d).unwrap().typ))
+                            }
+                            DeclOrExpr::Expr(e) => e,
                         };
 
                         self.operands.push(ExprNode::UnaryOp(Box::new(UnaryOp {
@@ -1015,9 +1019,9 @@ mod tests {
 
     use super::*;
     use crate::lexer::{preprocessor::context::DefaultContext, Lexer};
+    use crate::parser::declarations::{types::Identifier, MSModifier, Pointer, PtrKind, Specifier};
     use crate::parser::names::Qualified;
-    use crate::parser::types::{self, BaseType, CVQualifier, Primitive, Type};
-    use crate::parser::declarations::{Pointer, PtrKind, MSModifier, Specifier, types::Identifier};
+    use crate::parser::types::{BaseType, CVQualifier, Primitive, Type};
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1133,7 +1137,7 @@ mod tests {
                 pointers: None,
             })),
         });
-        
+
         assert_eq!(node, expected);
     }
 
@@ -1165,7 +1169,7 @@ mod tests {
                 ]),
             })),
         });
-        
+
         assert_eq!(node, expected);
     }
 
@@ -1193,7 +1197,7 @@ mod tests {
         let mut lexer = Lexer::<DefaultContext>::new(b"sizeof (x + x)");
         let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
         let mut context = Context::default();
-        
+
         let x = Rc::new(TypeDeclarator {
             typ: Type {
                 base: BaseType::Primitive(Primitive::Int),
@@ -1209,7 +1213,7 @@ mod tests {
             bitfield_size: None,
         });
         context.add_type_decl(Rc::clone(&x));
-        
+
         let node = parser.parse(None, &mut context).unwrap().1.unwrap();
 
         let expected = node!(UnaryOp {

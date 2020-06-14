@@ -11,11 +11,11 @@ use super::params::ParametersParser;
 use crate::lexer::{TLexer, Token};
 use crate::parser::context::{Context, SearchResult, TypeToFix};
 use crate::parser::declarations::{
-    DeclHint, MSModifier, NoPtrDeclaratorParser, Pointer, PointerDeclaratorParser, PtrKind,
-    Specifier, TypeDeclarator, TypeDeclaratorParser,
+    DeclHint, NoPtrDeclaratorParser, PointerDeclaratorParser, PtrKind, Specifier, TypeDeclarator,
+    TypeDeclaratorParser,
 };
 use crate::parser::errors::ParserError;
-use crate::parser::name::{Qualified, QualifiedParser};
+use crate::parser::name::QualifiedParser;
 use crate::parser::types::{BaseType, CVQualifier, Modifier, Primitive, Type, UDType, UserDefined};
 
 enum CastType {

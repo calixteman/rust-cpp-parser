@@ -15,7 +15,7 @@ use crate::parser::context::{Context, ScopeKind, TypeToFix};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::names::{Qualified, QualifiedParser};
-use crate::parser::statements::{Compound, CompoundStmtParser};
+use crate::parser::statements::CompoundStmtParser;
 use crate::parser::types::BaseType;
 
 bitflags! {

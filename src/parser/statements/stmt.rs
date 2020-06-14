@@ -14,14 +14,10 @@ use super::{
 use crate::lexer::{TLexer, Token};
 use crate::parser::attributes::{Attributes, AttributesParser};
 use crate::parser::context::Context;
-use crate::parser::declarations::decl::{Declaration, DeclarationParser};
-use crate::parser::declarations::types::{
-    DeclHint, DeclOrExpr, DeclOrExprParser, TypeDeclarator, TypeDeclaratorParser,
-};
+use crate::parser::declarations::types::{DeclOrExpr, DeclOrExprParser, TypeDeclarator};
 use crate::parser::dump::Dump;
 use crate::parser::errors::ParserError;
 use crate::parser::expressions::{ExprNode, ExpressionParser};
-use crate::parser::names::QualifiedParser;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Break {

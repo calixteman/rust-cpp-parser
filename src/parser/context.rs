@@ -518,7 +518,7 @@ unsigned factorial(unsigned n) {
         );
         let p = DeclarationListParser::new(&mut l);
         let mut context = Context::default();
-        let (_, d) = p.parse(None, &mut context).unwrap();
+        p.parse(None, &mut context).unwrap();
 
         assert_eq!(context.stack.len(), 1);
         assert!(context.search(Some(&mk_id!("factorial"))).is_some());

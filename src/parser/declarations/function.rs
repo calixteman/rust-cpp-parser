@@ -425,7 +425,7 @@ impl<'a, L: TLexer> FunctionParser<'a, L> {
             if context.in_class() {
                 // we're in a class/struct so we must postpone the body parsing
                 // to avoid to have issues due to the use of unknown members.
-                let (tok, saved) = self.lexer.save_until(Token::RightBrace, 1);
+                let (_, saved) = self.lexer.save_until(Token::RightBrace, 1);
                 (None, Some(Compound::default()), None, Some(saved))
             } else {
                 context.set_current(name, ScopeKind::Function);
