@@ -685,20 +685,7 @@ struct A {
                         init: None,
                         bitfield_size: None,
                     })),
-                    Member::Type(Rc::new(TypeDeclarator {
-                        typ: Type {
-                            base: BaseType::Primitive(Primitive::Int),
-                            cv: CVQualifier::empty(),
-                            pointers: None,
-                        },
-                        specifier: Specifier::empty(),
-                        identifier: declarations::Identifier {
-                            identifier: Some(mk_id!("x")),
-                            attributes: None,
-                        },
-                        init: None,
-                        bitfield_size: None,
-                    })),
+                    Member::Type(Rc::clone(&x)),
                 ],
                 protected: vec![],
                 private: vec![],
