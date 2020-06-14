@@ -6,6 +6,7 @@
 use std::rc::Rc;
 use termcolor::StandardStreamLock;
 
+use super::casts::{ConstCast, DynamicCast, FooCastParser, ReinterpretCast, StaticCast};
 use super::list::{ListInitialization, ListInitializationParser};
 use super::operator::{BinaryOp, Conditional, Operator, UnaryOp};
 use super::params::{Parameters, ParametersParser};
@@ -108,6 +109,10 @@ pub enum ExprNode {
     Nullptr(Box<Nullptr>),
     This(Box<This>),
     Type(Box<Type>),
+    StaticCast(Box<StaticCast>),
+    DynamicCast(Box<DynamicCast>),
+    ConstCast(Box<ConstCast>),
+    ReinterpretCast(Box<ReinterpretCast>),
 }
 
 impl Dump for ExprNode {
@@ -134,6 +139,10 @@ impl Dump for ExprNode {
             Self::Nullptr(x) => dump!(x),
             Self::This(x) => dump!(x),
             Self::Type(x) => dump!(x),
+            Self::StaticCast(x) => dump!(x),
+            Self::DynamicCast(x) => dump!(x),
+            Self::ConstCast(x) => dump!(x),
+            Self::ReinterpretCast(x) => dump!(x),
         }
     }
 }
@@ -995,6 +1004,15 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                         .push(ExprNode::Bool(Box::new(Bool { value: false })));
                     self.last = LastKind::Operand;
                 }
+                Token::StaticCast
+                | Token::DynamicCast
+                | Token::ConstCast
+                | Token::ReinterpretCast => {
+                    let fcp = FooCastParser::new(self.lexer);
+                    let (_, node) = fcp.parse(tok, context)?;
+
+                    self.push_operand(node.unwrap());
+                }
                 _ => {
                     let dsp = DeclSpecifierParser::new(self.lexer);
                     let (tk, (_, typ, _, _)) = dsp.parse(Some(tok), None, context)?;
@@ -1454,6 +1472,82 @@ mod tests {
                 "abcdefghijklmnopqrs".to_string(),
                 "_foo".to_string()
             ))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_static_cast() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"static_cast<const int>(x)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(StaticCast {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: None,
+            },
+            arg: ExprNode::Variable(Box::new(mk_var!("x"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_dynamic_cast() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"dynamic_cast<const int>(x)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(DynamicCast {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: None,
+            },
+            arg: ExprNode::Variable(Box::new(mk_var!("x"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_const_cast() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"const_cast<const int>(x)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(ConstCast {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: None,
+            },
+            arg: ExprNode::Variable(Box::new(mk_var!("x"))),
+        });
+
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_reinterpret_cast() {
+        let mut lexer = Lexer::<DefaultContext>::new(b"reinterpret_cast<const int>(x)");
+        let mut parser = ExpressionParser::new(&mut lexer, Token::Eof);
+        let mut context = Context::default();
+        let node = parser.parse(None, &mut context).unwrap().1.unwrap();
+
+        let expected = node!(ReinterpretCast {
+            typ: Type {
+                base: BaseType::Primitive(Primitive::Int),
+                cv: CVQualifier::CONST,
+                pointers: None,
+            },
+            arg: ExprNode::Variable(Box::new(mk_var!("x"))),
         });
 
         assert_eq!(node, expected);

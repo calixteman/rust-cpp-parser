@@ -8,6 +8,7 @@ use crate::lexer::Token;
 
 #[derive(Clone, Debug)]
 pub enum ParserError {
+    // TODO: rewrite that stuff
     InvalidVarInDecl { sp: Span, name: String },
     InvalidTokenInOp { sp: Span, tok: Token },
     InvalidTokenInDtor { sp: Span, tok: Token },
@@ -36,6 +37,7 @@ pub enum ParserError {
     InvalidTokenInFor { sp: Span, tok: Token },
     InvalidTokenInWhile { sp: Span, tok: Token },
     InvalidTokenInUnit { sp: Span, tok: Token },
+    InvalidTokenInExpr { sp: Span, tok: Token },
     InvalidExprInFor { sp: Span },
     InvalidTypeInOp { sp: Span, name: String },
     InvalidTypeInExpr { sp: Span, name: String },
@@ -140,6 +142,9 @@ impl ParserError {
                 (*sp, format!("Invalid token {:?} in while statement", tok))
             }
             InvalidTokenInUnit { sp, tok } => (*sp, format!("Invalid token {:?} in CU", tok)),
+            InvalidTokenInExpr { sp, tok } => {
+                (*sp, format!("Invalid token {:?} in expression", tok))
+            }
             InvalidExprInFor { sp } => (*sp, format!("Invalid expression in for statement")),
             InvalidTypeInOp { sp, name } => {
                 (*sp, format!("Invalid type {} in conversion operator", name))
