@@ -994,6 +994,15 @@ impl<'a, L: TLexer> ExpressionParser<'a, L> {
                     self.operands.push(ExprNode::This(Box::new(This {})));
                     self.last = LastKind::Operand;
                 }
+                Token::Throw => {
+                    self.push_operator(Operator::Throw);
+                }
+                Token::CoAwait => {
+                    self.push_operator(Operator::CoAwait);
+                }
+                Token::CoYield => {
+                    self.push_operator(Operator::CoYield);
+                }
                 Token::True => {
                     self.operands
                         .push(ExprNode::Bool(Box::new(Bool { value: true })));

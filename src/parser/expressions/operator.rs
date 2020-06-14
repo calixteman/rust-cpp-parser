@@ -77,7 +77,8 @@ impl Operator {
         use Operator::*;
 
         match self {
-            Plus | Minus | Not | BitNeg | Sizeof | PreInc | PreDec | Indirection | AddressOf => {
+            Plus | Minus | Not | BitNeg | Sizeof | PreInc | PreDec | Indirection | AddressOf
+            | Throw | CoAwait | CoYield => {
                 let arg = stack.pop().unwrap();
                 stack.push(ExprNode::UnaryOp(Box::new(UnaryOp { op: self, arg })));
             }
